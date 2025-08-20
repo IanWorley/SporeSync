@@ -1,0 +1,6 @@
+@SporeSync.API_HostAddress = http://localhost:5121
+
+GET {{SporeSync.API_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

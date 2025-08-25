@@ -18,6 +18,7 @@
   <ItemGroup>
     <ProjectReference Include="..\SporeSync.Domain\SporeSync.Domain.csproj" />
     <ProjectReference Include="..\SporeSync.Application\SporeSync.Application.csproj" />
+    <ProjectReference Include="..\SporeSync.Infrastructure\SporeSync.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>

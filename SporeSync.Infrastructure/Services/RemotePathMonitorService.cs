@@ -1,45 +1,34 @@
-using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.Threading;
-using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
-using SporeSync.Domain.Interfaces;
-using SporeSync.Domain.Models;
-using SporeSync.Infrastructure.Configuration;
 using System.IO;
 using System.Linq;
+using System.Threading;
+
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Renci.SshNet;
+using SporeSync.Domain.Interfaces;
+using SporeSync.Infrastructure.Configuration;
 
 namespace SporeSync.Infrastructure.Services;
 
-public class RemotePathMonitorService : BackgroundService
+public class RemotePathMonitorService(
+    ILogger<RemotePathMonitorService> logger,
+    IServiceProvider serviceProvider,
+    IQueueService queueService,
+    RemoteMonitorOptions options,
+    SshClientService sshClient,
+    RemotePathOptions remotePathConfig) : BackgroundService
 {
-    private readonly ILogger<RemotePathMonitorService> _logger;
-    private readonly IServiceProvider _serviceProvider;
-    private readonly IQueueService _queueService;
-    private readonly ConcurrentDictionary<string, RemotePathConfig> _monitoredPaths;
-    private readonly ConcurrentDictionary<string, Dictionary<string, DateTime>> _pathCache;
-    private readonly RemoteMonitorOptions _options;
-    private readonly SshClientService _sshClient;
-    public RemotePathMonitorService(
-        ILogger<RemotePathMonitorService> logger,
-        IServiceProvider serviceProvider,
-        IQueueService queueService,
-        RemoteMonitorOptions options,
-        SshClientService sshClient)
-    {
-        _logger = logger;
-        _serviceProvider = serviceProvider;
-        _queueService = queueService;
-        _options = options;
-        _monitoredPaths = new ConcurrentDictionary<string, RemotePathConfig>();
-        _pathCache = new ConcurrentDictionary<string, Dictionary<string, DateTime>>();
-        _sshClient = sshClient;
-    }
+    private readonly ILogger<RemotePathMonitorService> _logger = logger;
+    private readonly IServiceProvider _serviceProvider = serviceProvider;
+    private readonly IQueueService _queueService = queueService;
+    private readonly ConcurrentDictionary<string, RemotePathOptions> _monitoredPaths = new ConcurrentDictionary<string, RemotePathOptions>();
+    private readonly ConcurrentDictionary<string, Dictionary<string, DateTime>> _pathCache = new ConcurrentDictionary<string, Dictionary<string, DateTime>>();
+    private readonly RemoteMonitorOptions _options = options;
 
+    private readonly RemotePathOptions _remotePathConfig = remotePathConfig;
+
+    private readonly SshClientService _sshClient = sshClient;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -50,7 +39,22 @@ public class RemotePathMonitorService : BackgroundService
             try
             {
                 await Task.Delay(_options.CheckIntervalSeconds * 1000, stoppingToken);
-                var files = await _sshClient.ListFilesAsync(_options.RemotePath);
+                var files = await _sshClient.ListFilesAsync(_remotePathConfig.RemotePath);
+
+                foreach (var file in files)
+                {
+                    if (file.IsDirectory)
+                    {
+                        _logger.LogInformation("Found directory: {FileName} with size {FileSize} bytes, last modified {LastModified}",
+                            file.Name, file.Size, file.LastModified);
+                    }
+                    else
+                    {
+                        _logger.LogInformation("Found file: {FileName} with size {FileSize} bytes, last modified {LastModified}",
+                            file.Name, file.Size, file.LastModified);
+                    }
+                }
+
             }
             catch (OperationCanceledException)
             {

@@ -4,23 +4,23 @@ namespace SporeSync.Domain.Interfaces
 {
     public interface ISshService
     {
-        Task<bool> TestConnectionAsync(SshConfiguration config);
-        Task<bool> UploadFileAsync(SshConfiguration config, string localPath, string remotePath, 
+        Task<bool> TestConnectionAsync();
+        Task<bool> UploadFileAsync(string localPath, string remotePath,
             IProgress<UploadProgress>? progress = null, CancellationToken cancellationToken = default);
-        Task<bool> DownloadFileAsync(SshConfiguration config, string remotePath, string localPath,
+        Task<bool> DownloadFileAsync(string remotePath, string localPath,
             IProgress<UploadProgress>? progress = null, CancellationToken cancellationToken = default);
-        Task<bool> UploadDirectoryAsync(SshConfiguration config, string localPath, string remotePath,
+        Task<bool> UploadDirectoryAsync(string localPath, string remotePath,
             IProgress<UploadProgress>? progress = null, CancellationToken cancellationToken = default);
-        Task<bool> DownloadDirectoryAsync(SshConfiguration config, string remotePath, string localPath,
+        Task<bool> DownloadDirectoryAsync(string remotePath, string localPath,
             IProgress<UploadProgress>? progress = null, CancellationToken cancellationToken = default);
-        Task<bool> DeleteFileAsync(SshConfiguration config, string remotePath);
-        Task<IEnumerable<RemoteFileInfo>> ListFilesAsync(SshConfiguration config, string remotePath);
-        Task<bool> CreateDirectoryAsync(SshConfiguration config, string remotePath);
-        Task<bool> DirectoryExistsAsync(SshConfiguration config, string remotePath);
-        Task<bool> FileExistsAsync(SshConfiguration config, string remotePath);
-        Task<long> GetFileSizeAsync(SshConfiguration config, string remotePath);
+        Task<bool> DeleteFileAsync(string remotePath);
+        Task<IEnumerable<RemoteFileInfo>> ListFilesAsync(string remotePath);
+        Task<bool> CreateDirectoryAsync(string remotePath);
+        Task<bool> DirectoryExistsAsync(string remotePath);
+        Task<bool> FileExistsAsync(string remotePath);
+        Task<long> GetFileSize(string remotePath);
     }
-    
+
     public class RemoteFileInfo
     {
         public string Name { get; set; } = string.Empty;
@@ -29,7 +29,7 @@ namespace SporeSync.Domain.Interfaces
         public DateTime LastModified { get; set; }
         public bool IsDirectory { get; set; }
     }
-    
+
     public class UploadProgress
     {
         public long BytesUploaded { get; set; }

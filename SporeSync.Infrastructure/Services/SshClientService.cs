@@ -1,13 +1,8 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Threading;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Options;
 using Renci.SshNet;
-using Renci.SshNet.Sftp;
 using SporeSync.Domain.Interfaces;
 using SporeSync.Domain.Models;
+using SporeSync.Infrastructure.Configuration;
 using Directory = System.IO.Directory;
 
 namespace SporeSync.Infrastructure.Services;
@@ -16,35 +11,46 @@ public class SshClientService : ISshService, IDisposable
 {
     private readonly SshClient _sshClient;
     private readonly SftpClient _sftpClient;
-    private readonly SshConfiguration _config;
+    private readonly SettingsOptions _config;
+    private readonly SemaphoreSlim _connectionSemaphore;
+    private readonly object _lock = new object();
     private bool _disposed = false;
 
-    public SshClientService(IOptions<SshConfiguration> config)
+    public SshClientService(IOptions<SettingsOptions> config)
     {
         _config = config.Value ?? throw new ArgumentNullException(nameof(config));
+        _connectionSemaphore = new SemaphoreSlim(1, 1); // Allow only 1 concurrent operation
 
         // Create SSH client
-        _sshClient = CreateSshClient(_config);
+        _sshClient = CreateSshClient(_config.SshConfiguration);
 
         // Create SFTP client using the same connection info
         _sftpClient = new SftpClient(_sshClient.ConnectionInfo);
 
         // Connect both clients
-        _sshClient.Connect();
-        _sftpClient.Connect();
+        lock (_lock)
+        {
+            _sshClient.Connect();
+            _sftpClient.Connect();
+        }
     }
 
-    public async Task<bool> TestConnectionAsync(SshConfiguration config)
+    public async Task<bool> TestConnectionAsync()
     {
         try
         {
-            // Use the injected client, but validate config matches
-            if (!IsSameConfiguration(config))
+            await _connectionSemaphore.WaitAsync();
+            try
             {
-                throw new InvalidOperationException("Configuration does not match the injected service configuration.");
+                lock (_lock)
+                {
+                    return _sshClient.IsConnected;
+                }
             }
-
-            return _sshClient.IsConnected;
+            finally
+            {
+                _connectionSemaphore.Release();
+            }
         }
         catch (Exception)
         {
@@ -52,44 +58,53 @@ public class SshClientService : ISshService, IDisposable
         }
     }
 
-    public async Task<bool> UploadFileAsync(SshConfiguration config, string localPath, string remotePath,
+    public async Task<bool> UploadFileAsync(string localPath, string remotePath,
         IProgress<UploadProgress>? progress = null, CancellationToken cancellationToken = default)
     {
         try
         {
-            ValidateConfiguration(config);
-
-            if (!File.Exists(localPath))
-                throw new FileNotFoundException($"Local file not found: {localPath}");
-
-            var fileInfo = new FileInfo(localPath);
-            var uploadProgress = new UploadProgress
+            await _connectionSemaphore.WaitAsync(cancellationToken);
+            try
             {
-                FileName = Path.GetFileName(localPath),
-                TotalBytes = fileInfo.Length,
-                BytesUploaded = 0,
-                Timestamp = DateTime.UtcNow
-            };
+                lock (_lock)
+                {
+                    if (!File.Exists(localPath))
+                        throw new FileNotFoundException($"Local file not found: {localPath}");
 
-            using var fileStream = File.OpenRead(localPath);
-            using var remoteStream = _sftpClient.Create(remotePath);
+                    var fileInfo = new FileInfo(localPath);
+                    var uploadProgress = new UploadProgress
+                    {
+                        FileName = Path.GetFileName(localPath),
+                        TotalBytes = fileInfo.Length,
+                        BytesUploaded = 0,
+                        Timestamp = DateTime.UtcNow
+                    };
 
-            var buffer = new byte[8192];
-            long totalBytesRead = 0;
-            int bytesRead;
+                    using var fileStream = File.OpenRead(localPath);
+                    using var remoteStream = _sftpClient.Create(remotePath);
 
-            while ((bytesRead = await fileStream.ReadAsync(buffer, 0, buffer.Length, cancellationToken)) > 0)
-            {
-                await remoteStream.WriteAsync(buffer, 0, bytesRead, cancellationToken);
-                totalBytesRead += bytesRead;
+                    var buffer = new byte[8192];
+                    long totalBytesRead = 0;
+                    int bytesRead;
 
-                uploadProgress.BytesUploaded = totalBytesRead;
-                progress?.Report(uploadProgress);
+                    while ((bytesRead = fileStream.Read(buffer, 0, buffer.Length)) > 0)
+                    {
+                        remoteStream.Write(buffer, 0, bytesRead);
+                        totalBytesRead += bytesRead;
 
-                cancellationToken.ThrowIfCancellationRequested();
+                        uploadProgress.BytesUploaded = totalBytesRead;
+                        progress?.Report(uploadProgress);
+
+                        cancellationToken.ThrowIfCancellationRequested();
+                    }
+
+                    return true;
+                }
             }
-
-            return true;
+            finally
+            {
+                _connectionSemaphore.Release();
+            }
         }
         catch (Exception)
         {
@@ -97,12 +112,11 @@ public class SshClientService : ISshService, IDisposable
         }
     }
 
-    public async Task<bool> DownloadFileAsync(SshConfiguration config, string remotePath, string localPath,
+    public async Task<bool> DownloadFileAsync(string remotePath, string localPath,
         IProgress<UploadProgress>? progress = null, CancellationToken cancellationToken = default)
     {
         try
         {
-            ValidateConfiguration(config);
 
             if (!_sftpClient.Exists(remotePath))
                 throw new FileNotFoundException($"Remote file not found: {remotePath}");
@@ -142,12 +156,11 @@ public class SshClientService : ISshService, IDisposable
         }
     }
 
-    public async Task<bool> DownloadDirectoryAsync(SshConfiguration config, string remotePath, string localPath,
+    public async Task<bool> DownloadDirectoryAsync(string remotePath, string localPath,
         IProgress<UploadProgress>? progress = null, CancellationToken cancellationToken = default)
     {
         try
         {
-            ValidateConfiguration(config);
 
             if (!_sftpClient.Exists(remotePath))
                 throw new DirectoryNotFoundException($"Remote directory not found: {remotePath}");
@@ -160,7 +173,7 @@ public class SshClientService : ISshService, IDisposable
             if (!Directory.Exists(localPath))
                 Directory.CreateDirectory(localPath);
 
-            var files = await ListFilesAsync(config, remotePath);
+            var files = await ListFilesAsync(remotePath);
             var totalFiles = files.Count();
             var processedFiles = 0;
 
@@ -174,12 +187,12 @@ public class SshClientService : ISshService, IDisposable
                 if (file.IsDirectory)
                 {
                     // Recursively download subdirectory
-                    await DownloadDirectoryAsync(config, remoteFilePath, localFilePath, progress, cancellationToken);
+                    await DownloadDirectoryAsync(remoteFilePath, localFilePath, progress, cancellationToken);
                 }
                 else
                 {
                     // Download file
-                    await DownloadFileAsync(config, remoteFilePath, localFilePath, progress, cancellationToken);
+                    await DownloadFileAsync(remoteFilePath, localFilePath, progress, cancellationToken);
                 }
 
                 processedFiles++;
@@ -203,20 +216,19 @@ public class SshClientService : ISshService, IDisposable
         }
     }
 
-    public async Task<bool> UploadDirectoryAsync(SshConfiguration config, string localPath, string remotePath,
+    public async Task<bool> UploadDirectoryAsync(string localPath, string remotePath,
         IProgress<UploadProgress>? progress = null, CancellationToken cancellationToken = default)
     {
         try
         {
-            ValidateConfiguration(config);
 
             if (!Directory.Exists(localPath))
                 throw new DirectoryNotFoundException($"Local directory not found: {localPath}");
 
             // Create remote directory if it doesn't exist
-            if (!await DirectoryExistsAsync(config, remotePath))
+            if (!await DirectoryExistsAsync(remotePath))
             {
-                await CreateDirectoryAsync(config, remotePath);
+                await CreateDirectoryAsync(remotePath);
             }
 
             var files = Directory.GetFiles(localPath, "*", SearchOption.AllDirectories);
@@ -232,13 +244,13 @@ public class SshClientService : ISshService, IDisposable
 
                 // Ensure remote directory exists for this file
                 var remoteDir = Path.GetDirectoryName(remoteFilePath)?.Replace('\\', '/');
-                if (!string.IsNullOrEmpty(remoteDir) && !await DirectoryExistsAsync(config, remoteDir))
+                if (!string.IsNullOrEmpty(remoteDir) && !await DirectoryExistsAsync(remoteDir))
                 {
-                    await CreateDirectoryAsync(config, remoteDir);
+                    await CreateDirectoryAsync(remoteDir);
                 }
 
                 // Upload file
-                await UploadFileAsync(config, localFilePath, remoteFilePath, progress, cancellationToken);
+                await UploadFileAsync(localFilePath, remoteFilePath, progress, cancellationToken);
 
                 processedFiles++;
 
@@ -261,11 +273,10 @@ public class SshClientService : ISshService, IDisposable
         }
     }
 
-    public async Task<bool> DeleteFileAsync(SshConfiguration config, string remotePath)
+    public async Task<bool> DeleteFileAsync(string remotePath)
     {
         try
         {
-            ValidateConfiguration(config);
             _sftpClient.DeleteFile(remotePath);
             return true;
         }
@@ -275,29 +286,39 @@ public class SshClientService : ISshService, IDisposable
         }
     }
 
-    public async Task<IEnumerable<RemoteFileInfo>> ListFilesAsync(SshConfiguration config, string remotePath)
+    public async Task<IEnumerable<RemoteFileInfo>> ListFilesAsync(string remotePath)
     {
         try
         {
-            ValidateConfiguration(config);
-            var files = _sftpClient.ListDirectory(remotePath);
-
-            var fileInfos = new List<RemoteFileInfo>();
-            foreach (var file in files)
+            await _connectionSemaphore.WaitAsync();
+            try
             {
-                if (file.Name == "." || file.Name == "..") continue;
-
-                fileInfos.Add(new RemoteFileInfo
+                lock (_lock)
                 {
-                    Name = file.Name,
-                    Path = file.FullName,
-                    Size = file.Length,
-                    LastModified = file.LastWriteTime,
-                    IsDirectory = file.IsDirectory
-                });
-            }
+                    var files = _sftpClient.ListDirectory(remotePath);
 
-            return fileInfos;
+                    var fileInfos = new List<RemoteFileInfo>();
+                    foreach (var file in files)
+                    {
+                        if (file.Name == "." || file.Name == "..") continue;
+
+                        fileInfos.Add(new RemoteFileInfo
+                        {
+                            Name = file.Name,
+                            Path = file.FullName,
+                            Size = file.Length,
+                            LastModified = file.LastWriteTime,
+                            IsDirectory = file.IsDirectory
+                        });
+                    }
+
+                    return fileInfos;
+                }
+            }
+            finally
+            {
+                _connectionSemaphore.Release();
+            }
         }
         catch (Exception)
         {
@@ -305,11 +326,10 @@ public class SshClientService : ISshService, IDisposable
         }
     }
 
-    public async Task<bool> CreateDirectoryAsync(SshConfiguration config, string remotePath)
+    public async Task<bool> CreateDirectoryAsync(string remotePath)
     {
         try
         {
-            ValidateConfiguration(config);
             _sftpClient.CreateDirectory(remotePath);
             return true;
         }
@@ -319,11 +339,10 @@ public class SshClientService : ISshService, IDisposable
         }
     }
 
-    public async Task<bool> DirectoryExistsAsync(SshConfiguration config, string remotePath)
+    public async Task<bool> DirectoryExistsAsync(string remotePath)
     {
         try
         {
-            ValidateConfiguration(config);
             return _sftpClient.Exists(remotePath) && _sftpClient.GetAttributes(remotePath).IsDirectory;
         }
         catch (Exception)
@@ -332,11 +351,10 @@ public class SshClientService : ISshService, IDisposable
         }
     }
 
-    public async Task<bool> FileExistsAsync(SshConfiguration config, string remotePath)
+    public async Task<bool> FileExistsAsync(string remotePath)
     {
         try
         {
-            ValidateConfiguration(config);
             return _sftpClient.Exists(remotePath) && !_sftpClient.GetAttributes(remotePath).IsDirectory;
         }
         catch (Exception)
@@ -345,11 +363,10 @@ public class SshClientService : ISshService, IDisposable
         }
     }
 
-    public async Task<long> GetFileSizeAsync(SshConfiguration config, string remotePath)
+    public long GetFileSize(string remotePath)
     {
         try
         {
-            ValidateConfiguration(config);
             return _sftpClient.GetAttributes(remotePath).Size;
         }
         catch (Exception)
@@ -395,10 +412,10 @@ public class SshClientService : ISshService, IDisposable
 
     private bool IsSameConfiguration(SshConfiguration config)
     {
-        return config.Host == _config.Host &&
-               config.Port == _config.Port &&
-               config.Username == _config.Username &&
-               config.AuthType == _config.AuthType;
+        return config.Host == _config.SshConfiguration.Host &&
+               config.Port == _config.SshConfiguration.Port &&
+               config.Username == _config.SshConfiguration.Username &&
+               config.AuthType == _config.SshConfiguration.AuthType;
     }
 
     private void ValidateConfiguration(SshConfiguration config)
@@ -419,9 +436,11 @@ public class SshClientService : ISshService, IDisposable
     {
         if (!_disposed && disposing)
         {
+            _connectionSemaphore?.Dispose();
             _sftpClient?.Dispose();
             _sshClient?.Dispose();
             _disposed = true;
         }
     }
+
 }

@@ -1,0 +1,26 @@
+{
+  "Settings": {
+    "SshConfiguration": {
+      "Name": "Production Server",
+      "Host": "your-production-server.com",
+      "Port": 22,
+      "Username": "sporesync",
+      "Password": "",
+      "PrivateKeyPath": "/home/user/.ssh/id_rsa",
+      "PrivateKeyPassphrase": "",
+      "TimeoutSeconds": 30,
+      "AuthType": "PrivateKey",
+      "IsActive": true
+    },
+    "RemotePathOptions": {
+      "RemotePath": "/var/sporesync/data",
+      "LocalPath": "/home/user/SporeSync/data"
+    },
+    "RemoteMonitor": {
+      "CheckIntervalSeconds": 30,
+      "ErrorRetryDelaySeconds": 60,
+      "MaxRetryAttempts": 3,
+      "EnableLogging": true
+    }
+  }
+}

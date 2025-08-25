@@ -1,10 +1,14 @@
+using Scalar.AspNetCore;
 using SporeSync.API.Hubs;
 using SporeSync.Application.Services;
 using SporeSync.Domain.Interfaces;
 using SporeSync.Domain.Models;
-using Scalar.AspNetCore;
+using SporeSync.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Add SSH configuration from separate JSON file
+builder.Configuration.AddJsonFile("ssh-config.json", optional: false, reloadOnChange: true);
 
 // Add services to the container.
 builder.Services.AddControllers();
@@ -25,19 +29,9 @@ builder.Services.AddCors(options =>
     });
 });
 
-// Configure SSH settings
-builder.Services.Configure<SshConfiguration>(builder.Configuration.GetSection("SshConfiguration"));
 
-// Configure monitoring options
-builder.Services.Configure<RemoteMonitorOptions>(builder.Configuration.GetSection("RemoteMonitor"));
-
-// Register application services
-builder.Services.AddScoped<ISshService, SshClientService>();
-builder.Services.AddScoped<IQueueService, QueueService>();
-builder.Services.AddSingleton<RemotePathMonitorService>();
-builder.Services.AddHostedService<RemotePathMonitorService>();
-// TODO: Register concrete implementations when Infrastructure project is added
-// builder.Services.AddScoped<IFileTrackingService, FileTrackingService>();
+// Add Infrastructure services (SSH, monitoring, etc.)
+builder.Services.AddInfrastructure(builder.Configuration);
 
 var app = builder.Build();
 

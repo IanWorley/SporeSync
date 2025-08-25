@@ -30,7 +30,6 @@ public class FileSyncController : ControllerBase
             });
 
             var success = await _sshService.UploadFileAsync(
-                _config,
                 request.LocalPath,
                 request.RemotePath,
                 progress);
@@ -48,7 +47,7 @@ public class FileSyncController : ControllerBase
     {
         try
         {
-            var files = await _sshService.ListFilesAsync(_config, remotePath);
+            var files = await _sshService.ListFilesAsync(remotePath);
             return Ok(files);
         }
         catch (Exception ex)
@@ -62,7 +61,7 @@ public class FileSyncController : ControllerBase
     {
         try
         {
-            var isConnected = await _sshService.TestConnectionAsync(_config);
+            var isConnected = await _sshService.TestConnectionAsync();
             return Ok(new { IsConnected = isConnected });
         }
         catch (Exception ex)
@@ -83,7 +82,6 @@ public class FileSyncController : ControllerBase
             });
 
             var success = await _sshService.UploadDirectoryAsync(
-                _config,
                 request.LocalPath,
                 request.RemotePath,
                 progress);
@@ -108,7 +106,6 @@ public class FileSyncController : ControllerBase
             });
 
             var success = await _sshService.DownloadDirectoryAsync(
-                _config,
                 request.RemotePath,
                 request.LocalPath,
                 progress);
@@ -126,6 +123,18 @@ public class UploadFileRequest
 {
     public string LocalPath { get; set; } = string.Empty;
     public string RemotePath { get; set; } = string.Empty;
+}
+
+public class UploadDirectoryRequest
+{
+    public string LocalPath { get; set; } = string.Empty;
+    public string RemotePath { get; set; } = string.Empty;
+}
+
+public class DownloadDirectoryRequest
+{
+    public string RemotePath { get; set; } = string.Empty;
+    public string LocalPath { get; set; } = string.Empty;
 }
 
 

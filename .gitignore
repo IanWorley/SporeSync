@@ -163,6 +163,10 @@ obj/
 *.vs/
 .vs/
 
+# Configuration files with sensitive data
+ssh-config.json
+appsettings.Production.json
+
 # Python (if used for tooling)
 __pycache__/
 *.py[cod]

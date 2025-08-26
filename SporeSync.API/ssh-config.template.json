@@ -1,7 +1,6 @@
 {
   "Settings": {
     "SshConfiguration": {
-      "Name": "Development Server",
       "Host": "dev-server.example.com",
       "Port": 22,
       "Username": "developer",
@@ -9,8 +8,7 @@
       "PrivateKeyPath": "/home/user/.ssh/id_rsa",
       "PrivateKeyPassphrase": "",
       "TimeoutSeconds": 30,
-      "AuthType": "PrivateKey",
-      "IsActive": true
+      "AuthType": "PrivateKey"
     },
     "RemotePathOptions": {
       "RemotePath": "/home/developer/sporesync/data",

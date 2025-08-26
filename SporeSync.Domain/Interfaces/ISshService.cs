@@ -4,7 +4,6 @@ namespace SporeSync.Domain.Interfaces
 {
     public interface ISshService
     {
-        Task<bool> TestConnectionAsync();
         Task<bool> UploadFileAsync(string localPath, string remotePath,
             IProgress<UploadProgress>? progress = null, CancellationToken cancellationToken = default);
         Task<bool> DownloadFileAsync(string remotePath, string localPath,

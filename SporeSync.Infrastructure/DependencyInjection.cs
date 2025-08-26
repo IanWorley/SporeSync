@@ -12,15 +12,7 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
-        // Configure SSH settings
-        services.Configure<SshConfiguration>(configuration.GetSection("Settings:SshConfiguration"));
-
-        // Configure RemotePathOptions
-        services.Configure<RemotePathOptions>(configuration.GetSection("Settings:RemotePathOptions"));
-
-        // Configure RemoteMonitorOptions
-        services.Configure<RemoteMonitorOptions>(
-            configuration.GetSection("Settings:RemoteMonitor"));
+        services.Configure<SettingsOptions>(configuration.GetSection("Settings"));
 
         // Register Queue Service
         services.AddSingleton<IQueueService, QueueItemService>();

@@ -20,8 +20,6 @@ public class RemotePathMonitorService(
     RemotePathOptions remotePathConfig) : BackgroundService
 {
     private readonly ILogger<RemotePathMonitorService> _logger = logger;
-    private readonly IServiceProvider _serviceProvider = serviceProvider;
-    private readonly IQueueService _queueService = queueService;
     private readonly ConcurrentDictionary<string, RemotePathOptions> _monitoredPaths = new ConcurrentDictionary<string, RemotePathOptions>();
     private readonly ConcurrentDictionary<string, Dictionary<string, DateTime>> _pathCache = new ConcurrentDictionary<string, Dictionary<string, DateTime>>();
     private readonly RemoteMonitorOptions _options = options;

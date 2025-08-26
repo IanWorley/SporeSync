@@ -1,8 +1,7 @@
 using Scalar.AspNetCore;
 using SporeSync.API.Hubs;
-using SporeSync.Application.Services;
-using SporeSync.Domain.Interfaces;
-using SporeSync.Domain.Models;
+using SporeSync.Application;
+using SporeSync.Domain;
 using SporeSync.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -29,9 +28,15 @@ builder.Services.AddCors(options =>
     });
 });
 
+// Add Domain services (interfaces and models)
+builder.Services.AddDomain();
 
 // Add Infrastructure services (SSH, monitoring, etc.)
 builder.Services.AddInfrastructure(builder.Configuration);
+
+// Add Application services (sync logic, etc.)
+builder.Services.AddApplication();
+
 
 var app = builder.Build();
 

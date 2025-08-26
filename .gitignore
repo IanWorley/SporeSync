@@ -253,3 +253,4 @@ $RECYCLE.BIN/
 *.lnk
 
 ssh-config.json
+SporeSync.API/ssh-config.json

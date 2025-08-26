@@ -5,8 +5,8 @@ namespace SporeSync.Infrastructure.Configuration;
 
 public class SettingsOptions
 {
-    public RemotePathOptions RemotePath { get; set; } = new();
-    public RemoteMonitorOptions RemoteMonitor { get; set; } = new();
+    public PathOptions PathOptions { get; set; } = new();
+    public MonitorOptions MonitorOptions { get; set; } = new();
     public SshClientOptions SshConfiguration { get; set; } = new();
 }
 

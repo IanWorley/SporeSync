@@ -20,9 +20,8 @@ public static class DependencyInjection
         // Register SSH Service
         services.AddSingleton<ISshService, SshClientService>();
 
-        // Register Remote Path Monitor Service as hosted service
-        services.AddHostedService<RemotePathMonitorService>();
-        services.AddSingleton<RemotePathMonitorService>();
+        // Register Path Monitor Service
+        services.AddHostedService<PathMonitorService>();
 
         return services;
     }

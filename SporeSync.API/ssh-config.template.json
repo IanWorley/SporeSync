@@ -5,16 +5,16 @@
       "Port": 22,
       "Username": "developer",
       "Password": "",
-      "PrivateKeyPath": "/home/user/.ssh/id_rsa",
+      "PrivateKeyPath": "",
       "PrivateKeyPassphrase": "",
       "TimeoutSeconds": 30,
       "AuthType": "PrivateKey"
     },
-    "RemotePathOptions": {
+    "PathOptions": {
       "RemotePath": "/home/developer/sporesync/data",
       "LocalPath": "/home/user/SporeSync/data"
     },
-    "RemoteMonitor": {
+    "MonitorOptions": {
       "CheckIntervalSeconds": 30,
       "ErrorRetryDelaySeconds": 60,
       "MaxRetryAttempts": 3,

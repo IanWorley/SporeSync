@@ -7,6 +7,7 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <Authors>SporeSync</Authors>
     <Copyright>Copyright (c) 2025 SporeSync</Copyright>
+    <UserSecretsId>8d773b89-acec-4a22-9cf7-a6575c979c87</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>

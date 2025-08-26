@@ -1,32 +1,25 @@
 using System.Collections.Concurrent;
-using System.IO;
-using System.Linq;
-using System.Threading;
-
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Renci.SshNet;
+using Microsoft.Extensions.Options;
 using SporeSync.Domain.Interfaces;
 using SporeSync.Infrastructure.Configuration;
 
 namespace SporeSync.Infrastructure.Services;
 
-public class RemotePathMonitorService(
-    ILogger<RemotePathMonitorService> logger,
-    IServiceProvider serviceProvider,
-    IQueueService queueService,
-    RemoteMonitorOptions options,
-    SshClientService sshClient,
-    RemotePathOptions remotePathConfig) : BackgroundService
+public class PathMonitorService(
+    ILogger<PathMonitorService> logger,
+    ISshService sshService,
+    IOptions<SettingsOptions> config
+    ) : BackgroundService
 {
-    private readonly ILogger<RemotePathMonitorService> _logger = logger;
-    private readonly ConcurrentDictionary<string, RemotePathOptions> _monitoredPaths = new ConcurrentDictionary<string, RemotePathOptions>();
+    private readonly ILogger<PathMonitorService> _logger = logger;
+    private readonly ConcurrentDictionary<string, PathOptions> _monitoredPaths = new ConcurrentDictionary<string, PathOptions>();
     private readonly ConcurrentDictionary<string, Dictionary<string, DateTime>> _pathCache = new ConcurrentDictionary<string, Dictionary<string, DateTime>>();
-    private readonly RemoteMonitorOptions _options = options;
 
-    private readonly RemotePathOptions _remotePathConfig = remotePathConfig;
+    private readonly ISshService _sshService = sshService;
 
-    private readonly SshClientService _sshClient = sshClient;
+    private readonly SettingsOptions _config = config.Value;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -36,8 +29,8 @@ public class RemotePathMonitorService(
         {
             try
             {
-                await Task.Delay(_options.CheckIntervalSeconds * 1000, stoppingToken);
-                var files = await _sshClient.ListFilesAsync(_remotePathConfig.RemotePath);
+                await Task.Delay(_config.MonitorOptions.CheckIntervalSeconds * 1000, stoppingToken);
+                var files = await _sshService.ListFilesAsync(_config.PathOptions.RemotePath);
 
                 foreach (var file in files)
                 {
@@ -56,12 +49,13 @@ public class RemotePathMonitorService(
             }
             catch (OperationCanceledException)
             {
+                _logger.LogInformation("Operation canceled, stopping remote path monitoring loop");
                 break;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error in remote path monitoring loop");
-                await Task.Delay(_options.ErrorRetryDelaySeconds * 1000, stoppingToken);
+                await Task.Delay(_config.MonitorOptions.ErrorRetryDelaySeconds * 1000, stoppingToken);
             }
         }
 

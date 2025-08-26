@@ -1,7 +1,7 @@
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Renci.SshNet;
 using SporeSync.Domain.Interfaces;
-using SporeSync.Domain.Models;
 using SporeSync.Infrastructure.Configuration;
 using Directory = System.IO.Directory;
 
@@ -12,12 +12,16 @@ public class SshClientService : ISshService, IDisposable
     private readonly SshClient _sshClient;
     private readonly SftpClient _sftpClient;
     private readonly SettingsOptions _config;
+    private readonly ILogger<SshClientService> _logger;
     private readonly object _lock = new object();
     private bool _disposed = false;
 
-    public SshClientService(IOptions<SettingsOptions> config)
+    public SshClientService(IOptions<SettingsOptions> config, ILogger<SshClientService> logger)
     {
         _config = config.Value ?? throw new ArgumentNullException(nameof(config));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+
+        _logger.LogInformation("Initializing SSH client service for host: {Host}", _config.SshConfiguration.Host);
 
         // Create SSH client
         _sshClient = CreateSshClient(_config.SshConfiguration);
@@ -30,11 +34,14 @@ public class SshClientService : ISshService, IDisposable
         {
             try
             {
+                _logger.LogDebug("Connecting to SSH server at {Host}:{Port}", _config.SshConfiguration.Host, _config.SshConfiguration.Port);
                 _sshClient.Connect();
                 _sftpClient.Connect();
+                _logger.LogInformation("Successfully connected to SSH server at {Host}:{Port}", _config.SshConfiguration.Host, _config.SshConfiguration.Port);
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "Failed to connect to SSH server at {Host}:{Port}", _config.SshConfiguration.Host, _config.SshConfiguration.Port);
                 throw new Exception("Failed to connect to SSH server", ex);
             }
         }
@@ -50,14 +57,21 @@ public class SshClientService : ISshService, IDisposable
     public async Task<bool> UploadFileAsync(string localPath, string remotePath,
         IProgress<UploadProgress>? progress = null, CancellationToken cancellationToken = default)
     {
+        _logger.LogInformation("Starting file upload from {LocalPath} to {RemotePath}", localPath, remotePath);
+
         try
         {
             lock (_lock)
             {
                 if (!File.Exists(localPath))
+                {
+                    _logger.LogError("Local file not found: {LocalPath}", localPath);
                     throw new FileNotFoundException($"Local file not found: {localPath}");
+                }
 
                 var fileInfo = new FileInfo(localPath);
+                _logger.LogDebug("Uploading file {FileName} ({FileSize} bytes)", fileInfo.Name, fileInfo.Length);
+
                 var uploadProgress = new UploadProgress
                 {
                     FileName = Path.GetFileName(localPath),
@@ -84,11 +98,13 @@ public class SshClientService : ISshService, IDisposable
                     cancellationToken.ThrowIfCancellationRequested();
                 }
 
+                _logger.LogInformation("File upload completed successfully from {LocalPath} to {RemotePath}", localPath, remotePath);
                 return true;
             }
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            _logger.LogError(ex, "File upload failed from {LocalPath} to {RemotePath}", localPath, remotePath);
             return false;
         }
     }

@@ -54,19 +54,7 @@ public class SyncController : ControllerBase
         }
     }
 
-    [HttpGet("connection-state")]
-    public IActionResult GetConnectionState()
-    {
-        try
-        {
-            var connectionState = _syncService.GetConnectionState();
-            return Ok(connectionState);
-        }
-        catch (Exception ex)
-        {
-            return BadRequest(new { Error = ex.Message });
-        }
-    }
+
 
     [HttpPost("sync-file")]
     public async Task<IActionResult> SyncFile([FromBody] SyncFileRequest request)

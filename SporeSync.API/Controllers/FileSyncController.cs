@@ -1,7 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Logging;
 using SporeSync.Domain.Interfaces;
-using SporeSync.Domain.Models;
 
 namespace SporeSync.API.Controllers;
 
@@ -10,12 +9,12 @@ namespace SporeSync.API.Controllers;
 public class FileSyncController : ControllerBase
 {
     private readonly ISshService _sshService;
-    private readonly SshConfiguration _config;
+    private readonly ILogger<FileSyncController> _logger;
 
-    public FileSyncController(ISshService sshService, IOptions<SshConfiguration> config)
+    public FileSyncController(ISshService sshService, ILogger<FileSyncController> logger)
     {
         _sshService = sshService;
-        _config = config.Value;
+        _logger = logger;
     }
 
     [HttpPost("upload")]
@@ -56,19 +55,6 @@ public class FileSyncController : ControllerBase
         }
     }
 
-    [HttpPost("test-connection")]
-    public async Task<IActionResult> TestConnection()
-    {
-        try
-        {
-            var isConnected = await _sshService.TestConnectionAsync();
-            return Ok(new { IsConnected = isConnected });
-        }
-        catch (Exception ex)
-        {
-            return BadRequest(new { Error = ex.Message });
-        }
-    }
 
     [HttpPost("upload-directory")]
     public async Task<IActionResult> UploadDirectory([FromBody] UploadDirectoryRequest request)

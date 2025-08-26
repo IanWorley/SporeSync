@@ -1,4 +1,4 @@
-public class RemoteMonitorOptions
+public class MonitorOptions
 {
     public int CheckIntervalSeconds { get; set; } = 30;
     public int ErrorRetryDelaySeconds { get; set; } = 60;

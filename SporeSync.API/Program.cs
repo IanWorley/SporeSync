@@ -6,8 +6,10 @@ using SporeSync.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add SSH configuration from separate JSON file
-builder.Configuration.AddJsonFile("ssh-config.json", optional: false, reloadOnChange: true);
+// Add SSH configuration from separate JSON file (non-sensitive settings only)
+builder.Configuration.AddJsonFile("ssh-config.json", optional: true, reloadOnChange: true);
+
+builder.Configuration.AddUserSecrets<Program>();
 
 // Add services to the container.
 builder.Services.AddControllers();

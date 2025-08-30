@@ -12,7 +12,9 @@ namespace SporeSync.Domain.Models
         [StringLength(1000)]
         public string DestinationFilePath { get; set; } = string.Empty;
 
-        public long FileSize { get; set; }
+        public long RemoteFileSize { get; set; }
+
+        public long LocalFileSize { get; set; }
 
         [StringLength(255)]
         public string? FileExtension { get; set; }

@@ -36,13 +36,17 @@ public class PathMonitorService(
 
                 foreach (var file in files)
                 {
+                    var localFilePath = Path.GetFullPath(Path.Combine(_config.PathOptions.LocalPath, file.Name));
+                    var localFileSize = File.Exists(localFilePath) ? new FileInfo(localFilePath).Length : 0;
 
                     var item = new TrackedItem
                     {
                         FileName = file.Name,
-                        FileSize = file.Size,
+                        RemoteFileSize = file.Size,
+                        LocalFileSize = localFileSize,
                         LastModified = file.LastModified,
                         RemotePath = file.Path,
+                        DestinationFilePath = Path.GetFullPath(Path.Combine(_config.PathOptions.LocalPath, file.Name)),
                         IsDirectory = file.IsDirectory,
                         CreatedAt = DateTime.UtcNow,
                         LastSynced = null,
@@ -53,13 +57,10 @@ public class PathMonitorService(
                         item.Children = await GetRecursiveChildrenAsync(file.Path, stoppingToken);
                     }
 
-                    _logger.LogInformation("Adding item to registry: {Item}, with {Children} children", item, item.Children.Count);
+                    _logger.LogInformation("Adding item to registry: {Item}, with {Children} children {DestinationFilePath}", item, item.Children.Count, item.DestinationFilePath);
                     _itemRegistry.Add(item);
 
-
                 }
-
-
             }
             catch (OperationCanceledException)
             {
@@ -86,21 +87,24 @@ public class PathMonitorService(
 
             foreach (var file in files)
             {
+                var localFilePath = Path.GetFullPath(Path.Combine(directoryPath, file.Name));
+                var localFileSize = File.Exists(localFilePath) ? new FileInfo(localFilePath).Length : 0;
+
                 var childItem = new TrackedItem
                 {
                     FileName = file.Name,
-                    FileSize = file.Size,
+                    RemoteFileSize = file.Size,
+                    LocalFileSize = localFileSize,
                     LastModified = file.LastModified,
                     RemotePath = file.Path,
+                    DestinationFilePath = Path.GetFullPath(Path.Combine(directoryPath, file.Name)),
                     IsDirectory = file.IsDirectory,
                     CreatedAt = DateTime.UtcNow,
-                    LastSynced = null,
                 };
 
                 if (file.IsDirectory)
                 {
-                    // Recursively get children of this directory
-                    childItem.Children = await GetRecursiveChildrenAsync(file.Path, stoppingToken);
+                    childItem.Children = await GetRecursiveChildrenAsync(childItem.DestinationFilePath, stoppingToken);
                 }
 
                 children.Add(childItem);

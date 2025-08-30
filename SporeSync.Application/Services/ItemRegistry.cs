@@ -44,4 +44,10 @@ public class ItemRegistry : IEnumerable<TrackedItem>
     {
         return GetEnumerator();
     }
+
+    public List<TrackedItem> DownloadQueue()
+    {
+        return _trackedFiles.Values.Where(item => item.LocalFileSize == 0 && item.RemoteFileSize > 0 && item.LocalFileSize != item.RemoteFileSize).OrderBy(item => item.LastModified).ToList();
+    }
+
 }

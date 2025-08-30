@@ -9,6 +9,7 @@ public static class DependencyInjection
     {
         // Register Application layer services
         services.AddScoped<SyncService>();
+        services.AddSingleton<ItemRegistry>();
 
         return services;
     }

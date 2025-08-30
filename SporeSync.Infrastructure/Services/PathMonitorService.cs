@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -14,8 +13,6 @@ public class PathMonitorService(
     ) : BackgroundService
 {
     private readonly ILogger<PathMonitorService> _logger = logger;
-    private readonly ConcurrentDictionary<string, PathOptions> _monitoredPaths = new ConcurrentDictionary<string, PathOptions>();
-    private readonly ConcurrentDictionary<string, Dictionary<string, DateTime>> _pathCache = new ConcurrentDictionary<string, Dictionary<string, DateTime>>();
 
     private readonly ISshService _sshService = sshService;
 

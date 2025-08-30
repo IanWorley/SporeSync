@@ -4,15 +4,13 @@ namespace SporeSync.Domain.Models
 {
     public class TrackedItem
     {
-        public String Id { get; set; }
-
         [Required]
         [StringLength(500)]
         public string FileName { get; set; } = string.Empty;
 
         [Required]
         [StringLength(1000)]
-        public string FilePath { get; set; } = string.Empty;
+        public string DestinationFilePath { get; set; } = string.Empty;
 
         public long FileSize { get; set; }
 
@@ -28,23 +26,13 @@ namespace SporeSync.Domain.Models
 
         public DateTime? LastSynced { get; set; }
 
-        public FileStatus Status { get; set; } = FileStatus.Tracked;
-
         [StringLength(500)]
         public string? RemotePath { get; set; }
 
         public int DirectoryId { get; set; }
 
-        public virtual Directory Directory { get; set; } = null!;
-    }
+        public bool IsDirectory { get; set; } = false;
 
-    public enum FileStatus
-    {
-        Tracked,
-        Modified,
-        Deleted,
-        New,
-        Syncing,
-        SyncError
+        public List<TrackedItem> Children { get; set; } = new List<TrackedItem>();
     }
 }

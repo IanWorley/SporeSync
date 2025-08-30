@@ -29,8 +29,6 @@ namespace SporeSync.Domain.Models
         [StringLength(500)]
         public string? RemotePath { get; set; }
 
-        public int DirectoryId { get; set; }
-
         public bool IsDirectory { get; set; } = false;
 
         public List<TrackedItem> Children { get; set; } = new List<TrackedItem>();

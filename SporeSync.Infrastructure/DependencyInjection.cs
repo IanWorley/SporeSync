@@ -1,6 +1,5 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using SporeSync.Application.Services;
 using SporeSync.Domain.Interfaces;
 using SporeSync.Domain.Models;
 using SporeSync.Infrastructure.Configuration;
@@ -15,7 +14,7 @@ public static class DependencyInjection
         services.Configure<SettingsOptions>(configuration.GetSection("Settings"));
 
         // Register Queue Service
-        services.AddSingleton<IQueueService, QueueItemService>();
+        // services.AddSingleton<IQueueService, QueueItemService>();
 
         // Register SSH Service
         services.AddSingleton<ISshService, SshClientService>();

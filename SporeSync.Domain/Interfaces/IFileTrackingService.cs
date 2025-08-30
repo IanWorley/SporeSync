@@ -10,7 +10,6 @@ namespace SporeSync.Domain.Interfaces
         Task<TrackedItem?> GetFileInfoAsync(int fileId);
         Task<string> CalculateFileHashAsync(string filePath);
         Task<bool> MarkFileAsSyncedAsync(int fileId);
-        Task<IEnumerable<TrackedItem>> GetFilesByStatusAsync(FileStatus status);
         Task<bool> RemoveDeletedFilesAsync(int directoryId);
     }
 }

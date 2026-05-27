@@ -1,10 +1,10 @@
 using SftpSync.Domain.Model;
 
-namespace SftpSync.Business.Interface;
+namespace SftpSync.Domain.Interface;
 
-public interface ISftpSyncJobService
+public interface ISftpSyncJobRepository
 {
-    Task<IReadOnlyCollection<SftpSyncJob>> GetConfiguredJobsAsync(CancellationToken cancellationToken = default);
+    Task<IReadOnlyCollection<SftpSyncJob>> GetAllAsync(CancellationToken cancellationToken = default);
 
     Task<SftpSyncJob?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
 

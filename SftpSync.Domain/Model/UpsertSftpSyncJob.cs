@@ -1,8 +1,8 @@
 namespace SftpSync.Domain.Model;
 
-public sealed class SftpSyncJob
+public sealed class UpsertSftpSyncJob
 {
-    public Guid Id { get; init; }
+    public Guid? Id { get; init; }
 
     public Guid ConnectionProfileId { get; init; }
 
@@ -12,9 +12,7 @@ public sealed class SftpSyncJob
 
     public required string DestinationPath { get; init; }
 
-    public int PollingIntervalSeconds { get; init; }
+    public int PollingIntervalSeconds { get; init; } = 120;
 
-    public bool IsEnabled { get; init; }
-
-    public DateTimeOffset? LastPolledAt { get; init; }
+    public bool IsEnabled { get; init; } = true;
 }

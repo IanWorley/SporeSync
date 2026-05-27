@@ -10,6 +10,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SftpSync.Domain", "SftpSync
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SftpSync.Infrastructure", "SftpSync.Infrastructure\SftpSync.Infrastructure.csproj", "{9E50D46F-49F6-4A9F-B09E-F4300ED33E23}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SftpSync.Business.Tests", "SftpSync.Business.Tests\SftpSync.Business.Tests.csproj", "{38E1F764-285B-42BD-852E-8DD85411A123}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -32,6 +34,10 @@ Global
 		{9E50D46F-49F6-4A9F-B09E-F4300ED33E23}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{9E50D46F-49F6-4A9F-B09E-F4300ED33E23}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{9E50D46F-49F6-4A9F-B09E-F4300ED33E23}.Release|Any CPU.Build.0 = Release|Any CPU
+		{38E1F764-285B-42BD-852E-8DD85411A123}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{38E1F764-285B-42BD-852E-8DD85411A123}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{38E1F764-285B-42BD-852E-8DD85411A123}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{38E1F764-285B-42BD-852E-8DD85411A123}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

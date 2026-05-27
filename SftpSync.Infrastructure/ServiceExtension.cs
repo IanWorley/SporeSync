@@ -3,7 +3,6 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using SftpSync.Domain.Interface;
-using SftpSync.Infrastructure.Interface;
 using SftpSync.Infrastructure.Repository;
 
 namespace SftpSync.Infrastructure;
@@ -18,6 +17,7 @@ public static class ServiceExtension
             ?? throw new InvalidOperationException("Connection string 'DefaultConnection' is not configured.");
 
         services.AddScoped(_ => new NpgsqlDataSourceBuilder(connectionString).Build());
+        services.AddScoped<ISftpConnectionProfileRepository, SftpConnectionProfileRepository>();
         services.AddScoped<ISftpSyncJobRepository, SftpSyncJobRepository>();
         services.AddScoped<ISystemPropertyRepository, SystemPropertyRepository>();
 

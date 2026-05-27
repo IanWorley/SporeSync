@@ -1,22 +1,33 @@
 using SftpSync.Business.Interface;
+using SftpSync.Domain.Interface;
 using SftpSync.Domain.Model;
 
 namespace SftpSync.Business.Service;
 
 public sealed class SftpSyncJobService : ISftpSyncJobService
 {
-    public IReadOnlyCollection<SftpSyncJob> GetConfiguredJobs()
+    private readonly ISftpSyncJobRepository _sftpSyncJobRepository;
+
+    public SftpSyncJobService(ISftpSyncJobRepository sftpSyncJobRepository)
     {
-        return
-        [
-            new SftpSyncJob
-            {
-                Id = Guid.Parse("680fb417-43e4-4c0a-bd43-968b0fe97bdb"),
-                Name = "Sample SFTP Sync Job",
-                SourcePath = "/remote/source",
-                DestinationPath = "/local/destination",
-                IsEnabled = false
-            }
-        ];
+        _sftpSyncJobRepository = sftpSyncJobRepository;
+    }
+
+    public Task<IReadOnlyCollection<SftpSyncJob>> GetConfiguredJobsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        return _sftpSyncJobRepository.GetAllAsync(cancellationToken);
+    }
+
+    public Task<SftpSyncJob?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        return _sftpSyncJobRepository.GetByIdAsync(id, cancellationToken);
+    }
+
+    public Task<SftpSyncJob> UpsertAsync(
+        UpsertSftpSyncJob job,
+        CancellationToken cancellationToken = default)
+    {
+        return _sftpSyncJobRepository.UpsertAsync(job, cancellationToken);
     }
 }

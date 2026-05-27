@@ -8,6 +8,8 @@ public static class ServiceExtension
 {
     public static IServiceCollection RegisterBusinessLogic(this IServiceCollection services)
     {
+        services.AddSingleton<ISecretProtector, SecretProtector>();
+        services.AddScoped<ISftpConnectionProfileService, SftpConnectionProfileService>();
         services.AddScoped<ISftpSyncJobService, SftpSyncJobService>();
         services.AddScoped<ISystemPropertyService, SystemPropertyService>();
 

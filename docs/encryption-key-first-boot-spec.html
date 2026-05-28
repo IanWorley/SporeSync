@@ -1,0 +1,373 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SftpSync First-Boot Encryption Key Spec</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f7f8fa;
+      --fg: #1f2933;
+      --muted: #5f6b7a;
+      --panel: #ffffff;
+      --border: #d9dee7;
+      --accent: #0f6fdc;
+      --code: #eef2f7;
+      --good-bg: #dcfce7;
+      --good-fg: #166534;
+      --warn-bg: #fef3c7;
+      --warn-fg: #92400e;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #101418;
+        --fg: #e6e9ee;
+        --muted: #a8b1bd;
+        --panel: #171d24;
+        --border: #2d3743;
+        --accent: #58a6ff;
+        --code: #202833;
+        --good-bg: #14532d;
+        --good-fg: #bbf7d0;
+        --warn-bg: #451a03;
+        --warn-fg: #fde68a;
+      }
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--fg);
+      font: 16px/1.55 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    main {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 48px 24px 72px;
+    }
+
+    header {
+      margin-bottom: 32px;
+    }
+
+    h1,
+    h2,
+    h3 {
+      line-height: 1.2;
+      margin: 0;
+    }
+
+    h1 {
+      font-size: clamp(2rem, 4vw, 3rem);
+      letter-spacing: 0;
+    }
+
+    h2 {
+      margin-top: 32px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+      font-size: 1.45rem;
+    }
+
+    h3 {
+      margin-top: 24px;
+      font-size: 1.05rem;
+    }
+
+    p {
+      margin: 12px 0;
+    }
+
+    ul,
+    ol {
+      margin: 12px 0 0;
+      padding-left: 24px;
+    }
+
+    li {
+      margin: 6px 0;
+    }
+
+    code {
+      background: var(--code);
+      border-radius: 4px;
+      padding: 1px 5px;
+      font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+      font-size: 0.94em;
+    }
+
+    .summary,
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 18px 20px;
+      margin-top: 16px;
+    }
+
+    .grid {
+      display: grid;
+      gap: 16px;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      margin-top: 16px;
+    }
+
+    .note {
+      color: var(--muted);
+    }
+
+    .tag {
+      display: inline-block;
+      border-radius: 999px;
+      padding: 2px 8px;
+      margin-right: 8px;
+      background: var(--good-bg);
+      color: var(--good-fg);
+      font-size: 0.78rem;
+      font-weight: 700;
+      vertical-align: 1px;
+    }
+
+    .warn {
+      background: var(--warn-bg);
+      color: var(--warn-fg);
+    }
+
+    table {
+      width: 100%;
+      margin-top: 16px;
+      border-collapse: collapse;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    th,
+    td {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      color: var(--muted);
+      font-size: 0.82rem;
+      text-transform: uppercase;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>SftpSync First-Boot Encryption Key Spec</h1>
+      <p class="note">Implementation specification for generating, storing, validating, and hiding the key used to encrypt SFTP passwords, private keys, and private-key passphrases.</p>
+      <div class="summary">
+        <p><strong>Decision:</strong> Generate a 32-byte encryption key on first boot, store it in a local key file outside the database, cache it in memory after startup validation, and never expose it to the frontend or generic system-property API.</p>
+        <p><strong>Security boundary:</strong> SFTP secrets remain encrypted in <code>core.sftp_connection_profiles</code>. The database stores only non-secret metadata and first-run signoff state.</p>
+      </div>
+    </header>
+
+    <section>
+      <h2>Threat Model</h2>
+      <div class="grid">
+        <div class="panel">
+          <h3><span class="tag">Protects</span>Database Exposure</h3>
+          <ul>
+            <li>Direct table browsing does not reveal plaintext SFTP credentials.</li>
+            <li>Database backups do not contain the key needed to decrypt stored credentials.</li>
+            <li>Accidental API, frontend, log, or debug exposure of stored rows does not reveal plaintext secrets.</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3><span class="tag warn">Does Not Protect</span>Host Compromise</h3>
+          <ul>
+            <li>An attacker with full access to the running server can access app memory or the key file.</li>
+            <li>An attacker with both the database and key file can decrypt stored secrets.</li>
+            <li>Malicious code running inside the application process can use the loaded key.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Startup Order</h2>
+      <ol>
+        <li>Run database migrations.</li>
+        <li>Initialize or validate the encryption key file.</li>
+        <li>Cache the validated 32-byte key in a singleton key provider.</li>
+        <li>Upsert non-secret encryption metadata in <code>core.system_properties</code>.</li>
+        <li>Set <code>system.firstRunCompletedAtUtc</code> if missing.</li>
+        <li>Start the web app only after key initialization succeeds.</li>
+      </ol>
+      <p class="note">No request, background job, or SignalR workflow should be able to encrypt or decrypt SFTP secrets before this sequence completes.</p>
+    </section>
+
+    <section>
+      <h2>Key Storage</h2>
+      <ul>
+        <li>Use config key <code>Security:EncryptionKeyPath</code> for the key file path.</li>
+        <li>If no path is configured, default to <code>%LOCALAPPDATA%\SftpSync\encryption.key</code> on Windows.</li>
+        <li>On macOS/Linux, default to <code>$HOME/.sftpsync/encryption.key</code> when <code>HOME</code> exists.</li>
+        <li>Final fallback is <code>AppContext.BaseDirectory/.sftpsync/encryption.key</code>.</li>
+        <li>The key file format is base64 text containing exactly 32 random bytes. Surrounding whitespace is ignored.</li>
+        <li>Never store the key material in the database.</li>
+        <li>Never overwrite an existing key file automatically.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>First-Boot Rules</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Condition</th>
+            <th>Behavior</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Key file exists and is valid</td>
+            <td>Accept it, cache it, backfill metadata if needed, and sign off first run if missing.</td>
+          </tr>
+          <tr>
+            <td>Key file missing, first-run signoff missing, and no encrypted SFTP secrets exist</td>
+            <td>Generate a new 32-byte key, write it with exclusive create, validate the resulting file, cache it, write metadata, and sign off first run.</td>
+          </tr>
+          <tr>
+            <td>Key file missing and <code>system.firstRunCompletedAtUtc</code> exists</td>
+            <td>Fail startup. The system has already initialized and must not regenerate the key.</td>
+          </tr>
+          <tr>
+            <td>Key file missing and encrypted SFTP secrets exist</td>
+            <td>Fail startup. Existing encrypted credentials may be unrecoverable without the original key file.</td>
+          </tr>
+          <tr>
+            <td>Key file exists but is malformed or not exactly 32 decoded bytes</td>
+            <td>Fail startup. Do not overwrite or regenerate.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Failure Messages</h2>
+      <ul>
+        <li>Missing key after prior initialization: <code>Encryption key file is missing and this system has already completed first-run initialization. Restore the key file or intentionally reset the deployment.</code></li>
+        <li>Missing key with existing encrypted profiles: <code>Encryption key file is missing and encrypted SFTP profiles already exist. Restore the key file or delete/recreate the profiles.</code></li>
+        <li>Invalid key file: <code>Encryption key file is invalid. It must contain base64 text for exactly 32 bytes.</code></li>
+        <li>Initializer must never include the key contents or secret contents in exception messages.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Permissions</h2>
+      <ul>
+        <li>Create the parent directory when it does not exist.</li>
+        <li>On Unix-like systems, set the parent directory owner-only where practical.</li>
+        <li>On Unix-like systems, create the key file with mode <code>0600</code>.</li>
+        <li>On Windows, rely on default ACLs for this first implementation.</li>
+        <li>If directory or file creation fails due to permissions, fail startup with an actionable message.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Concurrency</h2>
+      <ul>
+        <li>Use exclusive file creation when generating the key file.</li>
+        <li>If another app instance creates the file first, read and validate that file instead of generating another key.</li>
+        <li>Metadata and first-run signoff writes must be idempotent.</li>
+        <li><code>system.firstRunCompletedAtUtc</code> must be set only if it is missing and must never be updated on later starts.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Database Metadata</h2>
+      <p>The database stores only non-secret metadata in <code>core.system_properties</code>.</p>
+      <ul>
+        <li><code>security.encryptionKeyInitialized</code> = <code>true</code></li>
+        <li><code>security.encryptionKeyVersion</code> = <code>v1</code></li>
+        <li><code>security.encryptionKeyCreatedAtUtc</code> = ISO-8601 UTC timestamp</li>
+        <li><code>system.firstRunCompletedAtUtc</code> = ISO-8601 UTC timestamp</li>
+      </ul>
+      <p class="note">If a valid key file already exists and metadata is missing, startup backfills metadata. For created-at, use key file creation time when available; otherwise use current UTC time.</p>
+    </section>
+
+    <section>
+      <h2>Encryption Behavior</h2>
+      <ul>
+        <li>Keep encryption and decryption in application code, not database functions.</li>
+        <li>Use AES-GCM as the current <code>SecretProtector</code> does.</li>
+        <li>Keep encrypted payload format <code>v1:nonce:tag:ciphertext</code>.</li>
+        <li>Do not implement key rotation in this change.</li>
+        <li>Remove production use of <code>SFTPSYNC_SECRET_KEY</code>. This is a breaking change.</li>
+        <li>Existing deployments must re-enter SFTP secrets or manually preserve the intended key file.</li>
+        <li>Do not decrypt every stored profile during startup. Validate only key file format and length.</li>
+        <li>If a stored secret was encrypted with a different key, fail when that secret is actually decrypted or used.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>API and Frontend</h2>
+      <ul>
+        <li>Do not expose the key file path, key material, metadata property names, or first-run timestamp in the frontend.</li>
+        <li>Update <code>/api/status</code> to expose only safe live key state from the key provider: <code>encryptionKeyInitialized</code> and <code>encryptionKeyVersion</code>.</li>
+        <li>Make overall status <code>degraded</code> if database or encryption-key health is not available.</li>
+        <li>The About/Status UI may show <code>Encryption Key: Initialized</code> and <code>Encryption Version: v1</code>.</li>
+        <li>Remove the generic System Property editor from the frontend Settings page.</li>
+        <li>Keep the System Properties controller, but enforce an empty allowlist for now.</li>
+        <li>Return <code>404 NotFound</code> for unknown, reserved, or non-editable system property names.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Services and Repositories</h2>
+      <ul>
+        <li>Add a dedicated security/bootstrap service for first-boot key initialization.</li>
+        <li>Add a singleton key provider that caches the validated 32-byte key in memory.</li>
+        <li>Update <code>SecretProtector</code> to use the key provider and throw clearly if used before initialization.</li>
+        <li>Reuse existing repository interfaces where practical.</li>
+        <li>Add <code>HasAnyEncryptedSecretsAsync()</code> to <code>ISftpConnectionProfileRepository</code> using <code>SELECT EXISTS</code>.</li>
+        <li>Add a transactional or single-method repository operation for bootstrap metadata/signoff where useful.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Logging</h2>
+      <ul>
+        <li>Log that a new encryption key file was created.</li>
+        <li>Log that an existing encryption key file is being used.</li>
+        <li>Log startup failure for missing key file after first-run signoff or existing encrypted secrets.</li>
+        <li>Log startup failure for invalid key file format.</li>
+        <li>Server logs may include the configured path if useful for operations.</li>
+        <li>Never log key contents, plaintext SFTP passwords, private keys, passphrases, or decrypted secret values.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Test Plan</h2>
+      <ul>
+        <li>Valid key file is parsed, validated, and cached.</li>
+        <li>Missing key on true first boot creates a new key file and metadata.</li>
+        <li>Missing key after <code>system.firstRunCompletedAtUtc</code> fails startup.</li>
+        <li>Missing key with existing encrypted profile secrets fails startup.</li>
+        <li>Malformed key file fails startup and is not overwritten.</li>
+        <li>Pre-provisioned valid key file is accepted and first-run signoff is created.</li>
+        <li>Concurrent startup converges on one exclusively created key file.</li>
+        <li><code>SecretProtector</code> round-trips using the initialized key provider.</li>
+        <li>Tests no longer depend on <code>SFTPSYNC_SECRET_KEY</code>.</li>
+        <li>System-property API returns <code>404</code> for security metadata and unknown names.</li>
+        <li>Status API returns encryption initialized/version fields without key path or metadata timestamps.</li>
+      </ul>
+    </section>
+  </main>
+</body>
+</html>

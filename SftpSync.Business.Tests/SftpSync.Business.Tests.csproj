@@ -10,7 +10,9 @@
   <ItemGroup>
     <PackageReference Include="coverlet.collector" Version="6.0.4" />
     <PackageReference Include="FluentMigrator.Runner.Postgres" Version="5.2.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration" Version="8.0.0" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.3" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
     <PackageReference Include="Npgsql" Version="8.0.7" />
     <PackageReference Include="Testcontainers.PostgreSql" Version="4.12.0" />
@@ -25,6 +27,7 @@
   <ItemGroup>
     <ProjectReference Include="..\SftpSync.Business\SftpSync.Business.csproj" />
     <ProjectReference Include="..\SftpSync.Infrastructure\SftpSync.Infrastructure.csproj" />
+    <ProjectReference Include="..\SftpSync.Web\SftpSync.Web.csproj" />
   </ItemGroup>
 
 </Project>

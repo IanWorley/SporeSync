@@ -221,5 +221,10 @@ public sealed class SftpConnectionProfileServiceTests
             LastCancellationToken = cancellationToken;
             return Task.FromResult(profile);
         }
+
+        public Task<bool> HasAnyEncryptedSecretsAsync(CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(false);
+        }
     }
 }

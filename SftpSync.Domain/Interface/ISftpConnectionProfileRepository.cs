@@ -11,4 +11,6 @@ public interface ISftpConnectionProfileRepository
     Task<SftpConnectionProfile> UpsertAsync(
         SftpConnectionProfile profile,
         CancellationToken cancellationToken = default);
+
+    Task<bool> HasAnyEncryptedSecretsAsync(CancellationToken cancellationToken = default);
 }

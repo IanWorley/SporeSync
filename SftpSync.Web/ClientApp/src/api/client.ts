@@ -5,7 +5,6 @@ import type {
   SftpSyncJob,
   SftpSyncRun,
   StatusResponse,
-  SystemProperty,
   UpsertSftpConnectionProfile,
   UpsertSftpSyncJob
 } from "./types";
@@ -70,12 +69,6 @@ export const api = {
     fetchJson<SftpConnectionProfile>("/api/sftp-connection-profiles", { method: "POST", body: JSON.stringify(request) }),
   updateProfile: (id: string, request: UpsertSftpConnectionProfile) =>
     fetchJson<SftpConnectionProfile>(`/api/sftp-connection-profiles/${id}`, { method: "PUT", body: JSON.stringify(request) }),
-  systemProperty: (propertyName: string) => fetchJson<SystemProperty>(`/api/system-properties/${encodeURIComponent(propertyName)}`),
-  updateSystemProperty: (propertyName: string, propertyValue: string) =>
-    fetchJson<SystemProperty>(`/api/system-properties/${encodeURIComponent(propertyName)}`, {
-      method: "PUT",
-      body: JSON.stringify({ propertyValue })
-    }),
   seedSimulation: () => fetchJson<{ runId: string }>("/api/development/simulation/seed", { method: "POST" }),
   startSimulation: () => fetchJson<{ isRunning: boolean }>("/api/development/simulation/start", { method: "POST" }),
   stopSimulation: () => fetchJson<{ isRunning: boolean }>("/api/development/simulation/stop", { method: "POST" })

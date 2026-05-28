@@ -3,7 +3,6 @@ import {
   AlertCircle,
   Check,
   CircleSlash,
-  Database,
   ExternalLink,
   KeyRound,
   Pencil,
@@ -165,37 +164,9 @@ export function ProfilesPage() {
 }
 
 export function SettingsPage() {
-  const [propertyName, setPropertyName] = useState(() => localStorage.getItem("sftpsync:last-property-name") ?? "sync.maxConcurrentDownloads");
-  const [propertyValue, setPropertyValue] = useState("");
-  const [loadedName, setLoadedName] = useState<string | undefined>();
-  const queryClient = useQueryClient();
-
-  const propertyQuery = useQuery({
-    queryKey: queryKeys.systemProperty(propertyName),
-    queryFn: () => api.systemProperty(propertyName),
-    enabled: false,
-    retry: false
-  });
-  const mutation = useMutation({
-    mutationFn: () => api.updateSystemProperty(propertyName.trim(), propertyValue),
-    onSuccess: async (property) => {
-      localStorage.setItem("sftpsync:last-property-name", property.propertyName);
-      setLoadedName(property.propertyName);
-      setPropertyValue(property.propertyValue);
-      await queryClient.invalidateQueries({ queryKey: queryKeys.systemProperty(property.propertyName) });
-    }
-  });
-
-  const loadProperty = async () => {
-    const result = await propertyQuery.refetch();
-    localStorage.setItem("sftpsync:last-property-name", propertyName.trim());
-    setLoadedName(propertyName.trim());
-    setPropertyValue(result.data?.propertyValue ?? "");
-  };
-
   return (
     <div className="space-y-4">
-      <SectionHeader title="Settings" description="Local UI preferences and backend system property editing." />
+      <SectionHeader title="Settings" description="Local UI preferences." />
       <section className="grid gap-4 lg:grid-cols-2">
         <div className="rounded-lg border border-border bg-panel p-4">
           <h3 className="flex items-center gap-2 text-sm font-semibold"><Settings2 size={16} />Local Preferences</h3>
@@ -206,34 +177,6 @@ export function SettingsPage() {
             <InfoRow label="Queue Page Size" value={localStorage.getItem("sftpsync:queue-page-size") ?? "25"} />
           </dl>
         </div>
-
-        <form
-          className="rounded-lg border border-border bg-panel p-4"
-          onSubmit={(event) => {
-            event.preventDefault();
-            mutation.mutate();
-          }}
-        >
-          <h3 className="flex items-center gap-2 text-sm font-semibold"><Database size={16} />System Property</h3>
-          <div className="mt-4 grid gap-3">
-            <Field label="Property name">
-              <input className={inputClass} value={propertyName} onChange={(event) => setPropertyName(event.target.value)} />
-            </Field>
-            <Field label="Property value">
-              <textarea className={`${inputClass} min-h-24 py-2`} value={propertyValue} onChange={(event) => setPropertyValue(event.target.value)} />
-            </Field>
-            {loadedName && <p className="text-xs text-muted-foreground">Editing `{loadedName}`.</p>}
-            {(propertyQuery.error || mutation.error) && <ErrorMessage error={propertyQuery.error ?? mutation.error} />}
-            <div className="flex flex-wrap gap-2">
-              <Button type="button" disabled={!propertyName.trim() || propertyQuery.isFetching} onClick={() => void loadProperty()}>
-                <Database size={16} />Load
-              </Button>
-              <Button type="submit" disabled={!propertyName.trim() || mutation.isPending}>
-                <Save size={16} />Save
-              </Button>
-            </div>
-          </div>
-        </form>
       </section>
     </div>
   );
@@ -266,6 +209,8 @@ export function AboutPage() {
             <InfoRow label="API Status" value={statusQuery.data?.status ?? "Loading"} />
             <InfoRow label="Environment" value={statusQuery.data?.environment ?? "Loading"} />
             <InfoRow label="Database" value={statusQuery.data?.databaseAvailable ? "Available" : "Unavailable"} />
+            <InfoRow label="Encryption Key" value={statusQuery.data?.encryptionKeyInitialized ? "Initialized" : "Unavailable"} />
+            <InfoRow label="Encryption Version" value={statusQuery.data?.encryptionKeyVersion ?? "Loading"} />
             <InfoRow label="Backend Time" value={formatLocalDateTime(statusQuery.data?.currentTime)} />
           </dl>
         </div>

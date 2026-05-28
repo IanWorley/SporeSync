@@ -6,9 +6,14 @@ namespace SftpSync.Business.Service;
 
 public sealed class SecretProtector : ISecretProtector
 {
-    private const string EnvironmentVariableName = "SFTPSYNC_SECRET_KEY";
     private const int NonceSize = 12;
     private const int TagSize = 16;
+    private readonly IEncryptionKeyProvider _keyProvider;
+
+    public SecretProtector(IEncryptionKeyProvider keyProvider)
+    {
+        _keyProvider = keyProvider;
+    }
 
     public string Protect(string plaintext)
     {
@@ -17,7 +22,7 @@ public sealed class SecretProtector : ISecretProtector
         var ciphertext = new byte[plaintextBytes.Length];
         var tag = new byte[TagSize];
 
-        using var aes = new AesGcm(GetKey(), TagSize);
+        using var aes = new AesGcm(_keyProvider.GetKey(), TagSize);
         aes.Encrypt(nonce, plaintextBytes, ciphertext, tag);
 
         return string.Join(
@@ -41,37 +46,9 @@ public sealed class SecretProtector : ISecretProtector
         var ciphertext = Convert.FromBase64String(parts[3]);
         var plaintextBytes = new byte[ciphertext.Length];
 
-        using var aes = new AesGcm(GetKey(), TagSize);
+        using var aes = new AesGcm(_keyProvider.GetKey(), TagSize);
         aes.Decrypt(nonce, ciphertext, tag, plaintextBytes);
 
         return Encoding.UTF8.GetString(plaintextBytes);
-    }
-
-    private static byte[] GetKey()
-    {
-        var configuredKey = Environment.GetEnvironmentVariable(EnvironmentVariableName);
-        if (string.IsNullOrWhiteSpace(configuredKey))
-        {
-            throw new InvalidOperationException(
-                $"Environment variable '{EnvironmentVariableName}' must be set before storing or reading SFTP secrets.");
-        }
-
-        return TryReadBase64Key(configuredKey, out var key)
-            ? key
-            : SHA256.HashData(Encoding.UTF8.GetBytes(configuredKey));
-    }
-
-    private static bool TryReadBase64Key(string configuredKey, out byte[] key)
-    {
-        try
-        {
-            key = Convert.FromBase64String(configuredKey);
-            return key.Length == 32;
-        }
-        catch (FormatException)
-        {
-            key = [];
-            return false;
-        }
     }
 }

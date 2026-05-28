@@ -3,18 +3,12 @@ using SftpSync.Business.Service;
 
 namespace SftpSync.Business.Tests;
 
-public sealed class SecretProtectorTests : IDisposable
+public sealed class SecretProtectorTests
 {
-    private const string EnvironmentVariableName = "SFTPSYNC_SECRET_KEY";
-    private readonly string? _originalSecretKey = Environment.GetEnvironmentVariable(EnvironmentVariableName);
-
     [Fact]
-    public void ProtectAndUnprotect_RoundTripSecret_WithBase64Key()
+    public void ProtectAndUnprotect_RoundTripSecret_WithInitializedKeyProvider()
     {
-        Environment.SetEnvironmentVariable(
-            EnvironmentVariableName,
-            Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)));
-        var protector = new SecretProtector();
+        var protector = CreateProtector();
 
         var protectedValue = protector.Protect("secret-password");
         var unprotectedValue = protector.Unprotect(protectedValue);
@@ -25,27 +19,13 @@ public sealed class SecretProtectorTests : IDisposable
     }
 
     [Fact]
-    public void ProtectAndUnprotect_RoundTripSecret_WithPlainTextKey()
+    public void Protect_Throws_WhenKeyProviderIsNotInitialized()
     {
-        Environment.SetEnvironmentVariable(EnvironmentVariableName, "development-secret");
-        var protector = new SecretProtector();
-
-        var protectedValue = protector.Protect("private-key");
-
-        Assert.Equal("private-key", protector.Unprotect(protectedValue));
-    }
-
-    [Fact]
-    public void Protect_Throws_WhenSecretKeyIsMissing()
-    {
-        Environment.SetEnvironmentVariable(EnvironmentVariableName, null);
-        var protector = new SecretProtector();
+        var protector = new SecretProtector(new EncryptionKeyProvider());
 
         var exception = Assert.Throws<InvalidOperationException>(() => protector.Protect("secret"));
 
-        Assert.Equal(
-            "Environment variable 'SFTPSYNC_SECRET_KEY' must be set before storing or reading SFTP secrets.",
-            exception.Message);
+        Assert.Equal("Encryption key has not been initialized.", exception.Message);
     }
 
     [Theory]
@@ -55,16 +35,17 @@ public sealed class SecretProtectorTests : IDisposable
     [InlineData("v1:a:b")]
     public void Unprotect_Throws_WhenProtectedValueHasUnsupportedFormat(string protectedValue)
     {
-        Environment.SetEnvironmentVariable(EnvironmentVariableName, "development-secret");
-        var protector = new SecretProtector();
+        var protector = CreateProtector();
 
         var exception = Assert.Throws<InvalidOperationException>(() => protector.Unprotect(protectedValue));
 
         Assert.Equal("Secret value is not in a supported protected format.", exception.Message);
     }
 
-    public void Dispose()
+    private static SecretProtector CreateProtector()
     {
-        Environment.SetEnvironmentVariable(EnvironmentVariableName, _originalSecretKey);
+        var keyProvider = new EncryptionKeyProvider();
+        keyProvider.Initialize(RandomNumberGenerator.GetBytes(32));
+        return new SecretProtector(keyProvider);
     }
 }

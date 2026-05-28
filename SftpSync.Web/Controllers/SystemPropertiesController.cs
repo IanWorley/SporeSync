@@ -21,6 +21,11 @@ public sealed class SystemPropertiesController : ControllerBase
         string propertyName,
         CancellationToken cancellationToken)
     {
+        if (!IsEditableProperty(propertyName))
+        {
+            return NotFound();
+        }
+
         var systemProperty = await _systemPropertyService.GetByNameAsync(propertyName, cancellationToken);
         if (systemProperty is null)
         {
@@ -36,6 +41,11 @@ public sealed class SystemPropertiesController : ControllerBase
         UpsertSystemPropertyRequest request,
         CancellationToken cancellationToken)
     {
+        if (!IsEditableProperty(propertyName))
+        {
+            return NotFound();
+        }
+
         var systemProperty = await _systemPropertyService.UpsertAsync(
             propertyName,
             request.PropertyValue,
@@ -50,5 +60,10 @@ public sealed class SystemPropertiesController : ControllerBase
             systemProperty.Id,
             systemProperty.PropertyName,
             systemProperty.PropertyValue);
+    }
+
+    private static bool IsEditableProperty(string propertyName)
+    {
+        return false;
     }
 }

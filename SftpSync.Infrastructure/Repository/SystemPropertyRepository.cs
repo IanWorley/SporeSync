@@ -61,6 +61,37 @@ public sealed class SystemPropertyRepository : ISystemPropertyRepository
         return ReadSystemProperty(reader);
     }
 
+    public async Task<SystemProperty> InsertIfMissingAsync(
+        string propertyName,
+        string propertyValue,
+        CancellationToken cancellationToken = default)
+    {
+        const string sql = """
+            INSERT INTO core.system_properties (id, property_name, property_value)
+            VALUES (@id, @property_name, @property_value)
+            ON CONFLICT (property_name)
+            DO NOTHING;
+
+            SELECT id, property_name, property_value
+            FROM core.system_properties
+            WHERE property_name = @property_name;
+            """;
+
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.AddWithValue("id", CreateCuid2());
+        command.Parameters.AddWithValue("property_name", propertyName);
+        command.Parameters.AddWithValue("property_value", propertyValue);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            throw new InvalidOperationException("System property insert-if-missing did not return a row.");
+        }
+
+        return ReadSystemProperty(reader);
+    }
+
     private static SystemProperty ReadSystemProperty(NpgsqlDataReader reader)
     {
         return new SystemProperty

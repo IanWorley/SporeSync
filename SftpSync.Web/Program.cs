@@ -1,6 +1,7 @@
 using FluentMigrator.Runner;
 using Scalar.AspNetCore;
 using SftpSync.Business;
+using SftpSync.Business.Interface;
 using SftpSync.Infrastructure;
 using SftpSync.Web;
 using SftpSync.Web.Development;
@@ -26,6 +27,7 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     scope.ServiceProvider.GetRequiredService<IMigrationRunner>().MigrateUp();
+    await scope.ServiceProvider.GetRequiredService<IEncryptionKeyInitializer>().InitializeAsync();
 }
 
 if (app.Environment.IsDevelopment())

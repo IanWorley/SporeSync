@@ -166,6 +166,25 @@ public sealed class SftpConnectionProfileRepository : ISftpConnectionProfileRepo
         return savedProfile;
     }
 
+    public async Task<bool> HasAnyEncryptedSecretsAsync(CancellationToken cancellationToken = default)
+    {
+        const string sql = """
+            SELECT EXISTS (
+                SELECT 1
+                FROM core.sftp_connection_profiles
+                WHERE encrypted_password IS NOT NULL
+                   OR encrypted_private_key IS NOT NULL
+                   OR encrypted_private_key_passphrase IS NOT NULL
+            );
+            """;
+
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(sql, connection);
+
+        return (bool)(await command.ExecuteScalarAsync(cancellationToken)
+            ?? throw new InvalidOperationException("Encrypted secret existence query did not return a value."));
+    }
+
     private static SftpConnectionProfile ReadProfile(NpgsqlDataReader reader)
     {
         return new SftpConnectionProfile

@@ -28,6 +28,19 @@ public sealed class RepositoryIntegrationTests : IClassFixture<RepositoryTestcon
     }
 
     [Fact]
+    public async Task SystemPropertyRepository_InsertIfMissing_DoesNotUpdateExistingValue()
+    {
+        var repository = new SystemPropertyRepository(_fixture.DataSource);
+        var propertyName = $"sync:test:insert:{Guid.NewGuid()}";
+
+        var inserted = await repository.InsertIfMissingAsync(propertyName, "first");
+        var existing = await repository.InsertIfMissingAsync(propertyName, "second");
+
+        Assert.Equal(inserted.Id, existing.Id);
+        Assert.Equal("first", existing.PropertyValue);
+    }
+
+    [Fact]
     public async Task SftpConnectionProfileRepository_UpsertAndGetById_RoundTripsThroughPostgres()
     {
         var repository = new SftpConnectionProfileRepository(_fixture.DataSource);
@@ -52,6 +65,26 @@ public sealed class RepositoryIntegrationTests : IClassFixture<RepositoryTestcon
         Assert.Equal(profile.Username, fetched.Username);
         Assert.Equal(profile.EncryptedPassword, fetched.EncryptedPassword);
         Assert.False(fetched.IsDefault);
+    }
+
+    [Fact]
+    public async Task SftpConnectionProfileRepository_HasAnyEncryptedSecretsAsync_ReturnsWhetherAnySecretsExist()
+    {
+        var repository = new SftpConnectionProfileRepository(_fixture.DataSource);
+
+        await repository.UpsertAsync(new SftpConnectionProfile
+        {
+            Id = Guid.NewGuid(),
+            Name = $"profile-{Guid.NewGuid():N}",
+            Host = "sftp.example.com",
+            Port = 22,
+            Username = "sync-user",
+            EncryptedPassword = "encrypted-password",
+            IsDefault = false
+        });
+        var after = await repository.HasAnyEncryptedSecretsAsync();
+
+        Assert.True(after);
     }
 
     [Fact]

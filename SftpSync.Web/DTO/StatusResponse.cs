@@ -4,4 +4,6 @@ public sealed record StatusResponse(
     string Status,
     string Environment,
     DateTimeOffset CurrentTime,
-    bool DatabaseAvailable);
+    bool DatabaseAvailable,
+    bool EncryptionKeyInitialized,
+    string EncryptionKeyVersion);

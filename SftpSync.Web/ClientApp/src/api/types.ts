@@ -90,10 +90,6 @@ export interface StatusResponse {
   environment: string;
   currentTime: string;
   databaseAvailable: boolean;
-}
-
-export interface SystemProperty {
-  id: string;
-  propertyName: string;
-  propertyValue: string;
+  encryptionKeyInitialized: boolean;
+  encryptionKeyVersion: string;
 }

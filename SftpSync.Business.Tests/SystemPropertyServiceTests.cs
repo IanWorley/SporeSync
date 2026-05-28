@@ -78,5 +78,13 @@ public sealed class SystemPropertyServiceTests
             LastCancellationToken = cancellationToken;
             return Task.FromResult(UpsertResult);
         }
+
+        public Task<SystemProperty> InsertIfMissingAsync(
+            string propertyName,
+            string propertyValue,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(UpsertResult);
+        }
     }
 }

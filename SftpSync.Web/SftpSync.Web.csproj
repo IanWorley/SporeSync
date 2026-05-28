@@ -4,9 +4,13 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <ClientAppDirectory>ClientApp/</ClientAppDirectory>
+    <SpaRoot>$(ClientAppDirectory)</SpaRoot>
+    <SpaProxyServerUrl>http://localhost:5173</SpaProxyServerUrl>
+    <SpaProxyLaunchCommand>npm run dev</SpaProxyLaunchCommand>
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.SpaProxy" Version="10.0.0" />
     <PackageReference Include="Scalar.AspNetCore" Version="2.12.35" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
     <PackageReference Include="Testcontainers.PostgreSql" Version="4.12.0" />
@@ -18,7 +22,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Remove="$(ClientAppDirectory)node_modules/**" />
+    <Content Remove="$(ClientAppDirectory)**" />
+    <None Remove="$(ClientAppDirectory)node_modules/**" />
+    <None Update="$(ClientAppDirectory)**" CopyToOutputDirectory="Never" CopyToPublishDirectory="Never" />
   </ItemGroup>
 
   <Target Name="BuildClientApp" BeforeTargets="ComputeFilesToPublish">

@@ -3,6 +3,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <ClientAppDirectory>ClientApp/</ClientAppDirectory>
   </PropertyGroup>
 
   <ItemGroup>
@@ -15,4 +16,20 @@
     <ProjectReference Include="..\SftpSync.Business\SftpSync.Business.csproj" />
     <ProjectReference Include="..\SftpSync.Infrastructure\SftpSync.Infrastructure.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <Content Remove="$(ClientAppDirectory)node_modules/**" />
+  </ItemGroup>
+
+  <Target Name="BuildClientApp" BeforeTargets="ComputeFilesToPublish">
+    <Exec WorkingDirectory="$(ClientAppDirectory)" Command="npm ci" />
+    <Exec WorkingDirectory="$(ClientAppDirectory)" Command="npm run build" />
+    <ItemGroup>
+      <DistFiles Include="wwwroot/**" />
+      <ResolvedFileToPublish Include="@(DistFiles->'%(FullPath)')" Exclude="@(ResolvedFileToPublish)">
+        <RelativePath>wwwroot\%(RecursiveDir)%(Filename)%(Extension)</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+  </Target>
 </Project>

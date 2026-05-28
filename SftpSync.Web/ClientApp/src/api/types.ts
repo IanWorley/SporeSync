@@ -1,0 +1,79 @@
+export interface PagedResponse<T> {
+  items: T[];
+  pageNumber: number;
+  pageSize: number;
+  totalCount: number;
+}
+
+export interface SftpSyncRun {
+  id: string;
+  jobId: string;
+  jobName: string;
+  status: string;
+  startedAt: string;
+  completedAt: string | null;
+  totalFileCount: number;
+  completedFileCount: number;
+  skippedFileCount: number;
+  failedFileCount: number;
+  totalBytes: number;
+  downloadedBytes: number;
+  currentBytesPerSecond: number | null;
+  errorMessage: string | null;
+}
+
+export interface DownloadQueueItem {
+  id: string;
+  jobId: string;
+  syncRunId: string | null;
+  remotePath: string;
+  destinationPath: string;
+  fileSizeBytes: number;
+  remoteModifiedAt: string | null;
+  status: string;
+  bytesDownloaded: number;
+  currentBytesPerSecond: number | null;
+  retryCount: number;
+  handledReason: string | null;
+  errorMessage: string | null;
+  queuedAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  updatedAt: string;
+}
+
+export interface SftpSyncJob {
+  id: string;
+  connectionProfileId: string;
+  name: string;
+  sourcePath: string;
+  destinationPath: string;
+  pollingIntervalSeconds: number;
+  isEnabled: boolean;
+  lastPolledAt: string | null;
+}
+
+export interface SftpConnectionProfile {
+  id: string;
+  name: string;
+  host: string;
+  port: number;
+  username: string;
+  hasPassword: boolean;
+  hasPrivateKey: boolean;
+  hasPrivateKeyPassphrase: boolean;
+  isDefault: boolean;
+}
+
+export interface StatusResponse {
+  status: string;
+  environment: string;
+  currentTime: string;
+  databaseAvailable: boolean;
+}
+
+export interface SystemProperty {
+  id: string;
+  propertyName: string;
+  propertyValue: string;
+}

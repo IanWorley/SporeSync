@@ -16,8 +16,10 @@ permissions:
 
 env:
   DOTNET_VERSION: 10.0.x
+  NODE_VERSION: 24.x
   SOLUTION_FILE: SftpSync.sln
   WEB_PROJECT: SftpSync.Web/SftpSync.Web.csproj
+  CLIENT_APP: SftpSync.Web/ClientApp
   BUILD_CONFIGURATION: Release
 
 jobs:
@@ -34,8 +36,31 @@ jobs:
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: ${{ env.CLIENT_APP }}/package-lock.json
+
       - name: Restore
         run: dotnet restore ${{ env.SOLUTION_FILE }}
+
+      - name: Restore frontend
+        working-directory: ${{ env.CLIENT_APP }}
+        run: npm ci
+
+      - name: Lint frontend
+        working-directory: ${{ env.CLIENT_APP }}
+        run: npm run lint
+
+      - name: Test frontend
+        working-directory: ${{ env.CLIENT_APP }}
+        run: npm run test
+
+      - name: Build frontend
+        working-directory: ${{ env.CLIENT_APP }}
+        run: npm run build
 
       - name: Build
         run: dotnet build ${{ env.SOLUTION_FILE }} --configuration ${{ env.BUILD_CONFIGURATION }} --no-restore
@@ -69,6 +94,13 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: ${{ env.CLIENT_APP }}/package-lock.json
 
       - name: Restore
         run: dotnet restore ${{ env.SOLUTION_FILE }}

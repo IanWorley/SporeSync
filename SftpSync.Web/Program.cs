@@ -35,9 +35,12 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+app.UseDefaultFiles();
+app.UseStaticFiles();
 
 app.MapControllers();
 app.MapHub<DashboardHub>("/hubs/dashboard");
+app.MapFallbackToFile("index.html");
 
 try
 {

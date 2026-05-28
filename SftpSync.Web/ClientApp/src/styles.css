@@ -1,0 +1,46 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  --background: 210 24% 97%;
+  --foreground: 215 22% 15%;
+  --panel: 0 0% 100%;
+  --muted: 215 18% 92%;
+  --muted-foreground: 214 10% 42%;
+  --border: 214 20% 86%;
+  --accent: 211 90% 42%;
+  --accent-foreground: 0 0% 100%;
+}
+
+.dark {
+  color-scheme: dark;
+  --background: 220 16% 10%;
+  --foreground: 210 20% 92%;
+  --panel: 220 15% 14%;
+  --muted: 220 14% 20%;
+  --muted-foreground: 216 10% 68%;
+  --border: 220 13% 25%;
+  --accent: 205 90% 62%;
+  --accent-foreground: 220 16% 10%;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}

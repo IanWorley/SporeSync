@@ -53,6 +53,15 @@ export interface SftpSyncJob {
   lastPolledAt: string | null;
 }
 
+export interface UpsertSftpSyncJob {
+  connectionProfileId: string;
+  name: string;
+  sourcePath: string;
+  destinationPath: string;
+  pollingIntervalSeconds: number;
+  isEnabled: boolean;
+}
+
 export interface SftpConnectionProfile {
   id: string;
   name: string;
@@ -62,6 +71,17 @@ export interface SftpConnectionProfile {
   hasPassword: boolean;
   hasPrivateKey: boolean;
   hasPrivateKeyPassphrase: boolean;
+  isDefault: boolean;
+}
+
+export interface UpsertSftpConnectionProfile {
+  name: string;
+  host: string;
+  port: number;
+  username: string;
+  password?: string | null;
+  privateKey?: string | null;
+  privateKeyPassphrase?: string | null;
   isDefault: boolean;
 }
 

@@ -12,6 +12,7 @@
     "types:api": "openapi-typescript http://127.0.0.1:5000/openapi/v1.json -o src/api/schema.d.ts"
   },
   "dependencies": {
+    "@microsoft/signalr": "^10.0.0",
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-dropdown-menu": "^2.1.16",
     "@radix-ui/react-slot": "^1.2.4",

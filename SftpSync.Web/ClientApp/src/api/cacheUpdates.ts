@@ -34,3 +34,17 @@ export function upsertQueueItemInPagedCaches(queryClient: QueryClient, item: Dow
     };
   });
 }
+
+export function removeQueueItemFromPagedCaches(queryClient: QueryClient, runId: string, queueItemId: string) {
+  queryClient.setQueriesData<PagedResponse<DownloadQueueItem>>({ queryKey: ["runs", runId, "queue-items"] }, (page) => {
+    if (!page) {
+      return page;
+    }
+
+    return {
+      ...page,
+      items: page.items.filter((item) => item.id !== queueItemId),
+      totalCount: Math.max(0, page.totalCount - 1)
+    };
+  });
+}

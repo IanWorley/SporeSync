@@ -91,6 +91,49 @@ public sealed class SftpConnectionProfileServiceTests
     }
 
     [Fact]
+    public async Task UpsertAsync_PreservesExistingSecrets_WhenEditingWithoutReplacement()
+    {
+        var profileId = Guid.NewGuid();
+        var repository = new RecordingSftpConnectionProfileRepository
+        {
+            ProfileById = new SftpConnectionProfile
+            {
+                Id = profileId,
+                Name = "existing",
+                Host = "old.example.com",
+                Port = 22,
+                Username = "old-user",
+                EncryptedPassword = "existing-password",
+                EncryptedPrivateKey = "existing-key",
+                EncryptedPrivateKeyPassphrase = "existing-passphrase",
+                IsDefault = true
+            }
+        };
+        var secretProtector = new RecordingSecretProtector();
+        var service = new SftpConnectionProfileService(repository, secretProtector);
+
+        await service.UpsertAsync(
+            new UpsertSftpConnectionProfile
+            {
+                Id = profileId,
+                Name = "updated",
+                Host = "new.example.com",
+                Port = 2222,
+                Username = "new-user",
+                Password = "",
+                PrivateKey = " ",
+                PrivateKeyPassphrase = null,
+                IsDefault = false
+            });
+
+        Assert.NotNull(repository.LastUpsertedProfile);
+        Assert.Equal("existing-password", repository.LastUpsertedProfile.EncryptedPassword);
+        Assert.Equal("existing-key", repository.LastUpsertedProfile.EncryptedPrivateKey);
+        Assert.Equal("existing-passphrase", repository.LastUpsertedProfile.EncryptedPrivateKeyPassphrase);
+        Assert.Empty(secretProtector.ProtectedValues);
+    }
+
+    [Fact]
     public async Task ReadMethods_DelegateToRepository()
     {
         var repository = new RecordingSftpConnectionProfileRepository();
@@ -138,7 +181,7 @@ public sealed class SftpConnectionProfileServiceTests
             }
         ];
 
-        public SftpConnectionProfile ProfileById { get; } = new()
+        public SftpConnectionProfile ProfileById { get; set; } = new()
         {
             Id = Guid.NewGuid(),
             Name = "requested",

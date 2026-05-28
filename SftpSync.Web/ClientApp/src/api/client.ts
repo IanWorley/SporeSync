@@ -4,7 +4,10 @@ import type {
   SftpConnectionProfile,
   SftpSyncJob,
   SftpSyncRun,
-  StatusResponse
+  StatusResponse,
+  SystemProperty,
+  UpsertSftpConnectionProfile,
+  UpsertSftpSyncJob
 } from "./types";
 
 export interface PageQuery {
@@ -58,5 +61,22 @@ export const api = {
   queueItems: (runId: string, query?: PageQuery) =>
     fetchJson<PagedResponse<DownloadQueueItem>>(`/api/sftp-sync-runs/${runId}/queue-items${toQueryString(query)}`),
   jobs: () => fetchJson<SftpSyncJob[]>("/api/sftp-sync-jobs"),
-  profiles: () => fetchJson<SftpConnectionProfile[]>("/api/sftp-connection-profiles")
+  createJob: (request: UpsertSftpSyncJob) =>
+    fetchJson<SftpSyncJob>("/api/sftp-sync-jobs", { method: "POST", body: JSON.stringify(request) }),
+  updateJob: (id: string, request: UpsertSftpSyncJob) =>
+    fetchJson<SftpSyncJob>(`/api/sftp-sync-jobs/${id}`, { method: "PUT", body: JSON.stringify(request) }),
+  profiles: () => fetchJson<SftpConnectionProfile[]>("/api/sftp-connection-profiles"),
+  createProfile: (request: UpsertSftpConnectionProfile) =>
+    fetchJson<SftpConnectionProfile>("/api/sftp-connection-profiles", { method: "POST", body: JSON.stringify(request) }),
+  updateProfile: (id: string, request: UpsertSftpConnectionProfile) =>
+    fetchJson<SftpConnectionProfile>(`/api/sftp-connection-profiles/${id}`, { method: "PUT", body: JSON.stringify(request) }),
+  systemProperty: (propertyName: string) => fetchJson<SystemProperty>(`/api/system-properties/${encodeURIComponent(propertyName)}`),
+  updateSystemProperty: (propertyName: string, propertyValue: string) =>
+    fetchJson<SystemProperty>(`/api/system-properties/${encodeURIComponent(propertyName)}`, {
+      method: "PUT",
+      body: JSON.stringify({ propertyValue })
+    }),
+  seedSimulation: () => fetchJson<{ runId: string }>("/api/development/simulation/seed", { method: "POST" }),
+  startSimulation: () => fetchJson<{ isRunning: boolean }>("/api/development/simulation/start", { method: "POST" }),
+  stopSimulation: () => fetchJson<{ isRunning: boolean }>("/api/development/simulation/stop", { method: "POST" })
 };

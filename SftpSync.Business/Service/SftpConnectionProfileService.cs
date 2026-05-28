@@ -30,11 +30,22 @@ public sealed class SftpConnectionProfileService : ISftpConnectionProfileService
         return _repository.GetByIdAsync(id, cancellationToken);
     }
 
-    public Task<SftpConnectionProfile> UpsertAsync(
+    public async Task<SftpConnectionProfile> UpsertAsync(
         UpsertSftpConnectionProfile profile,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(profile.Password) && string.IsNullOrWhiteSpace(profile.PrivateKey))
+        SftpConnectionProfile? existingProfile = null;
+        if (profile.Id is Guid id)
+        {
+            existingProfile = await _repository.GetByIdAsync(id, cancellationToken);
+        }
+
+        var encryptedPassword = ProtectOptional(profile.Password) ?? existingProfile?.EncryptedPassword;
+        var encryptedPrivateKey = ProtectOptional(profile.PrivateKey) ?? existingProfile?.EncryptedPrivateKey;
+        var encryptedPrivateKeyPassphrase = ProtectOptional(profile.PrivateKeyPassphrase)
+            ?? existingProfile?.EncryptedPrivateKeyPassphrase;
+
+        if (string.IsNullOrWhiteSpace(encryptedPassword) && string.IsNullOrWhiteSpace(encryptedPrivateKey))
         {
             throw new InvalidOperationException("An SFTP password or private key is required.");
         }
@@ -46,13 +57,13 @@ public sealed class SftpConnectionProfileService : ISftpConnectionProfileService
             Host = profile.Host,
             Port = profile.Port,
             Username = profile.Username,
-            EncryptedPassword = ProtectOptional(profile.Password),
-            EncryptedPrivateKey = ProtectOptional(profile.PrivateKey),
-            EncryptedPrivateKeyPassphrase = ProtectOptional(profile.PrivateKeyPassphrase),
+            EncryptedPassword = encryptedPassword,
+            EncryptedPrivateKey = encryptedPrivateKey,
+            EncryptedPrivateKeyPassphrase = encryptedPrivateKeyPassphrase,
             IsDefault = profile.IsDefault
         };
 
-        return _repository.UpsertAsync(protectedProfile, cancellationToken);
+        return await _repository.UpsertAsync(protectedProfile, cancellationToken);
     }
 
     private string? ProtectOptional(string? value)

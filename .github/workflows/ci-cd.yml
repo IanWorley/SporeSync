@@ -5,6 +5,9 @@ on:
     branches:
       - main
       - master
+    tags:
+      - 'v*.*.*'
+      - '*.*.*'
   pull_request:
     branches:
       - main
@@ -13,6 +16,7 @@ on:
 
 permissions:
   contents: read
+  packages: write
 
 env:
   DOTNET_VERSION: 10.0.x
@@ -21,6 +25,7 @@ env:
   WEB_PROJECT: SftpSync.Web/SftpSync.Web.csproj
   CLIENT_APP: SftpSync.Web/ClientApp
   BUILD_CONFIGURATION: Release
+  CONTAINER_REGISTRY: ghcr.io
 
 jobs:
   test:
@@ -117,3 +122,76 @@ jobs:
         with:
           name: sftpsync-web
           path: ./artifacts/publish
+
+  docker:
+    name: Publish Docker Image
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name == 'push'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: ${{ env.CLIENT_APP }}/package-lock.json
+
+      - name: Restore
+        run: dotnet restore ${{ env.SOLUTION_FILE }}
+
+      - name: Prepare image metadata
+        id: image
+        shell: bash
+        run: |
+          repository="$(printf '%s' "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
+          short_sha="${GITHUB_SHA::12}"
+          tags="sha-${short_sha}"
+
+          if [[ "${GITHUB_REF_TYPE}" == "branch" && ("${GITHUB_REF_NAME}" == "main" || "${GITHUB_REF_NAME}" == "master") ]]; then
+            tags="${tags};latest"
+          fi
+
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            version="${GITHUB_REF_NAME#v}"
+
+            if [[ "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ ]]; then
+              tags="${version};${tags}"
+
+              if [[ "${version}" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+                tags="${BASH_REMATCH[1]}.${BASH_REMATCH[2]};${tags}"
+                tags="${BASH_REMATCH[1]};${tags}"
+              fi
+            else
+              echo "::error::Docker release tags must use semantic versioning, such as v1.2.3 or 1.2.3."
+              exit 1
+            fi
+          fi
+
+          echo "repository=${repository}" >> "${GITHUB_OUTPUT}"
+          echo "tags=${tags}" >> "${GITHUB_OUTPUT}"
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.CONTAINER_REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish Docker image
+        run: >
+          dotnet publish ${{ env.WEB_PROJECT }}
+          --configuration ${{ env.BUILD_CONFIGURATION }}
+          --no-restore
+          /t:PublishContainer
+          -p:ContainerRegistry=${{ env.CONTAINER_REGISTRY }}
+          -p:ContainerRepository=${{ steps.image.outputs.repository }}
+          -p:ContainerImageTags="${{ steps.image.outputs.tags }}"

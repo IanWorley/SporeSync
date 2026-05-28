@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SftpSync UI Implementation Plan</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f7f8fa;
+      --fg: #1f2933;
+      --muted: #5f6b7a;
+      --panel: #ffffff;
+      --border: #d9dee7;
+      --accent: #0f6fdc;
+      --code: #eef2f7;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #101418;
+        --fg: #e6e9ee;
+        --muted: #a8b1bd;
+        --panel: #171d24;
+        --border: #2d3743;
+        --accent: #58a6ff;
+        --code: #202833;
+      }
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--fg);
+      font: 16px/1.55 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    main {
+      max-width: 1040px;
+      margin: 0 auto;
+      padding: 48px 24px 72px;
+    }
+
+    header {
+      margin-bottom: 32px;
+    }
+
+    h1,
+    h2,
+    h3 {
+      line-height: 1.2;
+      margin: 0;
+    }
+
+    h1 {
+      font-size: clamp(2rem, 4vw, 3rem);
+      letter-spacing: 0;
+    }
+
+    h2 {
+      margin-top: 32px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+      font-size: 1.45rem;
+    }
+
+    h3 {
+      margin-top: 24px;
+      font-size: 1.05rem;
+    }
+
+    p {
+      margin: 12px 0;
+    }
+
+    ul,
+    ol {
+      margin: 12px 0 0;
+      padding-left: 24px;
+    }
+
+    li {
+      margin: 6px 0;
+    }
+
+    code {
+      background: var(--code);
+      border-radius: 4px;
+      padding: 1px 5px;
+      font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+      font-size: 0.94em;
+    }
+
+    .summary {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 18px 20px;
+      margin-top: 20px;
+    }
+
+    .milestone {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 18px 20px;
+      margin-top: 16px;
+    }
+
+    .tag {
+      display: inline-block;
+      color: var(--accent);
+      font-weight: 700;
+      margin-right: 6px;
+    }
+
+    .note {
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>SftpSync UI Implementation Plan</h1>
+      <p class="note">Planning checkpoint for the React/TanStack UI and supporting ASP.NET Core backend APIs.</p>
+      <div class="summary">
+        <p><strong>Decision:</strong> Build an integrated React UI in <code>SftpSync.Web/ClientApp</code>, developed with Vite and served by ASP.NET Core after publish.</p>
+        <p><strong>Primary goal:</strong> Make the operational dashboard the home screen, centered on live sync runs and file queue progress, with secondary admin pages for jobs, connection profiles, settings, logs, and about.</p>
+      </div>
+    </header>
+
+    <section>
+      <h2>Core Architecture</h2>
+      <ul>
+        <li>Use Vite React with TypeScript inside <code>SftpSync.Web/ClientApp</code>.</li>
+        <li>Run ASP.NET Core and Vite as separate dev processes. Vite proxies <code>/api</code> and <code>/hubs</code> to ASP.NET Core.</li>
+        <li>Make <code>dotnet publish</code> build the React app through an MSBuild target and include the built static assets.</li>
+        <li>Use TanStack Query, Router, Table, and Virtual.</li>
+        <li>Generate TypeScript types from OpenAPI, but hand-write a small <code>fetchJson</code> API layer.</li>
+        <li>Use Tailwind CSS, shadcn-style Radix components, and <code>lucide-react</code> icons.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Backend Foundation</h2>
+      <ul>
+        <li>Add read APIs for sync runs and queue items backed by <code>core.sftp_sync_runs</code> and <code>core.download_queue_items</code>.</li>
+        <li>Add page-number pagination, multi-status filtering, text search over remote and destination paths, and sorting by status, basename/path, size, progress, queued time, and completed time.</li>
+        <li>Include job name in run responses. Keep queue item responses focused on IDs, paths, progress, status, timing, retry, and error fields.</li>
+        <li>Add <code>/api/status</code> with API health, environment, current time, and database connectivity only. Do not expose connection details.</li>
+        <li>Auto-apply database migrations on startup in Development and Production. Fail startup hard if migrations fail.</li>
+        <li>Add a new migration for UI-support indexes rather than editing existing migrations.</li>
+        <li>Add focused indexes for run status/time, run job/time, queue run/status, and practical queue sort paths.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>SignalR</h2>
+      <ul>
+        <li>Add one shared <code>DashboardHub</code>.</li>
+        <li>Use REST/TanStack Query as the source of truth. Use SignalR for cache updates and invalidation.</li>
+        <li>Support scoped subscription methods: <code>SubscribeDashboard</code>, <code>SubscribeRun(runId)</code>, and <code>UnsubscribeRun(runId)</code>.</li>
+        <li>Use server-to-client events named <code>RunUpdated</code>, <code>QueueItemUpdated</code>, <code>QueueItemRemoved</code>, and <code>LogAppended</code>.</li>
+        <li>Send complete DTOs for run and queue item update events in the first pass.</li>
+        <li>Throttle progress broadcasts to roughly 2-4 updates per second per active file/run, with immediate status transition events.</li>
+        <li>Show a subtle connection state indicator in the UI: connected, reconnecting, disconnected.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Development Simulation</h2>
+      <ul>
+        <li>Add development-only backend endpoints to seed deterministic sample data and start/stop a fake progress loop.</li>
+        <li>Persist throttled simulated progress to the database and broadcast the same DTOs through SignalR.</li>
+        <li>Show a clearly labeled Development-only panel in the UI using environment data from <code>/api/status</code>.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Frontend UX</h2>
+      <ul>
+        <li>Use a light, dense operations UI with dark mode available from day one.</li>
+        <li>Default theme follows OS preference, with a visible manual toggle persisted locally.</li>
+        <li>Use a collapsible desktop sidebar, icon-only collapsed mode, and mobile drawer navigation.</li>
+        <li>Dashboard is the operational home and includes active runs plus the selected run's queue table.</li>
+        <li>History reuses the same run detail and queue table components with history-oriented filters.</li>
+        <li>Queue rows follow the referenced file-centric model: filename, status, speed, ETA, size/progress, filters, sorting, and compact/detailed modes.</li>
+        <li>Use a right-side selected item details panel rather than expandable table rows.</li>
+        <li>Show restrained toasts for run completed, run failed, and file failed in the selected active run.</li>
+        <li>Show relative time in dense views and exact local timestamps in tooltips/details. History pages prioritize exact local timestamps.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Routes</h2>
+      <ul>
+        <li><code>/</code> redirects to <code>/dashboard</code>.</li>
+        <li><code>/dashboard</code></li>
+        <li><code>/dashboard/runs/$runId</code></li>
+        <li><code>/runs</code></li>
+        <li><code>/runs/$runId</code></li>
+        <li><code>/jobs</code></li>
+        <li><code>/profiles</code></li>
+        <li><code>/settings</code></li>
+        <li><code>/logs</code></li>
+        <li><code>/about</code></li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Admin Pages</h2>
+      <ul>
+        <li>Jobs and connection profiles get create/edit forms in the first pass.</li>
+        <li>Connection profile secrets are write-only. The UI shows configured indicators and optional replacement fields.</li>
+        <li>Job paths are typed manually for now. Remote/local path browsing is deferred.</li>
+        <li>No delete endpoints in the first pass. Jobs can be enabled/disabled; deletion/archive policy is deferred.</li>
+        <li>Logs is a placeholder route initially, with SignalR contract space for <code>LogAppended</code>.</li>
+        <li>Settings includes local UI preferences and backend system properties through the existing REST API.</li>
+        <li>About shows app/build info where available, broad environment/status, database health, and development API docs links.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>State And Behavior</h2>
+      <ul>
+        <li>Persist theme, sidebar collapsed state, compact/detailed mode, filters, sort, and page size locally.</li>
+        <li>Do not strongly persist selected run. Auto-select the newest active run, then newest recent run.</li>
+        <li>Wait for server responses on create/edit forms, then update or invalidate TanStack Query caches.</li>
+        <li>On SignalR reconnect, refetch active runs and the selected run's queue page.</li>
+        <li>Add basic keyboard behavior: <code>/</code> focuses search and <code>Escape</code> clears active overlays/search focus.</li>
+        <li>Use inline errors for forms, panel errors for dashboard load/connection failures, and toasts for unexpected background failures.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Testing And CI</h2>
+      <ul>
+        <li>Add frontend scripts for <code>npm run dev</code>, <code>npm run build</code>, <code>npm run lint</code>, and <code>npm run test</code>.</li>
+        <li>Add basic frontend checks: TypeScript build, lint, and small tests for formatting helpers and query/event cache update logic.</li>
+        <li>Add backend repository/service tests for run and queue queries, plus light controller tests for pagination/filter behavior.</li>
+        <li>Test the SignalR broadcaster/service boundary rather than full hub transport initially.</li>
+        <li>Update the existing GitHub Actions workflow to install Node, restore frontend packages, run frontend checks, and build the UI.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Milestones</h2>
+      <div class="milestone">
+        <h3><span class="tag">1.</span>Backend Foundation</h3>
+        <p>Migrations auto-run, status API, run/queue repositories, services, controllers, dashboard hub, broadcaster, and dev simulation.</p>
+      </div>
+      <div class="milestone">
+        <h3><span class="tag">2.</span>Frontend Foundation</h3>
+        <p>Vite React app, routing, theme system, app shell, navigation, generated types, API client, CI, and publish integration.</p>
+      </div>
+      <div class="milestone">
+        <h3><span class="tag">3.</span>Dashboard</h3>
+        <p>Run list, queue table, filters, sorting, pagination, SignalR cache updates, details panel, notifications, and dev controls.</p>
+      </div>
+      <div class="milestone">
+        <h3><span class="tag">4.</span>Admin Pages</h3>
+        <p>Jobs, profiles, settings, logs placeholder, about page, empty states, form validation, and polish.</p>
+      </div>
+    </section>
+
+    <section>
+      <h2>Deferred</h2>
+      <ul>
+        <li>Real start/cancel/retry queue controls.</li>
+        <li>Delete/archive policy for jobs and profiles.</li>
+        <li>SFTP/local path browsing APIs.</li>
+        <li>Authentication and authorization.</li>
+        <li>Detailed persisted logs system.</li>
+        <li>Cursor pagination and advanced text indexing unless performance requires them.</li>
+        <li>End-to-end browser tests after the UI stabilizes.</li>
+      </ul>
+    </section>
+  </main>
+</body>
+</html>

@@ -16,9 +16,11 @@ public static class ServiceExtension
         var connectionString = configuration.GetConnectionString("DefaultConnection")
             ?? throw new InvalidOperationException("Connection string 'DefaultConnection' is not configured.");
 
-        services.AddScoped(_ => new NpgsqlDataSourceBuilder(connectionString).Build());
+        services.AddSingleton(_ => new NpgsqlDataSourceBuilder(connectionString).Build());
         services.AddScoped<ISftpConnectionProfileRepository, SftpConnectionProfileRepository>();
         services.AddScoped<ISftpSyncJobRepository, SftpSyncJobRepository>();
+        services.AddScoped<ISftpSyncRunRepository, SftpSyncRunRepository>();
+        services.AddScoped<IDownloadQueueItemRepository, DownloadQueueItemRepository>();
         services.AddScoped<ISystemPropertyRepository, SystemPropertyRepository>();
 
         services

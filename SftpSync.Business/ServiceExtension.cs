@@ -11,6 +11,8 @@ public static class ServiceExtension
         services.AddSingleton<ISecretProtector, SecretProtector>();
         services.AddScoped<ISftpConnectionProfileService, SftpConnectionProfileService>();
         services.AddScoped<ISftpSyncJobService, SftpSyncJobService>();
+        services.AddScoped<ISftpSyncRunService, SftpSyncRunService>();
+        services.AddScoped<IDownloadQueueItemService, DownloadQueueItemService>();
         services.AddScoped<ISystemPropertyService, SystemPropertyService>();
 
         return services;

@@ -13,7 +13,7 @@ var testcontainerDatabase = await TestcontainerDatabase.StartIfEnabledAsync(buil
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddOpenApi();
 builder.Services.AddSignalR();
 builder.Services.AddSingleton<IDashboardBroadcaster, DashboardBroadcaster>();
 builder.Services.AddSingleton<DevelopmentSimulationService>();
@@ -32,7 +32,7 @@ using (var scope = app.Services.CreateScope())
 
 if (app.Environment.IsDevelopment())
 {
-    app.MapSwagger("/openapi/{documentName}.json");
+    app.MapOpenApi("/openapi/{documentName}.json");
     app.MapScalarApiReference(options => options.WithTitle("SftpSync API"));
 }
 

@@ -1,12 +1,13 @@
+import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
 const backendUrl = process.env.ASPNETCORE_HTTPS_PORT
   ? `https://localhost:${process.env.ASPNETCORE_HTTPS_PORT}`
-  : process.env.ASPNETCORE_URLS?.split(";")[0] ?? "http://localhost:5000";
+  : (process.env.ASPNETCORE_URLS?.split(";")[0] ?? "http://localhost:5000");
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
   server: {
     port: 5173,
     strictPort: true,
@@ -14,28 +15,28 @@ export default defineConfig({
       "/api": {
         target: backendUrl,
         changeOrigin: true,
-        secure: false
+        secure: false,
       },
       "/hubs": {
         target: backendUrl,
         changeOrigin: true,
         secure: false,
-        ws: true
+        ws: true,
       },
       "/openapi": {
         target: backendUrl,
         changeOrigin: true,
-        secure: false
+        secure: false,
       },
       "/scalar": {
         target: backendUrl,
         changeOrigin: true,
-        secure: false
-      }
-    }
+        secure: false,
+      },
+    },
   },
   build: {
     outDir: "../wwwroot",
-    emptyOutDir: true
-  }
+    emptyOutDir: true,
+  },
 });

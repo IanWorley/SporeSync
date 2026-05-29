@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { formatBytes, formatLocalDateTime, formatRate, formatRelativeTime } from "./format";
+import {
+  formatBytes,
+  formatLocalDateTime,
+  formatRate,
+  formatRelativeTime,
+} from "./format";
 
 describe("format helpers", () => {
   it("formats bytes with readable units", () => {
@@ -18,6 +23,11 @@ describe("format helpers", () => {
   });
 
   it("formats relative dates", () => {
-    expect(formatRelativeTime("2026-05-27T12:00:00Z", new Date("2026-05-27T12:05:00Z"))).toBe("5 minutes ago");
+    expect(
+      formatRelativeTime(
+        "2026-05-27T12:00:00Z",
+        new Date("2026-05-27T12:05:00Z"),
+      ),
+    ).toBe("5 minutes ago");
   });
 });

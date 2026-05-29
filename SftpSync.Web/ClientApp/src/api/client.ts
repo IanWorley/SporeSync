@@ -6,7 +6,7 @@ import type {
   SftpSyncRun,
   StatusResponse,
   UpsertSftpConnectionProfile,
-  UpsertSftpSyncJob
+  UpsertSftpSyncJob,
 } from "./types";
 
 export interface PageQuery {
@@ -18,14 +18,17 @@ export interface PageQuery {
   pageSize?: number;
 }
 
-export async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
+export async function fetchJson<T>(
+  path: string,
+  init?: RequestInit,
+): Promise<T> {
   const response = await fetch(path, {
     ...init,
     headers: {
       Accept: "application/json",
       "Content-Type": "application/json",
-      ...init?.headers
-    }
+      ...init?.headers,
+    },
   });
 
   if (!response.ok) {
@@ -55,21 +58,48 @@ export function toQueryString(query: PageQuery = {}) {
 
 export const api = {
   status: () => fetchJson<StatusResponse>("/api/status"),
-  runs: (query?: PageQuery) => fetchJson<PagedResponse<SftpSyncRun>>(`/api/sftp-sync-runs${toQueryString(query)}`),
+  runs: (query?: PageQuery) =>
+    fetchJson<PagedResponse<SftpSyncRun>>(
+      `/api/sftp-sync-runs${toQueryString(query)}`,
+    ),
   run: (id: string) => fetchJson<SftpSyncRun>(`/api/sftp-sync-runs/${id}`),
   queueItems: (runId: string, query?: PageQuery) =>
-    fetchJson<PagedResponse<DownloadQueueItem>>(`/api/sftp-sync-runs/${runId}/queue-items${toQueryString(query)}`),
+    fetchJson<PagedResponse<DownloadQueueItem>>(
+      `/api/sftp-sync-runs/${runId}/queue-items${toQueryString(query)}`,
+    ),
   jobs: () => fetchJson<SftpSyncJob[]>("/api/sftp-sync-jobs"),
   createJob: (request: UpsertSftpSyncJob) =>
-    fetchJson<SftpSyncJob>("/api/sftp-sync-jobs", { method: "POST", body: JSON.stringify(request) }),
+    fetchJson<SftpSyncJob>("/api/sftp-sync-jobs", {
+      method: "POST",
+      body: JSON.stringify(request),
+    }),
   updateJob: (id: string, request: UpsertSftpSyncJob) =>
-    fetchJson<SftpSyncJob>(`/api/sftp-sync-jobs/${id}`, { method: "PUT", body: JSON.stringify(request) }),
-  profiles: () => fetchJson<SftpConnectionProfile[]>("/api/sftp-connection-profiles"),
+    fetchJson<SftpSyncJob>(`/api/sftp-sync-jobs/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(request),
+    }),
+  profiles: () =>
+    fetchJson<SftpConnectionProfile[]>("/api/sftp-connection-profiles"),
   createProfile: (request: UpsertSftpConnectionProfile) =>
-    fetchJson<SftpConnectionProfile>("/api/sftp-connection-profiles", { method: "POST", body: JSON.stringify(request) }),
+    fetchJson<SftpConnectionProfile>("/api/sftp-connection-profiles", {
+      method: "POST",
+      body: JSON.stringify(request),
+    }),
   updateProfile: (id: string, request: UpsertSftpConnectionProfile) =>
-    fetchJson<SftpConnectionProfile>(`/api/sftp-connection-profiles/${id}`, { method: "PUT", body: JSON.stringify(request) }),
-  seedSimulation: () => fetchJson<{ runId: string }>("/api/development/simulation/seed", { method: "POST" }),
-  startSimulation: () => fetchJson<{ isRunning: boolean }>("/api/development/simulation/start", { method: "POST" }),
-  stopSimulation: () => fetchJson<{ isRunning: boolean }>("/api/development/simulation/stop", { method: "POST" })
+    fetchJson<SftpConnectionProfile>(`/api/sftp-connection-profiles/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(request),
+    }),
+  seedSimulation: () =>
+    fetchJson<{ runId: string }>("/api/development/simulation/seed", {
+      method: "POST",
+    }),
+  startSimulation: () =>
+    fetchJson<{ isRunning: boolean }>("/api/development/simulation/start", {
+      method: "POST",
+    }),
+  stopSimulation: () =>
+    fetchJson<{ isRunning: boolean }>("/api/development/simulation/stop", {
+      method: "POST",
+    }),
 };

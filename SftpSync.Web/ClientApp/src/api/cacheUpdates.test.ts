@@ -18,7 +18,7 @@ function makeRun(id: string, status: string): SftpSyncRun {
     totalBytes: 100,
     downloadedBytes: 0,
     currentBytesPerSecond: null,
-    errorMessage: null
+    errorMessage: null,
   };
 }
 
@@ -31,13 +31,20 @@ describe("cache updates", () => {
       items: [pending],
       pageNumber: 1,
       pageSize: 25,
-      totalCount: 1
+      totalCount: 1,
     };
 
     queryClient.setQueryData(["runs", { pageNumber: 1 }], page);
     upsertRunInPagedCaches(queryClient, running);
 
-    expect(queryClient.getQueryData<SftpSyncRun>(["runs", "run-1"])).toEqual(running);
-    expect(queryClient.getQueryData<PagedResponse<SftpSyncRun>>(["runs", { pageNumber: 1 }])?.items[0]).toEqual(running);
+    expect(queryClient.getQueryData<SftpSyncRun>(["runs", "run-1"])).toEqual(
+      running,
+    );
+    expect(
+      queryClient.getQueryData<PagedResponse<SftpSyncRun>>([
+        "runs",
+        { pageNumber: 1 },
+      ])?.items[0],
+    ).toEqual(running);
   });
 });

@@ -1,6 +1,6 @@
 import { HubConnectionBuilder, LogLevel } from "@microsoft/signalr";
-import { useNavigate, useParams, useRouterState } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate, useParams, useRouterState } from "@tanstack/react-router";
 import {
   ArrowDown,
   ArrowUp,
@@ -16,25 +16,44 @@ import {
   Square,
   WandSparkles,
   Wifi,
-  WifiOff
+  WifiOff,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  removeQueueItemFromPagedCaches,
+  upsertQueueItemInPagedCaches,
+  upsertRunInPagedCaches,
+} from "../api/cacheUpdates";
 import { api, type PageQuery } from "../api/client";
-import { removeQueueItemFromPagedCaches, upsertQueueItemInPagedCaches, upsertRunInPagedCaches } from "../api/cacheUpdates";
 import { queryKeys } from "../api/queryKeys";
 import type { DownloadQueueItem, SftpSyncRun } from "../api/types";
 import { Button } from "../components/Button";
 import { SectionHeader } from "../components/SectionHeader";
 import { StatusBadge } from "../components/StatusBadge";
 import { cn } from "../lib/cn";
-import { formatBytes, formatLocalDateTime, formatRate, formatRelativeTime } from "../lib/format";
+import {
+  formatBytes,
+  formatLocalDateTime,
+  formatRate,
+  formatRelativeTime,
+} from "../lib/format";
 
 const activeStatuses = ["Running", "Pending"];
-const queueStatuses = ["Queued", "Downloading", "Completed", "Failed", "Skipped"];
+const queueStatuses = [
+  "Queued",
+  "Downloading",
+  "Completed",
+  "Failed",
+  "Skipped",
+];
 const pageSizeOptions = [10, 25, 50];
 
-type SignalRState = "connecting" | "connected" | "reconnecting" | "disconnected";
+type SignalRState =
+  | "connecting"
+  | "connected"
+  | "reconnecting"
+  | "disconnected";
 type Toast = { id: number; tone: "success" | "error"; message: string };
 type SortDirection = "asc" | "desc";
 
@@ -44,32 +63,78 @@ export function DashboardPage() {
   const params = useParams({ strict: false }) as { runId?: string };
   const runIdFromRoute = params.runId;
   const isDashboardRoute = location.pathname.startsWith("/dashboard");
-  const [userSelectedRunId, setUserSelectedRunId] = useState<string | undefined>();
+  const [userSelectedRunId, setUserSelectedRunId] = useState<
+    string | undefined
+  >();
   const [selectedItemId, setSelectedItemId] = useState<string | undefined>();
-  const [search, setSearch] = useLocalState<string>("sftpsync:queue-search", "");
-  const [statusFilter, setStatusFilter] = useLocalArrayState("sftpsync:queue-statuses");
+  const [search, setSearch] = useLocalState<string>(
+    "sftpsync:queue-search",
+    "",
+  );
+  const [statusFilter, setStatusFilter] = useLocalArrayState(
+    "sftpsync:queue-statuses",
+  );
   const [pageNumber, setPageNumber] = useState(1);
-  const [pageSize, setPageSize] = useLocalNumberState("sftpsync:queue-page-size", 25);
-  const [sortBy, setSortBy] = useLocalState<string>("sftpsync:queue-sort-by", "queuedAt");
-  const [sortDirection, setSortDirection] = useLocalState<SortDirection>("sftpsync:queue-sort-direction", "desc");
-  const [compact, setCompact] = useLocalBooleanState("sftpsync:queue-compact", true);
+  const [pageSize, setPageSize] = useLocalNumberState(
+    "sftpsync:queue-page-size",
+    25,
+  );
+  const [sortBy, setSortBy] = useLocalState<string>(
+    "sftpsync:queue-sort-by",
+    "queuedAt",
+  );
+  const [sortDirection, setSortDirection] = useLocalState<SortDirection>(
+    "sftpsync:queue-sort-direction",
+    "desc",
+  );
+  const [compact, setCompact] = useLocalBooleanState(
+    "sftpsync:queue-compact",
+    true,
+  );
   const [toasts, setToasts] = useState<Toast[]>([]);
-  const pushToast = useCallback((toast: Toast) => setToasts((items) => [toast, ...items].slice(0, 3)), []);
+  const pushToast = useCallback(
+    (toast: Toast) => setToasts((items) => [toast, ...items].slice(0, 3)),
+    [],
+  );
 
   const runQuery = useQuery({
     queryKey: queryKeys.run(runIdFromRoute ?? "none"),
-    queryFn: () => api.run(runIdFromRoute!),
-    enabled: Boolean(runIdFromRoute)
+    queryFn: () => {
+      if (!runIdFromRoute) {
+        throw new Error("Run id is required.");
+      }
+      return api.run(runIdFromRoute);
+    },
+    enabled: Boolean(runIdFromRoute),
   });
   const runsQuery = useQuery({
-    queryKey: queryKeys.runs({ pageNumber: 1, pageSize: 20, sortBy: "startedAt", sortDirection: "desc" }),
-    queryFn: () => api.runs({ pageNumber: 1, pageSize: 20, sortBy: "startedAt", sortDirection: "desc" })
+    queryKey: queryKeys.runs({
+      pageNumber: 1,
+      pageSize: 20,
+      sortBy: "startedAt",
+      sortDirection: "desc",
+    }),
+    queryFn: () =>
+      api.runs({
+        pageNumber: 1,
+        pageSize: 20,
+        sortBy: "startedAt",
+        sortDirection: "desc",
+      }),
   });
-  const statusQuery = useQuery({ queryKey: queryKeys.status, queryFn: api.status, refetchInterval: 30_000 });
+  const statusQuery = useQuery({
+    queryKey: queryKeys.status,
+    queryFn: api.status,
+    refetchInterval: 30_000,
+  });
 
-  const fallbackRun = runsQuery.data?.items.find((run) => activeStatuses.includes(run.status)) ?? runsQuery.data?.items[0];
+  const fallbackRun =
+    runsQuery.data?.items.find((run) => activeStatuses.includes(run.status)) ??
+    runsQuery.data?.items[0];
   const selectedRunId = runIdFromRoute ?? userSelectedRunId ?? fallbackRun?.id;
-  const selectedRun = runQuery.data ?? runsQuery.data?.items.find((run) => run.id === selectedRunId);
+  const selectedRun =
+    runQuery.data ??
+    runsQuery.data?.items.find((run) => run.id === selectedRunId);
   const effectiveRun = selectedRun ?? fallbackRun;
   const effectiveRunId = effectiveRun?.id;
 
@@ -80,25 +145,41 @@ export function DashboardPage() {
       sortBy,
       sortDirection,
       pageNumber,
-      pageSize
+      pageSize,
     }),
-    [pageNumber, pageSize, search, sortBy, sortDirection, statusFilter]
+    [pageNumber, pageSize, search, sortBy, sortDirection, statusFilter],
   );
   const queueQuery = useQuery({
     queryKey: queryKeys.queueItems(effectiveRunId ?? "none", queueQueryParams),
-    queryFn: () => api.queueItems(effectiveRunId!, queueQueryParams),
-    enabled: Boolean(effectiveRunId)
+    queryFn: () => {
+      if (!effectiveRunId) {
+        throw new Error("Run id is required.");
+      }
+      return api.queueItems(effectiveRunId, queueQueryParams);
+    },
+    enabled: Boolean(effectiveRunId),
   });
 
-  const selectedItem = queueQuery.data?.items.find((item) => item.id === selectedItemId);
+  const selectedItem = queueQuery.data?.items.find(
+    (item) => item.id === selectedItemId,
+  );
   const signalRState = useDashboardSignalR(effectiveRunId, pushToast);
-  const totalPages = Math.max(1, Math.ceil((queueQuery.data?.totalCount ?? 0) / pageSize));
-  const from = queueQuery.data?.totalCount ? (pageNumber - 1) * pageSize + 1 : 0;
+  const totalPages = Math.max(
+    1,
+    Math.ceil((queueQuery.data?.totalCount ?? 0) / pageSize),
+  );
+  const from = queueQuery.data?.totalCount
+    ? (pageNumber - 1) * pageSize + 1
+    : 0;
   const to = Math.min(pageNumber * pageSize, queueQuery.data?.totalCount ?? 0);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "/" && event.target instanceof HTMLElement && !["INPUT", "TEXTAREA", "SELECT"].includes(event.target.tagName)) {
+      if (
+        event.key === "/" &&
+        event.target instanceof HTMLElement &&
+        !["INPUT", "TEXTAREA", "SELECT"].includes(event.target.tagName)
+      ) {
         event.preventDefault();
         document.getElementById("queue-search")?.focus();
       }
@@ -118,7 +199,10 @@ export function DashboardPage() {
       return;
     }
 
-    const timer = window.setTimeout(() => setToasts((items) => items.slice(0, -1)), 4_500);
+    const timer = window.setTimeout(
+      () => setToasts((items) => items.slice(0, -1)),
+      4_500,
+    );
     return () => window.clearTimeout(timer);
   }, [toasts]);
 
@@ -126,7 +210,10 @@ export function DashboardPage() {
     setUserSelectedRunId(runId);
     setSelectedItemId(undefined);
     setPageNumber(1);
-    void navigate({ to: isDashboardRoute ? "/dashboard/runs/$runId" : "/runs/$runId", params: { runId } });
+    void navigate({
+      to: isDashboardRoute ? "/dashboard/runs/$runId" : "/runs/$runId",
+      params: { runId },
+    });
   };
 
   const sortQueue = (column: string) => {
@@ -135,7 +222,9 @@ export function DashboardPage() {
       setSortDirection(sortDirection === "asc" ? "desc" : "asc");
     } else {
       setSortBy(column);
-      setSortDirection(column === "basename" || column === "status" ? "asc" : "desc");
+      setSortDirection(
+        column === "basename" || column === "status" ? "asc" : "desc",
+      );
     }
   };
 
@@ -153,23 +242,31 @@ export function DashboardPage() {
         <section className="overflow-hidden rounded-lg border border-border bg-panel">
           <div className="flex items-center justify-between border-b border-border px-4 py-3">
             <h3 className="text-sm font-semibold">Runs</h3>
-            <span className="text-xs text-muted-foreground">{runsQuery.data?.totalCount ?? 0} total</span>
+            <span className="text-xs text-muted-foreground">
+              {runsQuery.data?.totalCount ?? 0} total
+            </span>
           </div>
           <div className="max-h-[620px] divide-y divide-border overflow-auto">
             {runsQuery.isLoading && <SkeletonRows />}
             {runsQuery.data?.items.map((run) => (
               <button
+                type="button"
                 key={run.id}
                 className={cn(
                   "block w-full px-4 py-3 text-left transition hover:bg-muted",
-                  effectiveRunId === run.id && "bg-muted"
+                  effectiveRunId === run.id && "bg-muted",
                 )}
                 onClick={() => chooseRun(run.id)}
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">{run.jobName}</p>
-                    <p className="mt-0.5 text-xs text-muted-foreground" title={formatLocalDateTime(run.startedAt)}>
+                    <p className="truncate text-sm font-medium">
+                      {run.jobName}
+                    </p>
+                    <p
+                      className="mt-0.5 text-xs text-muted-foreground"
+                      title={formatLocalDateTime(run.startedAt)}
+                    >
                       {formatRelativeTime(run.startedAt)}
                     </p>
                   </div>
@@ -177,12 +274,16 @@ export function DashboardPage() {
                 </div>
                 <Progress value={run.downloadedBytes} total={run.totalBytes} />
                 <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
-                  <span>{run.completedFileCount}/{run.totalFileCount} files</span>
+                  <span>
+                    {run.completedFileCount}/{run.totalFileCount} files
+                  </span>
                   <span>{formatRate(run.currentBytesPerSecond)}</span>
                 </div>
               </button>
             ))}
-            {runsQuery.data?.items.length === 0 && <EmptyState message="No runs found." />}
+            {runsQuery.data?.items.length === 0 && (
+              <EmptyState message="No runs found." />
+            )}
           </div>
         </section>
 
@@ -192,7 +293,10 @@ export function DashboardPage() {
           <section className="overflow-hidden rounded-lg border border-border bg-panel">
             <div className="grid gap-3 border-b border-border p-4 lg:grid-cols-[minmax(180px,1fr)_auto]">
               <label className="relative block">
-                <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} />
+                <Search
+                  className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                  size={16}
+                />
                 <input
                   id="queue-search"
                   className="h-9 w-full rounded-md border border-border bg-background pl-9 pr-3 text-sm outline-none focus:shadow-focus"
@@ -205,7 +309,12 @@ export function DashboardPage() {
                 />
               </label>
               <div className="flex flex-wrap items-center gap-2">
-                <Button className={compact ? "bg-muted" : ""} onClick={() => setCompact(!compact)}>{compact ? "Compact" : "Detailed"}</Button>
+                <Button
+                  className={compact ? "bg-muted" : ""}
+                  onClick={() => setCompact(!compact)}
+                >
+                  {compact ? "Compact" : "Detailed"}
+                </Button>
                 <select
                   className="h-9 rounded-md border border-border bg-panel px-2 text-sm"
                   value={pageSize}
@@ -214,16 +323,22 @@ export function DashboardPage() {
                     setPageNumber(1);
                   }}
                 >
-                  {pageSizeOptions.map((option) => <option key={option} value={option}>{option}/page</option>)}
+                  {pageSizeOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}/page
+                    </option>
+                  ))}
                 </select>
               </div>
               <div className="flex flex-wrap gap-2 lg:col-span-2">
                 {queueStatuses.map((status) => (
                   <button
+                    type="button"
                     key={status}
                     className={cn(
                       "rounded-full border border-border px-3 py-1 text-xs font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground",
-                      statusFilter.includes(status) && "bg-muted text-foreground"
+                      statusFilter.includes(status) &&
+                        "bg-muted text-foreground",
                     )}
                     onClick={() => {
                       setStatusFilter(toggleValue(statusFilter, status));
@@ -248,13 +363,27 @@ export function DashboardPage() {
             />
 
             <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-4 py-3 text-sm text-muted-foreground">
-              <span>{from}-{to} of {queueQuery.data?.totalCount ?? 0}</span>
+              <span>
+                {from}-{to} of {queueQuery.data?.totalCount ?? 0}
+              </span>
               <div className="flex items-center gap-2">
-                <Button disabled={pageNumber <= 1} onClick={() => setPageNumber((value) => Math.max(1, value - 1))}>
+                <Button
+                  disabled={pageNumber <= 1}
+                  onClick={() =>
+                    setPageNumber((value) => Math.max(1, value - 1))
+                  }
+                >
                   <ChevronsLeft size={16} />
                 </Button>
-                <span>Page {pageNumber} of {totalPages}</span>
-                <Button disabled={pageNumber >= totalPages} onClick={() => setPageNumber((value) => Math.min(totalPages, value + 1))}>
+                <span>
+                  Page {pageNumber} of {totalPages}
+                </span>
+                <Button
+                  disabled={pageNumber >= totalPages}
+                  onClick={() =>
+                    setPageNumber((value) => Math.min(totalPages, value + 1))
+                  }
+                >
                   <ChevronsRight size={16} />
                 </Button>
               </div>
@@ -263,13 +392,19 @@ export function DashboardPage() {
         </div>
       </div>
 
-      <ItemDetails item={selectedItem} onClose={() => setSelectedItemId(undefined)} />
+      <ItemDetails
+        item={selectedItem}
+        onClose={() => setSelectedItemId(undefined)}
+      />
       <ToastStack toasts={toasts} />
     </div>
   );
 }
 
-function useDashboardSignalR(runId: string | undefined, pushToast: (toast: Toast) => void) {
+function useDashboardSignalR(
+  runId: string | undefined,
+  pushToast: (toast: Toast) => void,
+) {
   const queryClient = useQueryClient();
   const [state, setState] = useState<SignalRState>("connecting");
   const previousRuns = useRef(new Map<string, string>());
@@ -291,7 +426,9 @@ function useDashboardSignalR(runId: string | undefined, pushToast: (toast: Toast
       }
       void queryClient.invalidateQueries({ queryKey: ["runs"] });
       if (runId) {
-        void queryClient.invalidateQueries({ queryKey: ["runs", runId, "queue-items"] });
+        void queryClient.invalidateQueries({
+          queryKey: ["runs", runId, "queue-items"],
+        });
       }
     });
     connection.onclose(() => setState("disconnected"));
@@ -300,19 +437,40 @@ function useDashboardSignalR(runId: string | undefined, pushToast: (toast: Toast
       previousRuns.current.set(run.id, run.status);
       upsertRunInPagedCaches(queryClient, run);
       if (previousStatus && previousStatus !== run.status) {
-        if (run.status === "Completed") pushToast({ id: Date.now(), tone: "success", message: `${run.jobName} completed` });
-        if (run.status === "Failed") pushToast({ id: Date.now(), tone: "error", message: `${run.jobName} failed` });
+        if (run.status === "Completed")
+          pushToast({
+            id: Date.now(),
+            tone: "success",
+            message: `${run.jobName} completed`,
+          });
+        if (run.status === "Failed")
+          pushToast({
+            id: Date.now(),
+            tone: "error",
+            message: `${run.jobName} failed`,
+          });
       }
     });
     connection.on("QueueItemUpdated", (item: DownloadQueueItem) => {
       upsertQueueItemInPagedCaches(queryClient, item);
       if (item.syncRunId === runId && item.status === "Failed") {
-        pushToast({ id: Date.now(), tone: "error", message: `${basename(item.remotePath)} failed` });
+        pushToast({
+          id: Date.now(),
+          tone: "error",
+          message: `${basename(item.remotePath)} failed`,
+        });
       }
     });
-    connection.on("QueueItemRemoved", (event: { runId: string; queueItemId: string }) => {
-      removeQueueItemFromPagedCaches(queryClient, event.runId, event.queueItemId);
-    });
+    connection.on(
+      "QueueItemRemoved",
+      (event: { runId: string; queueItemId: string }) => {
+        removeQueueItemFromPagedCaches(
+          queryClient,
+          event.runId,
+          event.queueItemId,
+        );
+      },
+    );
 
     void connection
       .start()
@@ -338,12 +496,22 @@ function useDashboardSignalR(runId: string | undefined, pushToast: (toast: Toast
 function DevelopmentPanel() {
   const queryClient = useQueryClient();
   const mutationOptions = {
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["runs"] })
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["runs"] }),
   };
-  const seedMutation = useMutation({ mutationFn: api.seedSimulation, ...mutationOptions });
-  const startMutation = useMutation({ mutationFn: api.startSimulation, ...mutationOptions });
-  const stopMutation = useMutation({ mutationFn: api.stopSimulation, ...mutationOptions });
-  const busy = seedMutation.isPending || startMutation.isPending || stopMutation.isPending;
+  const seedMutation = useMutation({
+    mutationFn: api.seedSimulation,
+    ...mutationOptions,
+  });
+  const startMutation = useMutation({
+    mutationFn: api.startSimulation,
+    ...mutationOptions,
+  });
+  const stopMutation = useMutation({
+    mutationFn: api.stopSimulation,
+    ...mutationOptions,
+  });
+  const busy =
+    seedMutation.isPending || startMutation.isPending || stopMutation.isPending;
 
   return (
     <section className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-panel px-4 py-3">
@@ -351,13 +519,25 @@ function DevelopmentPanel() {
         <Database size={18} className="text-accent" />
         <div>
           <h3 className="text-sm font-semibold">Development Simulation</h3>
-          <p className="text-xs text-muted-foreground">Seed sample data and drive fake progress through the normal dashboard contracts.</p>
+          <p className="text-xs text-muted-foreground">
+            Seed sample data and drive fake progress through the normal
+            dashboard contracts.
+          </p>
         </div>
       </div>
       <div className="flex flex-wrap gap-2">
-        <Button disabled={busy} onClick={() => seedMutation.mutate()}><WandSparkles size={16} />Seed</Button>
-        <Button disabled={busy} onClick={() => startMutation.mutate()}><Play size={16} />Start</Button>
-        <Button disabled={busy} onClick={() => stopMutation.mutate()}><Square size={16} />Stop</Button>
+        <Button disabled={busy} onClick={() => seedMutation.mutate()}>
+          <WandSparkles size={16} />
+          Seed
+        </Button>
+        <Button disabled={busy} onClick={() => startMutation.mutate()}>
+          <Play size={16} />
+          Start
+        </Button>
+        <Button disabled={busy} onClick={() => stopMutation.mutate()}>
+          <Square size={16} />
+          Stop
+        </Button>
       </div>
     </section>
   );
@@ -367,7 +547,11 @@ function ConnectionIndicator({ state }: { state: SignalRState }) {
   const connected = state === "connected";
   return (
     <div className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-panel px-3 text-sm">
-      {connected ? <Wifi size={16} className="text-emerald-500" /> : <WifiOff size={16} className="text-amber-500" />}
+      {connected ? (
+        <Wifi size={16} className="text-emerald-500" />
+      ) : (
+        <WifiOff size={16} className="text-amber-500" />
+      )}
       <span className="capitalize">{state}</span>
     </div>
   );
@@ -375,14 +559,24 @@ function ConnectionIndicator({ state }: { state: SignalRState }) {
 
 function RunSummary({ run }: { run?: SftpSyncRun }) {
   if (!run) {
-    return <section className="rounded-lg border border-border bg-panel p-4 text-sm text-muted-foreground">No run selected.</section>;
+    return (
+      <section className="rounded-lg border border-border bg-panel p-4 text-sm text-muted-foreground">
+        No run selected.
+      </section>
+    );
   }
 
   return (
     <section className="grid gap-3 rounded-lg border border-border bg-panel p-4 sm:grid-cols-2 xl:grid-cols-4">
       <Metric label="Status" value={<StatusBadge status={run.status} />} />
-      <Metric label="Files" value={`${run.completedFileCount}/${run.totalFileCount}`} />
-      <Metric label="Progress" value={`${formatBytes(run.downloadedBytes)} / ${formatBytes(run.totalBytes)}`} />
+      <Metric
+        label="Files"
+        value={`${run.completedFileCount}/${run.totalFileCount}`}
+      />
+      <Metric
+        label="Progress"
+        value={`${formatBytes(run.downloadedBytes)} / ${formatBytes(run.totalBytes)}`}
+      />
       <Metric label="Rate" value={formatRate(run.currentBytesPerSecond)} />
       <Metric label="Started" value={formatLocalDateTime(run.startedAt)} />
       <Metric label="Completed" value={formatLocalDateTime(run.completedAt)} />
@@ -409,7 +603,7 @@ function QueueTable({
   sortBy,
   sortDirection,
   onSelectItem,
-  onSort
+  onSort,
 }: {
   items: DownloadQueueItem[];
   isLoading: boolean;
@@ -433,12 +627,47 @@ function QueueTable({
       <table className="w-full min-w-[940px] text-left text-sm">
         <thead className="bg-muted text-xs uppercase text-muted-foreground">
           <tr>
-            <SortableHeader column="basename" active={sortBy} direction={sortDirection} onSort={onSort}>Item</SortableHeader>
-            <SortableHeader column="status" active={sortBy} direction={sortDirection} onSort={onSort}>Status</SortableHeader>
-            <SortableHeader column="currentBytesPerSecond" active={sortBy} direction={sortDirection} onSort={onSort}>Speed</SortableHeader>
+            <SortableHeader
+              column="basename"
+              active={sortBy}
+              direction={sortDirection}
+              onSort={onSort}
+            >
+              Item
+            </SortableHeader>
+            <SortableHeader
+              column="status"
+              active={sortBy}
+              direction={sortDirection}
+              onSort={onSort}
+            >
+              Status
+            </SortableHeader>
+            <SortableHeader
+              column="currentBytesPerSecond"
+              active={sortBy}
+              direction={sortDirection}
+              onSort={onSort}
+            >
+              Speed
+            </SortableHeader>
             <th className="px-4 py-3">ETA</th>
-            <SortableHeader column="progress" active={sortBy} direction={sortDirection} onSort={onSort}>Progress</SortableHeader>
-            <SortableHeader column="queuedAt" active={sortBy} direction={sortDirection} onSort={onSort}>Queued</SortableHeader>
+            <SortableHeader
+              column="progress"
+              active={sortBy}
+              direction={sortDirection}
+              onSort={onSort}
+            >
+              Progress
+            </SortableHeader>
+            <SortableHeader
+              column="queuedAt"
+              active={sortBy}
+              direction={sortDirection}
+              onSort={onSort}
+            >
+              Queued
+            </SortableHeader>
             {!compact && <th className="px-4 py-3">Destination</th>}
           </tr>
         </thead>
@@ -446,27 +675,62 @@ function QueueTable({
           {items.map((item) => (
             <tr
               key={item.id}
-              className={cn("cursor-pointer hover:bg-muted/70", selectedItemId === item.id && "bg-muted")}
+              className={cn(
+                "cursor-pointer hover:bg-muted/70",
+                selectedItemId === item.id && "bg-muted",
+              )}
               onClick={() => onSelectItem(item.id)}
             >
               <td className="max-w-[300px] px-4 py-3">
-                <div className={cn("flex items-center gap-2", item.isGroup && "text-blue-600 dark:text-blue-400")}>
-                  {item.isGroup ? <Folder size={16} className="shrink-0" /> : null}
-                  <p className="truncate font-medium">{basename(item.remotePath)}</p>
+                <div
+                  className={cn(
+                    "flex items-center gap-2",
+                    item.isGroup && "text-blue-600 dark:text-blue-400",
+                  )}
+                >
+                  {item.isGroup ? (
+                    <Folder size={16} className="shrink-0" />
+                  ) : null}
+                  <p className="truncate font-medium">
+                    {basename(item.remotePath)}
+                  </p>
                 </div>
-                {!compact && <p className="truncate text-xs text-muted-foreground">{item.remotePath}</p>}
+                {!compact && (
+                  <p className="truncate text-xs text-muted-foreground">
+                    {item.remotePath}
+                  </p>
+                )}
                 {item.isGroup && (
-                  <span className="inline-block rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-950 dark:text-blue-300">Folder group</span>
+                  <span className="inline-block rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+                    Folder group
+                  </span>
                 )}
               </td>
-              <td className="px-4 py-3"><StatusBadge status={item.status} /></td>
-              <td className="px-4 py-3">{formatRate(item.currentBytesPerSecond)}</td>
+              <td className="px-4 py-3">
+                <StatusBadge status={item.status} />
+              </td>
+              <td className="px-4 py-3">
+                {formatRate(item.currentBytesPerSecond)}
+              </td>
               <td className="px-4 py-3">{formatEta(item)}</td>
               <td className="px-4 py-3">
-                <Progress value={item.bytesDownloaded} total={item.fileSizeBytes} compact />
+                <Progress
+                  value={item.bytesDownloaded}
+                  total={item.fileSizeBytes}
+                  compact
+                />
               </td>
-              <td className="px-4 py-3" title={formatLocalDateTime(item.queuedAt)}>{formatRelativeTime(item.queuedAt)}</td>
-              {!compact && <td className="max-w-[280px] truncate px-4 py-3 text-muted-foreground">{item.destinationPath}</td>}
+              <td
+                className="px-4 py-3"
+                title={formatLocalDateTime(item.queuedAt)}
+              >
+                {formatRelativeTime(item.queuedAt)}
+              </td>
+              {!compact && (
+                <td className="max-w-[280px] truncate px-4 py-3 text-muted-foreground">
+                  {item.destinationPath}
+                </td>
+              )}
             </tr>
           ))}
         </tbody>
@@ -480,7 +744,7 @@ function SortableHeader({
   active,
   direction,
   onSort,
-  children
+  children,
 }: {
   column: string;
   active: string;
@@ -491,15 +755,30 @@ function SortableHeader({
   const isActive = active === column;
   return (
     <th className="px-4 py-3">
-      <button className="inline-flex items-center gap-1 font-semibold" onClick={() => onSort(column)}>
+      <button
+        type="button"
+        className="inline-flex items-center gap-1 font-semibold"
+        onClick={() => onSort(column)}
+      >
         {children}
-        {isActive && (direction === "asc" ? <ArrowUp size={13} /> : <ArrowDown size={13} />)}
+        {isActive &&
+          (direction === "asc" ? (
+            <ArrowUp size={13} />
+          ) : (
+            <ArrowDown size={13} />
+          ))}
       </button>
     </th>
   );
 }
 
-function ItemDetails({ item, onClose }: { item?: DownloadQueueItem; onClose: () => void }) {
+function ItemDetails({
+  item,
+  onClose,
+}: {
+  item?: DownloadQueueItem;
+  onClose: () => void;
+}) {
   if (!item) {
     return null;
   }
@@ -508,9 +787,20 @@ function ItemDetails({ item, onClose }: { item?: DownloadQueueItem; onClose: () 
     <aside className="fixed inset-y-0 right-0 z-40 flex w-full max-w-md flex-col border-l border-border bg-panel shadow-xl sm:top-14">
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
         <div className="flex min-w-0 items-center gap-2">
-          {item.isGroup ? <Folder size={18} className="shrink-0 text-blue-600 dark:text-blue-400" /> : null}
-          <h3 className="truncate text-sm font-semibold">{basename(item.remotePath)}</h3>
-          {item.isGroup && <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-950 dark:text-blue-300">Folder group</span>}
+          {item.isGroup ? (
+            <Folder
+              size={18}
+              className="shrink-0 text-blue-600 dark:text-blue-400"
+            />
+          ) : null}
+          <h3 className="truncate text-sm font-semibold">
+            {basename(item.remotePath)}
+          </h3>
+          {item.isGroup && (
+            <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+              Folder group
+            </span>
+          )}
         </div>
         <Button onClick={onClose}>Close</Button>
       </div>
@@ -518,14 +808,24 @@ function ItemDetails({ item, onClose }: { item?: DownloadQueueItem; onClose: () 
         <Detail label="Status" value={<StatusBadge status={item.status} />} />
         <Detail label="Remote Path" value={item.remotePath} />
         <Detail label="Destination Path" value={item.destinationPath} />
-        <Detail label="Progress" value={`${formatBytes(item.bytesDownloaded)} / ${formatBytes(item.fileSizeBytes)}`} />
+        <Detail
+          label="Progress"
+          value={`${formatBytes(item.bytesDownloaded)} / ${formatBytes(item.fileSizeBytes)}`}
+        />
         <Detail label="Speed" value={formatRate(item.currentBytesPerSecond)} />
         <Detail label="Retry Count" value={String(item.retryCount)} />
         <Detail label="Queued" value={formatLocalDateTime(item.queuedAt)} />
         <Detail label="Started" value={formatLocalDateTime(item.startedAt)} />
-        <Detail label="Completed" value={formatLocalDateTime(item.completedAt)} />
-        {item.handledReason && <Detail label="Handled Reason" value={item.handledReason} />}
-        {item.errorMessage && <Detail label="Error" value={item.errorMessage} />}
+        <Detail
+          label="Completed"
+          value={formatLocalDateTime(item.completedAt)}
+        />
+        {item.handledReason && (
+          <Detail label="Handled Reason" value={item.handledReason} />
+        )}
+        {item.errorMessage && (
+          <Detail label="Error" value={item.errorMessage} />
+        )}
       </dl>
     </aside>
   );
@@ -544,8 +844,15 @@ function ToastStack({ toasts }: { toasts: Toast[] }) {
   return (
     <div className="fixed bottom-4 right-4 z-50 grid w-[min(360px,calc(100vw-2rem))] gap-2">
       {toasts.map((toast) => (
-        <div key={toast.id} className="flex items-center gap-3 rounded-lg border border-border bg-panel p-3 text-sm shadow-lg">
-          {toast.tone === "success" ? <CheckCircle2 size={18} className="text-emerald-500" /> : <FileWarning size={18} className="text-red-500" />}
+        <div
+          key={toast.id}
+          className="flex items-center gap-3 rounded-lg border border-border bg-panel p-3 text-sm shadow-lg"
+        >
+          {toast.tone === "success" ? (
+            <CheckCircle2 size={18} className="text-emerald-500" />
+          ) : (
+            <FileWarning size={18} className="text-red-500" />
+          )}
           <span>{toast.message}</span>
         </div>
       ))}
@@ -553,14 +860,28 @@ function ToastStack({ toasts }: { toasts: Toast[] }) {
   );
 }
 
-function Progress({ value, total, compact = false }: { value: number; total: number; compact?: boolean }) {
-  const percent = total > 0 ? Math.min(100, Math.round((value / total) * 100)) : 0;
+function Progress({
+  value,
+  total,
+  compact = false,
+}: {
+  value: number;
+  total: number;
+  compact?: boolean;
+}) {
+  const percent =
+    total > 0 ? Math.min(100, Math.round((value / total) * 100)) : 0;
   return (
     <div className={compact ? "min-w-[150px]" : "mt-3"}>
       <div className="h-2 overflow-hidden rounded-full bg-muted">
-        <div className="h-full rounded-full bg-accent" style={{ width: `${percent}%` }} />
+        <div
+          className="h-full rounded-full bg-accent"
+          style={{ width: `${percent}%` }}
+        />
       </div>
-      <p className="mt-1 text-xs text-muted-foreground">{formatBytes(value)} / {formatBytes(total)}</p>
+      <p className="mt-1 text-xs text-muted-foreground">
+        {formatBytes(value)} / {formatBytes(total)}
+      </p>
     </div>
   );
 }
@@ -597,23 +918,33 @@ function basename(path: string) {
 }
 
 function toggleValue(values: string[], value: string) {
-  return values.includes(value) ? values.filter((item) => item !== value) : [...values, value];
+  return values.includes(value)
+    ? values.filter((item) => item !== value)
+    : [...values, value];
 }
 
 function useLocalState<T extends string>(key: string, initialValue: T) {
-  const [value, setValue] = useState<T>(() => (localStorage.getItem(key) as T | null) ?? initialValue);
+  const [value, setValue] = useState<T>(
+    () => (localStorage.getItem(key) as T | null) ?? initialValue,
+  );
   useEffect(() => localStorage.setItem(key, value), [key, value]);
   return [value, setValue] as const;
 }
 
 function useLocalBooleanState(key: string, initialValue: boolean) {
-  const [value, setValue] = useState(() => localStorage.getItem(key) ? localStorage.getItem(key) === "true" : initialValue);
+  const [value, setValue] = useState(() =>
+    localStorage.getItem(key)
+      ? localStorage.getItem(key) === "true"
+      : initialValue,
+  );
   useEffect(() => localStorage.setItem(key, String(value)), [key, value]);
   return [value, setValue] as const;
 }
 
 function useLocalNumberState(key: string, initialValue: number) {
-  const [value, setValue] = useState(() => Number(localStorage.getItem(key) ?? initialValue));
+  const [value, setValue] = useState(() =>
+    Number(localStorage.getItem(key) ?? initialValue),
+  );
   useEffect(() => localStorage.setItem(key, String(value)), [key, value]);
   return [value, setValue] as const;
 }
@@ -621,8 +952,11 @@ function useLocalNumberState(key: string, initialValue: number) {
 function useLocalArrayState(key: string) {
   const [value, setValue] = useState<string[]>(() => {
     const stored = localStorage.getItem(key);
-    return stored ? JSON.parse(stored) as string[] : [];
+    return stored ? (JSON.parse(stored) as string[]) : [];
   });
-  useEffect(() => localStorage.setItem(key, JSON.stringify(value)), [key, value]);
+  useEffect(
+    () => localStorage.setItem(key, JSON.stringify(value)),
+    [key, value],
+  );
   return [value, setValue] as const;
 }

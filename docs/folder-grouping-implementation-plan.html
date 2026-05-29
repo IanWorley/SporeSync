@@ -1,0 +1,476 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SftpSync Folder Grouping &amp; Opaque Queue Items Plan</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f7f8fa;
+      --fg: #1f2933;
+      --muted: #5f6b7a;
+      --panel: #ffffff;
+      --border: #d9dee7;
+      --accent: #0f6fdc;
+      --code: #eef2f7;
+      --good-bg: #dcfce7;
+      --good-fg: #166534;
+      --warn-bg: #fef3c7;
+      --warn-fg: #92400e;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #101418;
+        --fg: #e6e9ee;
+        --muted: #a8b1bd;
+        --panel: #171d24;
+        --border: #2d3743;
+        --accent: #58a6ff;
+        --code: #202833;
+        --good-bg: #14532d;
+        --good-fg: #bbf7d0;
+        --warn-bg: #451a03;
+        --warn-fg: #fde047;
+      }
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--fg);
+      font: 16px/1.55 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    main {
+      max-width: 1040px;
+      margin: 0 auto;
+      padding: 48px 24px 72px;
+    }
+
+    header {
+      margin-bottom: 32px;
+    }
+
+    h1, h2, h3 {
+      line-height: 1.2;
+      margin: 0;
+    }
+
+    h1 {
+      font-size: clamp(2rem, 4vw, 3rem);
+      letter-spacing: 0;
+    }
+
+    h2 {
+      margin-top: 32px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+      font-size: 1.45rem;
+    }
+
+    h3 {
+      margin-top: 24px;
+      font-size: 1.05rem;
+    }
+
+    p {
+      margin: 12px 0;
+    }
+
+    ul, ol {
+      margin: 12px 0 0;
+      padding-left: 24px;
+    }
+
+    li {
+      margin: 6px 0;
+    }
+
+    code {
+      background: var(--code);
+      border-radius: 4px;
+      padding: 1px 5px;
+      font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+      font-size: 0.94em;
+    }
+
+    pre {
+      background: var(--code);
+      padding: 16px;
+      border-radius: 8px;
+      overflow-x: auto;
+      font-size: 0.9em;
+      line-height: 1.5;
+    }
+
+    .summary {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 18px 20px;
+      margin-top: 20px;
+    }
+
+    .decision {
+      background: var(--good-bg);
+      color: var(--good-fg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px 18px;
+      margin: 16px 0;
+    }
+
+    .milestone {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 18px 20px;
+      margin-top: 16px;
+    }
+
+    .tag {
+      display: inline-block;
+      color: var(--accent);
+      font-weight: 700;
+      margin-right: 6px;
+    }
+
+    .note {
+      color: var(--muted);
+    }
+
+    .status {
+      display: inline-block;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 2px 8px;
+      margin-left: 8px;
+      color: #166534;
+      background: #dcfce7;
+      font-size: 0.78rem;
+      font-weight: 700;
+      vertical-align: 2px;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      .status {
+        color: #bbf7d0;
+        background: #14532d;
+      }
+    }
+
+    .example {
+      background: var(--panel);
+      border-left: 4px solid var(--accent);
+      padding: 14px 18px;
+      margin: 16px 0;
+      border-radius: 0 8px 8px 0;
+    }
+
+    .prompt-box {
+      background: var(--code);
+      border: 2px solid var(--accent);
+      border-radius: 10px;
+      padding: 20px;
+      margin: 24px 0;
+    }
+
+    .prompt-box h3 {
+      margin-top: 0;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 16px 0;
+    }
+
+    th, td {
+      border: 1px solid var(--border);
+      padding: 8px 12px;
+      text-align: left;
+    }
+
+    th {
+      background: var(--panel);
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>SftpSync Folder Grouping &amp; Opaque Queue Items</h1>
+      <p class="note">Backend-driven implementation plan for first-child opaque folder grouping, recursive nested downloads, size-based progress, and requeue support.</p>
+
+      <div class="summary">
+        <p><strong>Goal:</strong> When a sync job targets a folder, the dashboard queue shows only the immediate first-level children (folders or loose files) under the job's <code>sourcePath</code>. Folders are opaque — their entire subtree is hidden from the main list but downloaded recursively. Progress, status, and aggregates are maintained for the group as a single unit.</p>
+        <p><strong>Primary tracking:</strong> Byte sizes (folder + file) rather than raw leaf-file counts.</p>
+      </div>
+    </header>
+
+    <section>
+      <h2>Locked Design Decisions (from planning discussion)</h2>
+
+      <div class="decision">
+        <strong>1. First-child granularity (A)</strong><br>
+        Only the immediate children under the job's configured <code>sourcePath</code> appear as visible rows. Deeper nesting is never shown in the normal paged queue view.
+      </div>
+
+      <div class="decision">
+        <strong>2. Persistence model — Hybrid (recommended &amp; accepted)</strong><br>
+        Store both the visible top-level opaque groups <strong>and</strong> the individual leaf files internally. UI-facing queries (and the dashboard) only ever surface the groups with aggregated stats. This enables reliable requeue, partial progress, per-file error context, and future "expand details" capability without a painful migration.
+      </div>
+
+      <div class="decision">
+        <strong>3. Progress &amp; counting</strong><br>
+        Primary success/progress metric is bytes transferred (sum of file sizes inside groups + loose files). Integer "file counts" on runs become secondary / logical (number of visible groups + loose files at enqueue time).
+      </div>
+
+      <div class="decision">
+        <strong>4. Requeue behavior</strong><br>
+        The system must support requeuing a failed opaque folder group (and its subtree) for another full attempt. The engine can retry the group as a unit.
+      </div>
+
+      <div class="decision">
+        <strong>5. Opaque + recursive download</strong><br>
+        Folders are opaque in the UI. When the worker processes a folder group it must recursively walk and transfer the entire subtree, preserving relative structure under the job's <code>destinationPath</code>.
+      </div>
+    </section>
+
+    <section>
+      <h2>Concrete Example</h2>
+      <div class="example">
+        <p><strong>Job:</strong> <code>sourcePath = "/remote/incoming/"</code>, <code>destinationPath = "/data/incoming/"</code></p>
+        <p><strong>Remote tree at scan time:</strong></p>
+        <pre>/remote/incoming/
+├── reports/
+│   ├── 2026/
+│   │   └── Q1-sales.pdf
+│   └── summary.xlsx
+├── customers.csv
+└── archive/
+    └── old/
+        └── backup.zip</pre>
+        <p><strong>Visible opaque rows in the run's queue (paged API + dashboard table):</strong></p>
+        <ul>
+          <li><code>reports/</code> — opaque group (represents 3 files, all bytes under it)</li>
+          <li><code>customers.csv</code> — loose file</li>
+          <li><code>archive/</code> — opaque group (represents 1 file deep inside)</li>
+        </ul>
+        <p class="note">Nothing under <code>reports/</code> or <code>archive/</code> ever appears as its own row in the normal queue list unless a future "expand" feature is added.</p>
+      </div>
+    </section>
+
+    <section>
+      <h2>Current State (as of 2026-05-28)</h2>
+      <ul>
+        <li><code>core.download_queue_items</code> is strictly per-file with a unique index on <code>(job_id, remote_path)</code>.</li>
+        <li>No <code>is_directory</code>, no <code>group_remote_path</code>, no grouping metadata anywhere.</li>
+        <li>SQL functions <code>get_download_queue_items</code>, <code>count_download_queue_items</code>, and run aggregates are flat-file only.</li>
+        <li>Run record has <code>total_file_count</code>, <code>total_bytes</code>, etc., all currently leaf-oriented.</li>
+        <li>No real SFTP client or scanning worker exists yet (only development simulation that seeds flat files).</li>
+        <li>Dashboard <code>QueueTable</code> and <code>ItemDetails</code> assume every row is an individual file.</li>
+        <li>SignalR events (<code>QueueItemUpdated</code>, <code>RunUpdated</code>) are per-item.</li>
+      </ul>
+      <p class="note">Perfect timing — this feature can shape the design of the upcoming real SFTP sync engine.</p>
+    </section>
+
+    <section>
+      <h2>Recommended Persistence Model — Hybrid (Details)</h2>
+      <ul>
+        <li><strong>Visible groups</strong> (the opaque first-child entries) are first-class rows in <code>download_queue_items</code> with <code>is_group = true</code> (or a companion grouping column) and aggregated byte/progress fields that the worker keeps updated.</li>
+        <li><strong>Leaf files</strong> are also stored (with a <code>group_remote_path</code> or <code>group_id</code> back-reference). These are never returned by the normal paged queue API unless an admin/debug "include leaves" flag is added later.</li>
+        <li>The unique constraint on <code>(job_id, remote_path)</code> remains useful and is extended naturally.</li>
+        <li>Run-level aggregates are computed from the groups (logical) + can optionally expose physical leaf counts if needed for auditing.</li>
+        <li>Requeue logic operates primarily on the group row; the worker can re-scan or resume from the leaf rows underneath it.</li>
+      </ul>
+      <p><strong>Why not pure "Groups only"?</strong> Requeue (#4), partial failure visibility, and future expandability become dramatically harder without leaf-level persistence. Hybrid gives us the best of both worlds with only modest extra complexity.</p>
+    </section>
+
+    <section>
+      <h2>Implementation Phases</h2>
+
+      <h3>Phase 0 — Preparation &amp; Contracts</h3>
+      <ul>
+        <li>Document the exact grouping rules in one place (this plan + a small <code>docs/grouping-rules.md</code> if desired).</li>
+        <li>Define the interface/contract the future SFTP sync worker will implement for scanning and enqueueing (new interface in <code>SftpSync.Business</code> or a new <code>SftpSync.Sftp</code> project later).</li>
+        <li>Decide on column names: <code>is_group</code> (bool), <code>group_remote_path</code> (nullable varchar), or a separate lightweight <code>download_groups</code> table. Hybrid leans toward adding columns to the existing table for simplicity.</li>
+      </ul>
+
+      <h3>Phase 1 — Schema &amp; Migration</h3>
+      <ul>
+        <li>Create a new timestamped migration under <code>SftpSync.Infrastructure/Migrations/Schema/</code> (e.g. <code>20260529xxxx_AddQueueItemGrouping</code>).</li>
+        <li>Add columns to <code>core.download_queue_items</code>:
+          <ul>
+            <li><code>is_group boolean NOT NULL DEFAULT false</code></li>
+            <li><code>group_remote_path varchar(2000) NULL</code></li>
+            <li><code>child_count integer NOT NULL DEFAULT 0</code> (number of direct or total leaves — decide during design)</li>
+          </ul>
+        </li>
+        <li>Add indexes supporting common group queries (e.g. <code>(sync_run_id, is_group)</code>, <code>(job_id, group_remote_path)</code>).</li>
+        <li>Backfill logic or a one-time migration step for any existing data (mostly dev simulation rows).</li>
+        <li>Update the down-migration cleanly.</li>
+      </ul>
+
+      <h3>Phase 2 — SQL Functions &amp; Aggregates</h3>
+      <ul>
+        <li>Update <code>core.get_download_queue_items</code> and <code>core.count_download_queue_items</code> to:
+          <ul>
+            <li>Filter to only <code>is_group = true</code> (or the equivalent top-level rows) by default for the UI-facing path.</li>
+            <li>Return aggregated byte progress for groups (sum of leaves underneath) when returning a group row.</li>
+            <li>Support the existing sort keys (status, basename, size, progress, queuedAt, etc.) on the group level.</li>
+          </ul>
+        </li>
+        <li>Update or add helpers for run aggregate recalculation that now operate over groups + their leaf byte totals.</li>
+        <li>Ensure search still works sensibly against the visible group paths.</li>
+        <li>Add a new internal function or flag for the worker that can fetch a group's leaves when needed for requeue/resume.</li>
+      </ul>
+
+      <h3>Phase 3 — Backend Models, DTOs, Services</h3>
+      <ul>
+        <li>Add <code>IsGroup</code> and <code>GroupRemotePath</code> (nullable) to <code>DownloadQueueItem</code> (Domain), <code>DownloadQueueItemResponse</code> (Web DTO), and the TypeScript <code>DownloadQueueItem</code> interface.</li>
+        <li>Update <code>QueueItemQuery</code> if we need an internal "includeLeaves" mode for the worker.</li>
+        <li>Update <code>DownloadQueueItemService</code> / repository to expose a way for the worker to load a group's subtree.</li>
+        <li>Adjust run recalculation logic (currently in simulation + will be in the real worker) to treat groups as the primary counting unit for <code>total_file_count</code> while still summing all leaf bytes for <code>total_bytes</code>.</li>
+        <li>Update any existing repository integration tests that insert queue items.</li>
+      </ul>
+
+      <h3>Phase 4 — SFTP Scanning &amp; Enqueue Contracts (Core Future Work)</h3>
+      <ul>
+        <li>Define a clean interface (e.g. <code>ISftpDirectoryScanner</code> or <code>ISyncEnqueuer</code>) that the future real worker will call.</li>
+        <li>The contract must accept a job's <code>sourcePath</code> and return a list of top-level "first child" entries (folders marked as groups + loose files).</li>
+        <li>For each group entry, the implementation will later recursively list and create the leaf rows linked to the group.</li>
+        <li>Define how byte sizes are obtained during initial scan (SFTP STAT or LIST with size) and how they flow into both group and leaf rows.</li>
+        <li>Document the exact grouping algorithm in comments + the plan so the future implementer cannot misinterpret "first child".</li>
+      </ul>
+      <p class="note">This phase can be a pure interface + unit-testable fake implementation first; the real SSH.NET / SFTP.NET client work can come in a follow-up slice.</p>
+
+      <h3>Phase 5 — Progress, Status, Requeue &amp; Broadcasting</h3>
+      <ul>
+        <li>Worker logic (when it exists) must update the group row's <code>bytes_downloaded</code>, <code>current_bytes_per_second</code>, status, etc., as leaves complete. It can either maintain the aggregate on the group row or compute it on the fly from leaves.</li>
+        <li>Define requeue semantics: flipping a failed group's status (and its pending leaves) back to <code>queued</code> (or a new <code>requeued</code> state) so the next poll picks it up.</li>
+        <li>Update <code>DashboardBroadcaster</code> and SignalR events so that when a group or any of its leaves change, the visible group row is broadcast (clients already treat everything as opaque).</li>
+        <li>Handle the case where a group completes successfully: mark the group row complete and (optionally) mark or archive its leaves.</li>
+      </ul>
+
+      <h3>Phase 6 — Development Simulation Updates</h3>
+      <ul>
+        <li>Extend the seed endpoint in <code>DevelopmentSimulationService</code> to insert a realistic mix of groups + leaves (e.g. the exact <code>/remote/incoming/</code> tree from the example above).</li>
+        <li>Update the fake progress loop so that when a group row is "active", progress is applied across its leaves and the group row's aggregates are kept in sync.</li>
+        <li>Ensure the simulation can demonstrate a group failing and then being requeued via a dev-only "requeue group" endpoint or button.</li>
+      </ul>
+
+      <h3>Phase 7 — Dashboard UI (Keep It Opaque)</h3>
+      <ul>
+        <li>Minimal changes to <code>DashboardPage.tsx</code> and supporting components:
+          <ul>
+            <li>Update the table row to show a folder icon + trailing slash for groups (use <code>lucide-react</code> <code>Folder</code> or similar).</li>
+            <li>Update <code>basename</code> usage and the details panel to clearly label "Folder group" vs "File" and hide or de-emphasize leaf-only fields when the item is a group.</li>
+            <li>Progress, speed, and ETA for a group row must reflect the aggregated subtree (already coming from the backend).</li>
+            <li>Search, filters, sort, and pagination continue to work against the (now grouped) result set with no behavior change for the user.</li>
+          </ul>
+        </li>
+        <li>Do <strong>not</strong> add expand/collapse in this plan unless the user explicitly asks later — keep folders opaque.</li>
+        <li>Update any TypeScript types and the API client if new fields appear.</li>
+        <li>Consider a small visual treatment (subtle background or icon) so users instantly recognize a row represents a whole subtree.</li>
+      </ul>
+
+      <h3>Phase 8 — Testing &amp; Validation</h3>
+      <ul>
+        <li>Repository-level tests for the new grouping columns and the updated SQL functions (especially aggregation and "only groups" filtering).</li>
+        <li>Service and controller tests that the paged queue API never leaks leaf rows for normal callers.</li>
+        <li>Unit tests (or approval tests) for the grouping algorithm once the scanner contract is implemented (even if faked).</li>
+        <li>Update existing integration tests that seed flat queue items.</li>
+        <li>End-to-end simulation flow that exercises a full group lifecycle including failure + requeue.</li>
+        <li>Frontend tests for the (small) presentation changes in the queue table and details panel.</li>
+      </ul>
+
+      <h3>Phase 9 — Documentation &amp; Polish</h3>
+      <ul>
+        <li>Update <code>README.md</code> with a short note about folder grouping behavior and the fact that large folder syncs now appear as a small number of logical rows.</li>
+        <li>Add a short "Grouping Rules" section or link to this plan from the docs folder.</li>
+        <li>Update the development simulation description if the seed data now shows groups.</li>
+        <li>Ensure the plan document itself is referenced from any relevant future worker implementation tickets or comments.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Milestones (Suggested Slicing)</h2>
+      <div class="milestone">
+        <h3><span class="tag">M1.</span> Schema + SQL + Backend Models</h3>
+        <p>New migration, columns, updated SQL functions, Domain/DTO changes, repository tests green. No UI or worker changes yet.</p>
+      </div>
+      <div class="milestone">
+        <h3><span class="tag">M2.</span> Simulation Can Seed &amp; Drive Groups</h3>
+        <p>Dev simulation inserts groups + leaves, fake progress updates group aggregates, dashboard shows the opaque groups correctly (with folder icons). Requeue dev endpoint works.</p>
+      </div>
+      <div class="milestone">
+        <h3><span class="tag">M3.</span> Real Scanner Contract + First Worker Slice</h3>
+        <p>Interface defined, fake implementation that produces correct first-child groups, real worker (or a spike) can enqueue a job's first level and recursively create leaves for groups. End-to-end with a test SFTP target or the simulation.</p>
+      </div>
+      <div class="milestone">
+        <h3><span class="tag">M4.</span> Production-Ready Requeue, Progress, Broadcasting</h3>
+        <p>Full requeue flow for failed groups, correct byte-driven run stats, SignalR updates keep the opaque group rows live, all tests passing, docs updated.</p>
+      </div>
+    </section>
+
+    <section>
+      <h2>Deferred / Out of Scope for This Plan</h2>
+      <ul>
+        <li>UI expand/collapse to reveal leaves inside a group (future nice-to-have).</li>
+        <li>Per-leaf error visibility or retry in the dashboard (group-level retry is sufficient for now).</li>
+        <li>Path browsing or tree picker when creating/editing jobs.</li>
+        <li>Advanced resume strategies beyond "requeue the group".</li>
+        <li>Special handling for symlinks, very deep trees, or enormous single files that happen to sit in a folder.</li>
+        <li>Authentication/authorization around who can requeue.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Execution Prompt (Copy &amp; Paste)</h2>
+      <div class="prompt-box">
+        <p><strong>Copy the block below and give it to an agent (including future sessions of this same agent) when you are ready to start implementation.</strong></p>
+        <pre>Read the plan at docs/folder-grouping-implementation-plan.html in full.
+
+You are implementing backend-driven first-child opaque folder grouping for SftpSync queue items exactly as described in that plan.
+
+Key locked decisions (never deviate without asking):
+- First-child granularity only (immediate children under the job sourcePath become the visible opaque groups or loose files).
+- Hybrid persistence model: store both visible groups and their leaf files internally; normal UI queries return only groups with aggregates.
+- Primary progress metric is bytes (sum of all file sizes inside groups + loose files). Logical group counts are secondary.
+- Folders are opaque in the dashboard. When processed, the engine must recursively download the entire nested subtree.
+- Full requeue support for failed groups.
+
+Current state (2026-05-28):
+- Schema is flat per-file only in download_queue_items.
+- No real SFTP worker exists yet — only development simulation.
+- Dashboard assumes every queue row is an individual file.
+
+Your job:
+1. Follow the phases in the plan in order.
+2. At the end of each major phase (especially after schema, after SQL functions, after the scanner contract), stop and summarize what was done + any open decisions or risks, then wait for explicit user approval before continuing.
+3. Prefer small, reviewable, well-tested slices.
+4. Keep the dashboard opaque — do not add expand/collapse unless the user explicitly requests it later.
+5. Update or add tests for every behavioral change.
+6. When you touch the future worker scanning logic, first define a clean interface/contract that can be implemented later with a real SFTP client.
+7. Keep all public APIs and SignalR events backward-compatible for the current flat-file simulation.
+8. If you need to make a material trade-off or discover an ambiguity not covered in the plan, pause and ask the user (or invoke the grill-me skill to stress-test the decision).
+
+Start by reading the plan document, then the relevant current source files (schema migration, SQL functions, DownloadQueueItem model, repository, services, DashboardPage, DevelopmentSimulationService, etc.). Produce a short "Plan Execution Checklist" for the first phase before writing any code.
+
+When the implementation of a phase is complete and tests are green, update the HTML plan document itself (mark the phase complete, add any discovered nuances) and commit the changes with a clear message.
+
+You have full access to the grill-me skill if you or the user want a design decision stress-tested before proceeding.
+
+Begin.</pre>
+      </div>
+    </section>
+
+    <footer style="margin-top: 48px; padding-top: 24px; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.9em;">
+      <p>Plan created 2026-05-28 during live design discussion. All major decisions locked with the user before writing this document.</p>
+    </footer>
+  </main>
+</body>
+</html>

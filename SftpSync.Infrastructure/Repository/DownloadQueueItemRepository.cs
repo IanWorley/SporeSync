@@ -52,7 +52,10 @@ public sealed class DownloadQueueItemRepository : IDownloadQueueItemRepository
                    queued_at,
                    started_at,
                    completed_at,
-                   updated_at
+                   updated_at,
+                   is_group,
+                   group_remote_path,
+                   child_count
             FROM core.get_download_queue_items(
                 @run_id,
                 @statuses,
@@ -156,7 +159,37 @@ public sealed class DownloadQueueItemRepository : IDownloadQueueItemRepository
             QueuedAt = reader.GetFieldValue<DateTimeOffset>(13),
             StartedAt = reader.IsDBNull(14) ? null : reader.GetFieldValue<DateTimeOffset>(14),
             CompletedAt = reader.IsDBNull(15) ? null : reader.GetFieldValue<DateTimeOffset>(15),
-            UpdatedAt = reader.GetFieldValue<DateTimeOffset>(16)
+            UpdatedAt = reader.GetFieldValue<DateTimeOffset>(16),
+            IsGroup = reader.GetBoolean(17),
+            GroupRemotePath = reader.IsDBNull(18) ? null : reader.GetString(18),
+            ChildCount = reader.GetInt32(19)
         };
+    }
+
+    public async Task<IReadOnlyList<DownloadQueueItem>> GetLeavesForGroupAsync(
+        Guid runId,
+        string groupRemotePath,
+        CancellationToken cancellationToken = default)
+    {
+        const string sql = """
+            SELECT id, job_id, sync_run_id, remote_path, destination_path, file_size_bytes,
+                   remote_modified_at, status, bytes_downloaded, current_bytes_per_second,
+                   retry_count, handled_reason, error_message, queued_at, started_at,
+                   completed_at, updated_at, is_group, group_remote_path, child_count
+            FROM core.get_download_queue_group_leaves(@run_id, @group_remote_path);
+            """;
+
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.AddWithValue("run_id", runId);
+        command.Parameters.AddWithValue("group_remote_path", groupRemotePath);
+
+        var items = new List<DownloadQueueItem>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            items.Add(ReadItem(reader));
+        }
+        return items;
     }
 }

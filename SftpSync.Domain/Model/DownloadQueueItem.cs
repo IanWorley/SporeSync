@@ -35,4 +35,10 @@ public sealed class DownloadQueueItem
     public DateTimeOffset? CompletedAt { get; init; }
 
     public required DateTimeOffset UpdatedAt { get; init; }
+
+    // Phase 3 additions (per plan:339 + Phase 1 locked columns).
+    // Safe defaults (false/NULL/0) on all pre-existing flat rows via Phase 1 migration.
+    public required bool IsGroup { get; init; }
+    public string? GroupRemotePath { get; init; }
+    public required int ChildCount { get; init; }
 }

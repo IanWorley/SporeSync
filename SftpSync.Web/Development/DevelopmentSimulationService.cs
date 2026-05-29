@@ -246,7 +246,10 @@ public sealed class DevelopmentSimulationService : BackgroundService
                           qi.queued_at,
                           qi.started_at,
                           qi.completed_at,
-                          qi.updated_at
+                          qi.updated_at,
+                          qi.is_group,
+                          qi.group_remote_path,
+                          qi.child_count
             )
             SELECT *
             FROM updated_item;
@@ -271,10 +274,16 @@ public sealed class DevelopmentSimulationService : BackgroundService
     {
         const string sql = """
             WITH totals AS (
-                SELECT count(*)::int AS total_file_count,
-                       count(*) FILTER (WHERE status = 'completed')::int AS completed_file_count,
-                       count(*) FILTER (WHERE status = 'skipped')::int AS skipped_file_count,
-                       count(*) FILTER (WHERE status = 'failed')::int AS failed_file_count,
+                -- Phase 3 (plan:342): logical *FileCount fields = number of visible first-child entries only
+                -- (is_group=true OR (is_group=false AND group_remote_path IS NULL)).
+                -- Per grouping-rules.md:146 (at enqueue = visible first-child cardinality, not SUM(child_count))
+                -- and invariant #6, plus locked decision #3 (bytes primary, counts secondary).
+                -- Physical byte sums remain over all rows (hybrid leaves included).
+                -- On current flat-only data this is a no-op (all rows visible).
+                SELECT count(*) FILTER (WHERE (is_group = true OR (is_group = false AND group_remote_path IS NULL)))::int AS total_file_count,
+                       count(*) FILTER (WHERE (is_group = true OR (is_group = false AND group_remote_path IS NULL)) AND status = 'completed')::int AS completed_file_count,
+                       count(*) FILTER (WHERE (is_group = true OR (is_group = false AND group_remote_path IS NULL)) AND status = 'skipped')::int AS skipped_file_count,
+                       count(*) FILTER (WHERE (is_group = true OR (is_group = false AND group_remote_path IS NULL)) AND status = 'failed')::int AS failed_file_count,
                        coalesce(sum(file_size_bytes), 0)::bigint AS total_bytes,
                        coalesce(sum(bytes_downloaded), 0)::bigint AS downloaded_bytes,
                        coalesce(sum(current_bytes_per_second), 0)::numeric(20, 2) AS current_bytes_per_second
@@ -382,7 +391,10 @@ public sealed class DevelopmentSimulationService : BackgroundService
             reader.IsDBNull(12) ? null : reader.GetString(12),
             reader.GetFieldValue<DateTimeOffset>(13),
             reader.IsDBNull(14) ? null : reader.GetFieldValue<DateTimeOffset>(14),
-            reader.IsDBNull(15) ? null : reader.GetFieldValue<DateTimeOffset>(15),
-            reader.GetFieldValue<DateTimeOffset>(16));
+            reader.IsDBNull(15) ? null :             reader.GetFieldValue<DateTimeOffset>(15),
+            reader.GetFieldValue<DateTimeOffset>(16),
+            reader.GetBoolean(17),
+            reader.IsDBNull(18) ? null : reader.GetString(18),
+            reader.GetInt32(19));
     }
 }

@@ -342,6 +342,8 @@
         <li>Adjust run recalculation logic (currently in simulation + will be in the real worker) to treat groups as the primary counting unit for <code>total_file_count</code> while still summing all leaf bytes for <code>total_bytes</code>.</li>
         <li>Update any existing repository integration tests that insert queue items.</li>
       </ul>
+      <p class="status" style="margin-top:8px;">✓ Completed 2026-05-29 (subagent-driven + controlled integration; all tests green)</p>
+      <p class="note" style="font-size:0.9em;">Main artifacts (following subagent ID 8b5dd778... proposal after mandatory reads): new migration 202605290003 (DROP + CREATE to extend the 3 DB function projections with the 3 columns; fixes Postgres 42P13 return-type restriction); Domain/DTO/TS types + all 3 readers (repo ReadItem + SELECT, controller ToQueueItemResponse, sim ReadQueueItem + Advance RETURNING + RecalculateRunAsync visible counts CTE); new GetLeavesForGroupAsync on repo/service (thin wrapper over Phase 2 helper); includeLeaves on Query deferred (strong rationale); minimal test seed comment. Build + key integration test green on every step. Flat sim + all public APIs/SignalR remain 100% compatible (new props default false/NULL/0 on existing rows). Run recalc now produces correct logical visible first-child counts while keeping physical byte sums. Phase 3 gate next.</p>
 
       <h3>Phase 4 — SFTP Scanning &amp; Enqueue Contracts (Core Future Work)</h3>
       <ul>

@@ -40,6 +40,10 @@ export interface DownloadQueueItem {
   startedAt: string | null;
   completedAt: string | null;
   updatedAt: string;
+  // Phase 3 additions (plan:339). Defaults (false/null/0) on wire for all current flat rows.
+  isGroup: boolean;
+  groupRemotePath: string | null;
+  childCount: number;
 }
 
 export interface SftpSyncJob {

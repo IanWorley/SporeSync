@@ -135,6 +135,9 @@ public sealed class SftpSyncRunsController : ControllerBase
             item.QueuedAt,
             item.StartedAt,
             item.CompletedAt,
-            item.UpdatedAt);
+            item.UpdatedAt,
+            item.IsGroup,
+            item.GroupRemotePath,
+            item.ChildCount);
     }
 }

@@ -242,6 +242,8 @@ public sealed class RepositoryIntegrationTests : IClassFixture<RepositoryTestcon
                 100,
                 50);
 
+            -- Phase 3 note (plan:343): INSERT omits grouping columns (Phase 1 defaults false/NULL/0).
+            -- Rows remain visible non-group (Phase 2 filter + rules.md:170 invariant #4). Group+leaf test data in later phases.
             INSERT INTO core.download_queue_items (
                 id,
                 job_id,

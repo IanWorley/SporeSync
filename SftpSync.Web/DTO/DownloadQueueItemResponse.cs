@@ -17,4 +17,8 @@ public sealed record DownloadQueueItemResponse(
     DateTimeOffset QueuedAt,
     DateTimeOffset? StartedAt,
     DateTimeOffset? CompletedAt,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt,
+    // Phase 3 (plan:339). Additive for backward compat on flat data.
+    bool IsGroup,
+    string? GroupRemotePath,
+    int ChildCount);

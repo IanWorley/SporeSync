@@ -20,4 +20,12 @@ public sealed class DownloadQueueItemService : IDownloadQueueItemService
     {
         return _repository.GetByRunIdAsync(runId, query, cancellationToken);
     }
+
+    public Task<IReadOnlyList<DownloadQueueItem>> GetLeavesForGroupAsync(
+        Guid runId,
+        string groupRemotePath,
+        CancellationToken cancellationToken = default)
+    {
+        return _repository.GetLeavesForGroupAsync(runId, groupRemotePath, cancellationToken);
+    }
 }

@@ -19,6 +19,7 @@ namespace SftpSync.Business.Scanning;
 /// </para>
 /// <para>
 /// <strong>References (do not deviate):</strong>
+/// - 5 Locked Design Decisions + full plan in docs/folder-grouping-implementation-plan.html (Phase 9 note: this contract + grouping-rules.md are the authoritative spec for any future real SFTP worker implementation)
 /// - 5 Locked Design Decisions in docs/folder-grouping-implementation-plan.html:216-239
 ///   (first-child granularity only; Hybrid persistence; bytes primary for progress/counts;
 ///    full requeue support; opaque + recursive download).

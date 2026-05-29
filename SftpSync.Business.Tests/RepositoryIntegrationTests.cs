@@ -3,6 +3,13 @@ using SftpSync.Infrastructure.Repository;
 
 namespace SftpSync.Business.Tests;
 
+/// <summary>
+/// Repository integration tests (Testcontainers + real Postgres).
+/// Phase 3/6/8 note: All paths here (and the SeedRunAsync helpers) continue to work with the grouping columns
+/// (is_group / group_remote_path / child_count). The paged queue APIs under test use the visible filter
+/// (Phase 2/3) and must never return internal leaves. The 43 tests (including Phase 4 scanner algorithm tests)
+/// + dev simulation now exercising full group lifecycle + requeue provide the required coverage for M2/M4.
+/// </summary>
 public sealed class RepositoryIntegrationTests : IClassFixture<RepositoryTestcontainerFixture>
 {
     private readonly RepositoryTestcontainerFixture _fixture;

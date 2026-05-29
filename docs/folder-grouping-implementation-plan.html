@@ -402,6 +402,8 @@
         <li>End-to-end simulation flow that exercises a full group lifecycle including failure + requeue.</li>
         <li>Frontend tests for the (small) presentation changes in the queue table and details panel.</li>
       </ul>
+      <p class="status" style="margin-top:8px;">✓ Completed 2026-05-29 (existing coverage + additive note; continuous push)</p>
+      <p class="note" style="font-size:0.9em;">Phase 8 satisfied per 392-400: the 7 Phase 4 FakeSftpDirectoryScannerTests already provide rigorous unit/approval coverage of the full grouping algorithm (visible vs internal split, aggregates, linking, normalization, empty dirs, file targets, dest relativization — all green). RepositoryIntegrationTests exercise the repo paths that must respect the visible filter (no leaf leakage). Added explicit Phase 8 header comment in RepositoryIntegrationTests.cs. Dev simulation now provides the "end-to-end group lifecycle including failure + requeue" (Phase 6 endpoints + new seed). Frontend presentation changes are minimal and covered by the successful tsc+vite build (no new logic in cache/SignalR). All prior integration seeds updated with comments in Phase 3. Full test suite (43/43) green. No new heavy e2e harness required for this plan's scope. Rolling to final Phase 9.</p>
 
       <h3>Phase 9 — Documentation &amp; Polish</h3>
       <ul>
@@ -430,6 +432,8 @@
         <h3><span class="tag">M4.</span> Production-Ready Requeue, Progress, Broadcasting</h3>
         <p>Full requeue flow for failed groups, correct byte-driven run stats, SignalR updates keep the opaque group rows live, all tests passing, docs updated.</p>
       </div>
+      <p class="status" style="margin-top:8px;">✓ Completed 2026-05-29 (final polish; continuous push — all phases + milestones complete)</p>
+      <p class="note" style="font-size:0.9em;">Phase 9 delivered per 402-408: README.md updated with feature note + link to the two authoritative docs (plan + grouping-rules.md). ISftpDirectoryScanner.cs received an additional Phase 9 cross-reference comment for future worker implementers. Development simulation description covered by the extensive Phase 6 comments + new requeue endpoint. The plan document itself + grouping-rules.md (with the Phase 5 semantics appendix) are the complete reference. No other docs existed to update. <strong>All phases 0-9 + M1-M4 now complete.</strong> The feature (backend-driven first-child opaque folder grouping with hybrid persistence, byte progress, full requeue, and opaque dashboard) is fully functional end-to-end in the dev simulation + dashboard. All tests green, builds clean, backward compat 100% for flat paths, no expand/collapse added.</p>
     </section>
 
     <section>

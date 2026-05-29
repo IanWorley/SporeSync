@@ -8,7 +8,8 @@ SftpSync is an ASP.NET Core application with a React/Vite single-page app for mo
 - React, TypeScript, Vite, TanStack Router, and TanStack Query frontend
 - SignalR dashboard updates
 - PostgreSQL persistence with FluentMigrator migrations
-- Development simulation endpoints for local dashboard data
+- Development simulation endpoints for local dashboard data (now includes realistic opaque folder groups + leaves for large syncs)
+- Backend-driven first-child opaque folder grouping: large directories appear as a small number of logical rows in the dashboard with subtree aggregates (see docs/folder-grouping-implementation-plan.html and docs/grouping-rules.md)
 - Scalar/OpenAPI API documentation
 - Optional Testcontainers-backed PostgreSQL development profile
 

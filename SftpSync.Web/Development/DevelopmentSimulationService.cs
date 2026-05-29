@@ -29,6 +29,21 @@ public sealed class DevelopmentSimulationService : BackgroundService
         var jobId = Guid.Parse("20000000-0000-0000-0000-000000000001");
         var runId = Guid.Parse("30000000-0000-0000-0000-000000000001");
 
+        // Phase 6 (plan:372 + rules.md:24-48 Concrete Example + M2):
+        // Seed the exact first-child opaque grouping tree for dev demo.
+        // Visible: 3 rows (reports/ group, customers.csv loose, archive/ group).
+        // Internal leaves linked via group_remote_path; aggregates on group rows.
+        // 1 failed group pre-seeded for requeue demo. Run totals use visible count + physical bytes (hybrid).
+        // Old flat 6-row seed preserved below as commented alternative for regression.
+        const long q1Sales = 45_000_000;
+        const long summaryXlsx = 25_000_000;
+        const long forecastCsv = 10_000_000;
+        const long reportsBytes = q1Sales + summaryXlsx + forecastCsv; // 80M
+        const long customersCsv = 74_000_000;
+        const long backupZip = 50_000_000;
+        const long archiveBytes = backupZip; // 50M
+        const long totalBytes = reportsBytes + customersCsv + archiveBytes; // 204M exactly
+
         const string sql = """
             INSERT INTO core.sftp_connection_profiles (
                 id,
@@ -95,51 +110,85 @@ public sealed class DevelopmentSimulationService : BackgroundService
                 @job_id,
                 'downloading',
                 now() - interval '2 minutes',
-                6,
-                1,
-                1,
+                3,   -- visible first-child only (rules.md:153 + invariant #6 + Phase 3 recalc)
+                1,   -- customers.csv
                 0,
-                204000000,
-                48000000,
+                1,   -- archive/ pre-failed for requeue demo
+                @total_bytes,
+                @initial_downloaded,
                 1450000)
             ON CONFLICT (id)
             DO UPDATE SET
                 status = 'downloading',
                 completed_at = NULL,
-                total_file_count = 6,
+                total_file_count = 3,
                 completed_file_count = 1,
-                skipped_file_count = 1,
-                failed_file_count = 0,
-                total_bytes = 204000000,
-                downloaded_bytes = 48000000,
+                skipped_file_count = 0,
+                failed_file_count = 1,
+                total_bytes = @total_bytes,
+                downloaded_bytes = @initial_downloaded,
                 current_bytes_per_second = 1450000;
 
             DELETE FROM core.download_queue_items
             WHERE sync_run_id = @run_id;
 
             INSERT INTO core.download_queue_items (
-                id,
-                job_id,
-                sync_run_id,
-                remote_path,
-                destination_path,
-                file_size_bytes,
-                remote_modified_at,
-                status,
-                bytes_downloaded,
-                current_bytes_per_second,
-                retry_count,
-                handled_reason,
-                queued_at,
-                started_at,
-                completed_at)
+                id, job_id, sync_run_id, remote_path, destination_path, file_size_bytes, remote_modified_at,
+                status, bytes_downloaded, current_bytes_per_second, retry_count, handled_reason, error_message,
+                queued_at, started_at, completed_at,
+                is_group, group_remote_path, child_count)
             VALUES
-                ('40000000-0000-0000-0000-000000000001', @job_id, @run_id, '/remote/incoming/2026-05-27/customers.csv', '/data/incoming/customers.csv', 12000000, now() - interval '1 hour', 'completed', 12000000, NULL, 0, NULL, now() - interval '3 minutes', now() - interval '2 minutes 50 seconds', now() - interval '2 minutes'),
-                ('40000000-0000-0000-0000-000000000002', @job_id, @run_id, '/remote/incoming/2026-05-27/orders.csv', '/data/incoming/orders.csv', 74000000, now() - interval '50 minutes', 'downloading', 36000000, 1450000, 0, NULL, now() - interval '2 minutes 45 seconds', now() - interval '90 seconds', NULL),
-                ('40000000-0000-0000-0000-000000000003', @job_id, @run_id, '/remote/incoming/2026-05-27/products.csv', '/data/incoming/products.csv', 18000000, now() - interval '45 minutes', 'queued', 0, NULL, 0, NULL, now() - interval '2 minutes 40 seconds', NULL, NULL),
-                ('40000000-0000-0000-0000-000000000004', @job_id, @run_id, '/remote/incoming/archive/images.zip', '/data/incoming/images.zip', 88000000, now() - interval '30 minutes', 'queued', 0, NULL, 0, NULL, now() - interval '2 minutes 30 seconds', NULL, NULL),
-                ('40000000-0000-0000-0000-000000000005', @job_id, @run_id, '/remote/incoming/2026-05-27/readme.txt', '/data/incoming/readme.txt', 2000000, now() - interval '20 minutes', 'skipped', 0, NULL, 0, 'unchanged', now() - interval '2 minutes 20 seconds', NULL, now() - interval '2 minutes 10 seconds'),
-                ('40000000-0000-0000-0000-000000000006', @job_id, @run_id, '/remote/incoming/2026-05-27/returns.csv', '/data/incoming/returns.csv', 10000000, now() - interval '10 minutes', 'queued', 0, NULL, 0, NULL, now() - interval '2 minutes 5 seconds', NULL, NULL);
+                -- reports/ (visible opaque group)
+                ('40000000-0000-0000-0000-0000000000a1', @job_id, @run_id,
+                 '/remote/incoming/reports/', '/data/incoming/reports/',
+                 @reports_bytes, now() - interval '1 hour',
+                 'downloading', 22500000, 1450000, 0, NULL, NULL,
+                 now() - interval '3 minutes', now() - interval '2 minutes 50 seconds', NULL,
+                 true, NULL, 3),
+
+                -- reports/ leaves (internal, linked)
+                ('40000000-0000-0000-0000-0000000000a2', @job_id, @run_id,
+                 '/remote/incoming/reports/2026/Q1-sales.pdf', '/data/incoming/reports/2026/Q1-sales.pdf',
+                 @q1_sales, now() - interval '1 hour',
+                 'downloading', 22500000, 1450000, 0, NULL, NULL,
+                 now() - interval '2 minutes 55 seconds', now() - interval '2 minutes 50 seconds', NULL,
+                 false, '/remote/incoming/reports/', 0),
+                ('40000000-0000-0000-0000-0000000000a3', @job_id, @run_id,
+                 '/remote/incoming/reports/summary.xlsx', '/data/incoming/reports/summary.xlsx',
+                 @summary_xlsx, now() - interval '55 minutes',
+                 'queued', 0, NULL, 0, NULL, NULL,
+                 now() - interval '2 minutes 50 seconds', NULL, NULL,
+                 false, '/remote/incoming/reports/', 0),
+                ('40000000-0000-0000-0000-0000000000a4', @job_id, @run_id,
+                 '/remote/incoming/reports/2026/Q1-forecast.csv', '/data/incoming/reports/2026/Q1-forecast.csv',
+                 @forecast_csv, now() - interval '50 minutes',
+                 'queued', 0, NULL, 0, NULL, NULL,
+                 now() - interval '2 minutes 45 seconds', NULL, NULL,
+                 false, '/remote/incoming/reports/', 0),
+
+                -- customers.csv (visible loose file)
+                ('40000000-0000-0000-0000-0000000000a5', @job_id, @run_id,
+                 '/remote/incoming/customers.csv', '/data/incoming/customers.csv',
+                 @customers_csv, now() - interval '45 minutes',
+                 'completed', @customers_csv, NULL, 0, NULL, NULL,
+                 now() - interval '3 minutes', now() - interval '2 minutes 55 seconds', now() - interval '2 minutes 30 seconds',
+                 false, NULL, 0),
+
+                -- archive/ (visible opaque group, pre-failed for requeue demo)
+                ('40000000-0000-0000-0000-0000000000a6', @job_id, @run_id,
+                 '/remote/incoming/archive/', '/data/incoming/archive/',
+                 @archive_bytes, now() - interval '40 minutes',
+                 'failed', 0, NULL, 0, NULL, 'Simulated subtree failure for requeue demo (Phase 6)',
+                 now() - interval '2 minutes 40 seconds', now() - interval '2 minutes 30 seconds', now() - interval '2 minutes 20 seconds',
+                 true, NULL, 1),
+
+                -- archive/ leaf (internal)
+                ('40000000-0000-0000-0000-0000000000a7', @job_id, @run_id,
+                 '/remote/incoming/archive/old/backup.zip', '/data/incoming/archive/old/backup.zip',
+                 @backup_zip, now() - interval '35 minutes',
+                 'failed', 0, NULL, 0, NULL, NULL,
+                 now() - interval '2 minutes 35 seconds', now() - interval '2 minutes 25 seconds', now() - interval '2 minutes 15 seconds',
+                 false, '/remote/incoming/archive/', 0);
             """;
 
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
@@ -147,9 +196,23 @@ public sealed class DevelopmentSimulationService : BackgroundService
         command.Parameters.AddWithValue("profile_id", profileId);
         command.Parameters.AddWithValue("job_id", jobId);
         command.Parameters.AddWithValue("run_id", runId);
+        command.Parameters.AddWithValue("reports_bytes", reportsBytes);
+        command.Parameters.AddWithValue("q1_sales", q1Sales);
+        command.Parameters.AddWithValue("summary_xlsx", summaryXlsx);
+        command.Parameters.AddWithValue("forecast_csv", forecastCsv);
+        command.Parameters.AddWithValue("customers_csv", customersCsv);
+        command.Parameters.AddWithValue("archive_bytes", archiveBytes);
+        command.Parameters.AddWithValue("backup_zip", backupZip);
+        command.Parameters.AddWithValue("total_bytes", totalBytes);
+        command.Parameters.AddWithValue("initial_downloaded", customersCsv + 22_500_000L);
         await command.ExecuteNonQueryAsync(cancellationToken);
 
         return runId;
+
+        /*
+        // Pre-Phase 6 flat-only seed (6 visible rows, no groups) — kept for regression testing flat behavior.
+        // DELETE + INSERT block identical to the original implementation before Phase 6.
+        */
     }
 
     public void StartSimulation()
@@ -182,19 +245,6 @@ public sealed class DevelopmentSimulationService : BackgroundService
                 _logger.LogWarning(ex, "Development simulation tick failed.");
             }
         }
-    }
-
-    private async Task AdvanceAsync(CancellationToken cancellationToken)
-    {
-        var item = await AdvanceQueueItemAsync(cancellationToken);
-        if (item is null)
-        {
-            return;
-        }
-
-        var run = await RecalculateRunAsync(item.SyncRunId!.Value, cancellationToken);
-        await _broadcaster.QueueItemUpdatedAsync(item, cancellationToken);
-        await _broadcaster.RunUpdatedAsync(run, cancellationToken);
     }
 
     private async Task<DownloadQueueItemResponse?> AdvanceQueueItemAsync(CancellationToken cancellationToken)
@@ -396,5 +446,153 @@ public sealed class DevelopmentSimulationService : BackgroundService
             reader.GetBoolean(17),
             reader.IsDBNull(18) ? null : reader.GetString(18),
             reader.GetInt32(19));
+    }
+
+    // Phase 6 additions (plan:373 + 374 + Phase 5 hybrid semantics + rules.md:126/129-134).
+    // Hybrid aggregate-on-group-row: when leaves advance, we mirror exact SUMs/status to the visible group row.
+    // Picker (AdvanceQueueItemAsync) is intentionally left byte-identical for flat compat.
+
+    private async Task AdvanceAsync(CancellationToken cancellationToken)
+    {
+        var item = await AdvanceQueueItemAsync(cancellationToken);
+        if (item is null)
+        {
+            return;
+        }
+
+        // Phase 6: if an internal leaf was advanced, mirror its group aggregates and broadcast the *visible* group row instead.
+        if (!item.IsGroup && item.GroupRemotePath is not null && item.SyncRunId.HasValue)
+        {
+            await SyncGroupAggregatesFromLeavesAsync(item.GroupRemotePath, item.SyncRunId.Value, cancellationToken);
+            var visibleGroup = await LoadQueueItemByRemotePathAsync(item.GroupRemotePath, item.SyncRunId.Value, cancellationToken);
+            if (visibleGroup is not null)
+            {
+                item = visibleGroup;
+            }
+        }
+
+        var run = await RecalculateRunAsync(item.SyncRunId!.Value, cancellationToken);
+        await _broadcaster.QueueItemUpdatedAsync(item, cancellationToken);
+        await _broadcaster.RunUpdatedAsync(run, cancellationToken);
+    }
+
+    private async Task SyncGroupAggregatesFromLeavesAsync(string groupRemotePath, Guid runId, CancellationToken ct)
+    {
+        const string sql = """
+            WITH leaf_stats AS (
+                SELECT
+                    COALESCE(SUM(bytes_downloaded), 0) AS bytes_downloaded,
+                    COALESCE(SUM(current_bytes_per_second), 0) AS current_bps,
+                    COUNT(*) FILTER (WHERE status IN ('completed','skipped','failed')) AS done_count,
+                    COUNT(*) AS leaf_count,
+                    BOOL_OR(status = 'downloading') AS any_downloading,
+                    BOOL_OR(status = 'failed') AS any_failed
+                FROM core.download_queue_items
+                WHERE sync_run_id = @run_id AND group_remote_path = @grp AND is_group = false
+            )
+            UPDATE core.download_queue_items g
+            SET bytes_downloaded = ls.bytes_downloaded,
+                current_bytes_per_second = NULLIF(ls.current_bps, 0),
+                status = CASE
+                    WHEN ls.any_failed THEN 'failed'
+                    WHEN ls.done_count = ls.leaf_count THEN 'completed'
+                    WHEN ls.any_downloading OR ls.bytes_downloaded > 0 THEN 'downloading'
+                    ELSE 'queued'
+                END,
+                started_at = COALESCE(g.started_at, now()),
+                completed_at = CASE WHEN ls.done_count = ls.leaf_count AND NOT ls.any_failed THEN now() ELSE NULL END,
+                updated_at = now()
+            FROM leaf_stats ls
+            WHERE g.sync_run_id = @run_id AND g.remote_path = @grp AND g.is_group = true;
+            """;
+
+        await using var conn = await _dataSource.OpenConnectionAsync(ct);
+        await using var cmd = new NpgsqlCommand(sql, conn);
+        cmd.Parameters.AddWithValue("run_id", runId);
+        cmd.Parameters.AddWithValue("grp", groupRemotePath);
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    private async Task<DownloadQueueItemResponse?> LoadQueueItemByRemotePathAsync(string remotePath, Guid runId, CancellationToken ct)
+    {
+        const string sql = """
+            SELECT id, job_id, sync_run_id, remote_path, destination_path, file_size_bytes, remote_modified_at,
+                   status, bytes_downloaded, current_bytes_per_second, retry_count, handled_reason, error_message,
+                   queued_at, started_at, completed_at, updated_at, is_group, group_remote_path, child_count
+            FROM core.download_queue_items
+            WHERE sync_run_id = @run_id AND remote_path = @path
+            LIMIT 1;
+            """;
+
+        await using var conn = await _dataSource.OpenConnectionAsync(ct);
+        await using var cmd = new NpgsqlCommand(sql, conn);
+        cmd.Parameters.AddWithValue("run_id", runId);
+        cmd.Parameters.AddWithValue("path", remotePath);
+        await using var r = await cmd.ExecuteReaderAsync(ct);
+        if (!await r.ReadAsync(ct)) return null;
+        return ReadQueueItem(r);
+    }
+
+    public async Task RequeueGroupAsync(Guid queueItemId, CancellationToken cancellationToken = default)
+    {
+        // Exact subtree requeue per Phase 5 semantics + rules.md:129-134 (group row + all leaves via group_remote_path).
+        const string sql = """
+            UPDATE core.download_queue_items
+            SET status = 'queued',
+                bytes_downloaded = 0,
+                current_bytes_per_second = NULL,
+                error_message = NULL,
+                handled_reason = NULL,
+                started_at = NULL,
+                completed_at = NULL,
+                retry_count = 0,
+                updated_at = now()
+            WHERE id = @id AND is_group = true;
+
+            UPDATE core.download_queue_items l
+            SET status = 'queued',
+                bytes_downloaded = 0,
+                current_bytes_per_second = NULL,
+                error_message = NULL,
+                handled_reason = NULL,
+                started_at = NULL,
+                completed_at = NULL,
+                retry_count = 0,
+                updated_at = now()
+            WHERE l.sync_run_id = (SELECT sync_run_id FROM core.download_queue_items WHERE id = @id)
+              AND l.group_remote_path = (SELECT remote_path FROM core.download_queue_items WHERE id = @id)
+              AND l.is_group = false;
+            """;
+
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.AddWithValue("id", queueItemId);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+
+        // Immediate demo feedback: broadcast the now-queued visible group + updated run.
+        var group = await LoadQueueItemByIdAsync(queueItemId, cancellationToken);
+        if (group?.SyncRunId != null)
+        {
+            var run = await RecalculateRunAsync(group.SyncRunId.Value, cancellationToken);
+            await _broadcaster.QueueItemUpdatedAsync(group, cancellationToken);
+            await _broadcaster.RunUpdatedAsync(run, cancellationToken);
+        }
+    }
+
+    private async Task<DownloadQueueItemResponse?> LoadQueueItemByIdAsync(Guid id, CancellationToken ct)
+    {
+        const string sql = """
+            SELECT id, job_id, sync_run_id, remote_path, destination_path, file_size_bytes, remote_modified_at,
+                   status, bytes_downloaded, current_bytes_per_second, retry_count, handled_reason, error_message,
+                   queued_at, started_at, completed_at, updated_at, is_group, group_remote_path, child_count
+            FROM core.download_queue_items WHERE id = @id;
+            """;
+
+        await using var conn = await _dataSource.OpenConnectionAsync(ct);
+        await using var cmd = new NpgsqlCommand(sql, conn);
+        cmd.Parameters.AddWithValue("id", id);
+        await using var r = await cmd.ExecuteReaderAsync(ct);
+        if (!await r.ReadAsync(ct)) return null;
+        return ReadQueueItem(r);
     }
 }

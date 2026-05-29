@@ -53,4 +53,19 @@ public sealed class DevelopmentSimulationController : ControllerBase
         _simulationService.StopSimulation();
         return Ok(new { isRunning = _simulationService.IsRunning });
     }
+
+    // Phase 6 (plan:374): dev-only requeue for a failed opaque group (and its subtree leaves).
+    // Uses the exact semantics defined in Phase 5 + grouping-rules.md:129-134.
+    // Enables demonstrating group failure + requeue in the simulation without touching production paths.
+    [HttpPost("requeue-group/{queueItemId}")]
+    public async Task<ActionResult<object>> RequeueGroup(Guid queueItemId, CancellationToken cancellationToken)
+    {
+        if (!_environment.IsDevelopment())
+        {
+            return NotFound();
+        }
+
+        await _simulationService.RequeueGroupAsync(queueItemId, cancellationToken);
+        return Ok(new { queueItemId, requeued = true, note = "Group + all linked leaves reset to 'queued'. Start simulation to observe re-advance." });
+    }
 }

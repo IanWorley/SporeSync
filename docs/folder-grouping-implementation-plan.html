@@ -315,6 +315,8 @@
         <li>Backfill logic or a one-time migration step for any existing data (mostly dev simulation rows).</li>
         <li>Update the down-migration cleanly.</li>
       </ul>
+      <p class="status" style="margin-top:8px;">✓ Completed 2026-05-28 (subagent-driven + controlled integration; tests green)</p>
+      <p class="note" style="font-size:0.9em;">Exact artifacts delivered (verbatim from subagent proposal after exhaustive exploration of all prior migrations, fixture, seeds, .csproj, table DDL): <code>202605290001_AddQueueItemGrouping_up.sql</code> (ALTER ADD 3 columns with DEFAULTs + 2 indexes + 3 COMMENT ON using locked spec from Phase 0 + child_count=total-leaves semantics + backfill note), matching <code>_down.sql</code> (DROP INDEX IF EXISTS core. + ALTER DROP COLUMN in safe order), and <code>AddQueueItemGroupingMigration.cs</code> (exact style match to AddUiSupportIndexesMigration.cs:1-31 and siblings). No data backfill UPDATE needed (DEFAULTs + explicit-column INSERTs in sim/tests make all pre-existing flat rows correct non-group hybrid rows automatically; fresh test containers via RepositoryTestcontainerFixture.cs:19-35 + MigrateUp). Build + targeted repo integration test (DownloadQueueItemRepository_GetByRunId) green post-change. 100% additive/compatible (no impact on any existing INSERT/SELECT/UPDATE in sim or tests; functions still see original 17 cols). See subagent report (ID f082b954...) for 20+ file:line citations. Minor nuance: index names followed locked proposal exactly (even if slightly longer than some prior "run_" shorthands).</p>
 
       <h3>Phase 2 — SQL Functions &amp; Aggregates</h3>
       <ul>

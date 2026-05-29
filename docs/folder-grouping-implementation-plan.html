@@ -331,6 +331,8 @@
         <li>Ensure search still works sensibly against the visible group paths.</li>
         <li>Add a new internal function or flag for the worker that can fetch a group's leaves when needed for requeue/resume.</li>
       </ul>
+      <p class="status" style="margin-top:8px;">✓ Completed 2026-05-28 (subagent-driven + controlled integration; tests green)</p>
+      <p class="note" style="font-size:0.9em;">Exact artifacts (verbatim from subagent ID 33cce51a... after 30+ Reads/Globs/Greps): new migration 202605290002 (up: CREATE OR REPLACE for the two queue funcs with the visible filter <code>AND (qi.is_group = true OR (qi.is_group = false AND qi.group_remote_path IS NULL))</code> + full comments citing rules.md:137/170 + plan + locked decisions + new internal <code>core.get_download_queue_group_leaves</code> helper exactly as plan:332 requested; down drops only the new helper). Run aggregate recalc helpers explicitly deferred (strong rationale in subagent: current flat-only data + Phase 6 sim scope). 100% backward compatible (filter is a no-op on all existing sim + test flat rows via Phase 1 defaults + explicit-col INSERTs; signatures/17 cols/sorts/search unchanged; existing repo integration test passes unchanged). Build + tests green. See subagent report for exhaustive cites (functions at 202605280001...:431-556, repo:56-95, sim recalc:273-282, seeds, grouping-rules.md, etc.).</p>
 
       <h3>Phase 3 — Backend Models, DTOs, Services</h3>
       <ul>

@@ -12,6 +12,13 @@ public sealed class DashboardBroadcaster : IDashboardBroadcaster
         _hubContext = hubContext;
     }
 
+    // Phase 5 readiness (plan:364 + grouping-rules.md:129-134 + locked #4):
+    // QueueItemUpdated sends the full DownloadQueueItemResponse (incl. Phase 3 IsGroup/GroupRemotePath/ChildCount).
+    // When a worker updates a group row (or its leaves, then re-broadcasts the *visible group* with updated aggregates),
+    // clients (still fully opaque per Phase 7) receive it via the existing "QueueItemUpdated" event + run-group subscription.
+    // No special group handling or leaf→group fan-out is required in the broadcaster itself.
+    // See also IDashboardBroadcaster.cs.
+
     public async Task RunUpdatedAsync(
         SftpSyncRunResponse run,
         CancellationToken cancellationToken = default)

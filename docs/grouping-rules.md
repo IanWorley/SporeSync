@@ -133,6 +133,13 @@ When a run begins scanning/enqueuing for a job (future worker or sim update):
 - Requeue of a loose file affects only that row.
 - This satisfies locked decision #4 exactly. The persisted leaves (hybrid) make reliable subtree requeue possible without requiring a fresh SFTP walk on every retry.
 
+**Phase 5 (2026-05-29) — Requeue, Progress & Broadcasting Semantics (M4)**: Per plan:360-366, the precise contracts have been defined (no code changes in this phase):
+- Requeue of a failed opaque group is a subtree unit op (reset the visible group row + all its internal leaves via the existing `GetLeavesForGroupAsync` + `WHERE group_remote_path = ...` pattern; scanner not re-invoked).
+- Progress contract: hybrid (maintain aggregate on the group row's `bytes_downloaded` etc. as leaves advance; recommended for consistency with scan-time aggregates, Phase 2/3 visible filters, and locked #2/#3).
+- Successful completion: mark the visible group row complete (optionally mark leaves for audit in hybrid model); normal visible run recalc + broadcast rolls up automatically.
+- Broadcaster readiness: `DashboardBroadcaster.QueueItemUpdatedAsync` + run-group subscription already suffice for groups (see the Phase 5 comments added to `DashboardBroadcaster.cs:15` and `IDashboardBroadcaster.cs:9`). Clients remain fully opaque; broadcasting the updated visible group row is the only signal needed.
+These semantics are the authoritative reference for Phases 6+ (simulation, worker, requeue endpoint). All existing flat simulation paths, SQL visible filters, and public APIs are unaffected.
+
 ### Search Behavior on Groups
 - Normal paged queue queries (after Phase 2) return only visible rows: `is_group = true` OR (`is_group = false` AND `group_remote_path IS NULL`).
 - `ILIKE` search on `remote_path` / `destination_path` therefore works directly against group dir paths (e.g. searching "reports" or "archive" matches the opaque group rows).

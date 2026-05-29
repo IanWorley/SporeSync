@@ -125,7 +125,7 @@ public sealed record ScannedRemoteEntry(
     long FileSizeBytes,             // subtree sum for groups (bytes primary per locked #3 + column spec); file size for leaves/loose
     int ChildCount,                 // total leaf files in subtree for groups (0 otherwise; per locked column spec from sibling A)
     string? GroupRemotePath,        // for internal leaves: the group's remote_path value (ends '/'); null for visible groups + loose files
-    DateTimeOffset? RemoteModifiedAt // from STAT on the leaf file (null for groups or when unavailable)
+    DateTimeOffset? RemoteModifiedAt // leaf: from STAT mtime; group: MAX mtime across subtree leaves (or NULL per grouping-rules.md:102) — or unavailable
 );
 
 /// <summary>

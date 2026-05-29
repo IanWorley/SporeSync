@@ -354,6 +354,8 @@
         <li>Document the exact grouping algorithm in comments + the plan so the future implementer cannot misinterpret "first child".</li>
       </ul>
       <p class="note">This phase can be a pure interface + unit-testable fake implementation first; the real SSH.NET / SFTP.NET client work can come in a follow-up slice.</p>
+      <p class="status" style="margin-top:8px;">✓ Completed 2026-05-29 (subagent-driven + controlled integration; all 7 new tests green)</p>
+      <p class="note" style="font-size:0.9em;">Interface was defined in Phase 0 (ISftpDirectoryScanner + records with rich docs tying to locked decisions + rules.md). Phase 4 delivered the full unit-testable FakeSftpDirectoryScanner (in SftpSync.Business.Tests/Scanning/) + 7 high-value tests exercising the complete first-child opaque hybrid algorithm from grouping-rules.md (concrete example, visible vs internal split, aggregates &amp; linking, empty child dirs, normalization, file target, destination relativization). One tiny additive doc alignment in the interface for RemoteModifiedAt on groups (to match rules.md:102 MAX). Build + all new tests pass cleanly (0 real SFTP/network/FS). 100% additive, zero impact on prod or flat sim. Subagent ID 41d09476... provided the complete ready-to-use code; lead performed mandatory Reads + minimal robustness fixes for tuple/normalization edge cases + test run to green. This completes the "pure interface + unit-testable fake implementation first" goal of Phase 4 / M3.</p>
 
       <h3>Phase 5 — Progress, Status, Requeue &amp; Broadcasting</h3>
       <ul>

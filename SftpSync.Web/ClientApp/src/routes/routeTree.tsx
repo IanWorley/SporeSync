@@ -1,5 +1,3 @@
-/* eslint-disable react-refresh/only-export-components */
-
 import type { QueryClient } from "@tanstack/react-query";
 import { useQuery } from "@tanstack/react-query";
 import {

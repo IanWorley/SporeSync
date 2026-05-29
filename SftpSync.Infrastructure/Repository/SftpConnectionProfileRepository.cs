@@ -26,8 +26,7 @@ public sealed class SftpConnectionProfileRepository : ISftpConnectionProfileRepo
                    encrypted_private_key,
                    encrypted_private_key_passphrase,
                    is_default
-            FROM core.sftp_connection_profiles
-            ORDER BY is_default DESC, name;
+            FROM core.get_sftp_connection_profiles();
             """;
 
         var profiles = new List<SftpConnectionProfile>();
@@ -58,8 +57,7 @@ public sealed class SftpConnectionProfileRepository : ISftpConnectionProfileRepo
                    encrypted_private_key,
                    encrypted_private_key_passphrase,
                    is_default
-            FROM core.sftp_connection_profiles
-            WHERE id = @id;
+            FROM core.get_sftp_connection_profile(@id);
             """;
 
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
@@ -79,26 +77,17 @@ public sealed class SftpConnectionProfileRepository : ISftpConnectionProfileRepo
         SftpConnectionProfile profile,
         CancellationToken cancellationToken = default)
     {
-        const string unsetDefaultSql = """
-            UPDATE core.sftp_connection_profiles
-            SET is_default = false,
-                updated_at = now()
-            WHERE is_default = true
-              AND id <> @id;
-            """;
-
-        const string upsertSql = """
-            INSERT INTO core.sftp_connection_profiles (
-                id,
-                name,
-                host,
-                port,
-                username,
-                encrypted_password,
-                encrypted_private_key,
-                encrypted_private_key_passphrase,
-                is_default)
-            VALUES (
+        const string sql = """
+            SELECT id,
+                   name,
+                   host,
+                   port,
+                   username,
+                   encrypted_password,
+                   encrypted_private_key,
+                   encrypted_private_key_passphrase,
+                   is_default
+            FROM core.upsert_sftp_connection_profile(
                 @id,
                 @name,
                 @host,
@@ -107,40 +96,11 @@ public sealed class SftpConnectionProfileRepository : ISftpConnectionProfileRepo
                 @encrypted_password,
                 @encrypted_private_key,
                 @encrypted_private_key_passphrase,
-                @is_default)
-            ON CONFLICT (id)
-            DO UPDATE SET
-                name = EXCLUDED.name,
-                host = EXCLUDED.host,
-                port = EXCLUDED.port,
-                username = EXCLUDED.username,
-                encrypted_password = EXCLUDED.encrypted_password,
-                encrypted_private_key = EXCLUDED.encrypted_private_key,
-                encrypted_private_key_passphrase = EXCLUDED.encrypted_private_key_passphrase,
-                is_default = EXCLUDED.is_default,
-                updated_at = now()
-            RETURNING id,
-                      name,
-                      host,
-                      port,
-                      username,
-                      encrypted_password,
-                      encrypted_private_key,
-                      encrypted_private_key_passphrase,
-                      is_default;
+                @is_default);
             """;
 
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
-
-        if (profile.IsDefault)
-        {
-            await using var unsetDefaultCommand = new NpgsqlCommand(unsetDefaultSql, connection, transaction);
-            unsetDefaultCommand.Parameters.AddWithValue("id", profile.Id);
-            await unsetDefaultCommand.ExecuteNonQueryAsync(cancellationToken);
-        }
-
-        await using var command = new NpgsqlCommand(upsertSql, connection, transaction);
+        await using var command = new NpgsqlCommand(sql, connection);
         command.Parameters.AddWithValue("id", profile.Id);
         command.Parameters.AddWithValue("name", profile.Name);
         command.Parameters.AddWithValue("host", profile.Host);
@@ -159,23 +119,13 @@ public sealed class SftpConnectionProfileRepository : ISftpConnectionProfileRepo
             throw new InvalidOperationException("SFTP connection profile upsert did not return a row.");
         }
 
-        var savedProfile = ReadProfile(reader);
-        await reader.DisposeAsync();
-        await transaction.CommitAsync(cancellationToken);
-
-        return savedProfile;
+        return ReadProfile(reader);
     }
 
     public async Task<bool> HasAnyEncryptedSecretsAsync(CancellationToken cancellationToken = default)
     {
         const string sql = """
-            SELECT EXISTS (
-                SELECT 1
-                FROM core.sftp_connection_profiles
-                WHERE encrypted_password IS NOT NULL
-                   OR encrypted_private_key IS NOT NULL
-                   OR encrypted_private_key_passphrase IS NOT NULL
-            );
+            SELECT core.has_any_sftp_connection_profile_encrypted_secrets();
             """;
 
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);

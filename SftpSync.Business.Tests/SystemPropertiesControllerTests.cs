@@ -60,7 +60,7 @@ public sealed class SystemPropertiesControllerTests
             WasCalled = true;
             return Task.FromResult(new SystemProperty
             {
-                Id = propertyName,
+                Id = Guid.NewGuid(),
                 PropertyName = propertyName,
                 PropertyValue = propertyValue
             });

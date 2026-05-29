@@ -39,14 +39,14 @@ public sealed class SystemPropertyServiceTests
     {
         public SystemProperty PropertyByName { get; } = new()
         {
-            Id = Guid.NewGuid().ToString(),
+            Id = Guid.NewGuid(),
             PropertyName = "sync:enabled",
             PropertyValue = "false"
         };
 
         public SystemProperty UpsertResult { get; } = new()
         {
-            Id = Guid.NewGuid().ToString(),
+            Id = Guid.NewGuid(),
             PropertyName = "sync:enabled",
             PropertyValue = "true"
         };

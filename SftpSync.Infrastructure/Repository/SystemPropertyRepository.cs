@@ -1,7 +1,6 @@
 using Npgsql;
 using SftpSync.Domain.Interface;
 using SftpSync.Domain.Model;
-using Visus.Cuid;
 
 namespace SftpSync.Infrastructure.Repository;
 
@@ -48,7 +47,7 @@ public sealed class SystemPropertyRepository : ISystemPropertyRepository
 
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
         await using var command = new NpgsqlCommand(sql, connection);
-        command.Parameters.AddWithValue("id", CreateCuid2());
+        command.Parameters.AddWithValue("id", Guid.NewGuid());
         command.Parameters.AddWithValue("property_name", propertyName);
         command.Parameters.AddWithValue("property_value", propertyValue);
 
@@ -67,19 +66,13 @@ public sealed class SystemPropertyRepository : ISystemPropertyRepository
         CancellationToken cancellationToken = default)
     {
         const string sql = """
-            INSERT INTO core.system_properties (id, property_name, property_value)
-            VALUES (@id, @property_name, @property_value)
-            ON CONFLICT (property_name)
-            DO NOTHING;
-
             SELECT id, property_name, property_value
-            FROM core.system_properties
-            WHERE property_name = @property_name;
+            FROM core.insert_system_property_if_missing(@id, @property_name, @property_value);
             """;
 
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
         await using var command = new NpgsqlCommand(sql, connection);
-        command.Parameters.AddWithValue("id", CreateCuid2());
+        command.Parameters.AddWithValue("id", Guid.NewGuid());
         command.Parameters.AddWithValue("property_name", propertyName);
         command.Parameters.AddWithValue("property_value", propertyValue);
 
@@ -96,14 +89,9 @@ public sealed class SystemPropertyRepository : ISystemPropertyRepository
     {
         return new SystemProperty
         {
-            Id = reader.GetString(0),
+            Id = reader.GetGuid(0),
             PropertyName = reader.GetString(1),
             PropertyValue = reader.GetString(2)
         };
-    }
-
-    private static string CreateCuid2()
-    {
-        return new Cuid2().ToString();
     }
 }

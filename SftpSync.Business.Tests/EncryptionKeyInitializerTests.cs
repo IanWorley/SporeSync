@@ -152,7 +152,7 @@ public sealed class EncryptionKeyInitializerTests
             CancellationToken cancellationToken = default)
         {
             return Task.FromResult(Values.TryGetValue(propertyName, out var value)
-                ? new SystemProperty { Id = propertyName, PropertyName = propertyName, PropertyValue = value }
+                ? new SystemProperty { Id = Guid.NewGuid(), PropertyName = propertyName, PropertyValue = value }
                 : null);
         }
 
@@ -182,7 +182,7 @@ public sealed class EncryptionKeyInitializerTests
         {
             return new SystemProperty
             {
-                Id = propertyName,
+                Id = Guid.NewGuid(),
                 PropertyName = propertyName,
                 PropertyValue = propertyValue
             };

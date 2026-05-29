@@ -32,34 +32,12 @@ public sealed class SftpSyncRunRepository : ISftpSyncRunRepository
         var pageSize = Math.Clamp(query.PageSize, 1, 200);
         var offset = (pageNumber - 1) * pageSize;
         var statuses = NormalizeStatuses(query.Statuses);
-        var sortExpression = GetSortExpression(query.SortBy);
         var sortDirection = IsAscending(query.SortDirection) ? "ASC" : "DESC";
 
-        var whereSql = """
-            WHERE (@statuses::text[] IS NULL OR r.status = ANY(@statuses))
-              AND (
-                    @search IS NULL
-                    OR j.name ILIKE @search
-                    OR EXISTS (
-                        SELECT 1
-                        FROM core.download_queue_items qi
-                        WHERE qi.sync_run_id = r.id
-                          AND (qi.remote_path ILIKE @search OR qi.destination_path ILIKE @search)
-                    )
-                  )
-            """;
-
-        var countSql = $"""
-            SELECT count(*)
-            FROM core.sftp_sync_runs r
-            INNER JOIN core.sftp_sync_jobs j ON j.id = r.job_id
-            {whereSql};
-            """;
-
-        var itemsSql = $"""
+        const string sql = """
             SELECT r.id,
                    r.job_id,
-                   j.name AS job_name,
+                   r.job_name,
                    r.status,
                    r.started_at,
                    r.completed_at,
@@ -71,23 +49,28 @@ public sealed class SftpSyncRunRepository : ISftpSyncRunRepository
                    r.downloaded_bytes,
                    r.current_bytes_per_second,
                    r.error_message
-            FROM core.sftp_sync_runs r
-            INNER JOIN core.sftp_sync_jobs j ON j.id = r.job_id
-            {whereSql}
-            ORDER BY {sortExpression} {sortDirection}, r.started_at DESC, r.id
-            LIMIT @page_size OFFSET @offset;
+            FROM core.get_sftp_sync_runs(
+                @statuses,
+                @search,
+                @sort_by,
+                @sort_direction,
+                @page_size,
+                @offset) r;
             """;
 
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
 
+        const string countSql = "SELECT core.count_sftp_sync_runs(@statuses, @search);";
         await using var countCommand = new NpgsqlCommand(countSql, connection);
         AddQueryParameters(countCommand, statuses, query.Search);
         var totalCount = (long)(await countCommand.ExecuteScalarAsync(cancellationToken)
             ?? throw new InvalidOperationException("Run count query did not return a value."));
 
         var runs = new List<SftpSyncRun>();
-        await using var itemsCommand = new NpgsqlCommand(itemsSql, connection);
+        await using var itemsCommand = new NpgsqlCommand(sql, connection);
         AddQueryParameters(itemsCommand, statuses, query.Search);
+        itemsCommand.Parameters.AddWithValue("sort_by", NormalizeSortBy(query.SortBy));
+        itemsCommand.Parameters.AddWithValue("sort_direction", sortDirection);
         itemsCommand.Parameters.AddWithValue("page_size", pageSize);
         itemsCommand.Parameters.AddWithValue("offset", offset);
 
@@ -113,7 +96,7 @@ public sealed class SftpSyncRunRepository : ISftpSyncRunRepository
         const string sql = """
             SELECT r.id,
                    r.job_id,
-                   j.name AS job_name,
+                   r.job_name,
                    r.status,
                    r.started_at,
                    r.completed_at,
@@ -125,9 +108,7 @@ public sealed class SftpSyncRunRepository : ISftpSyncRunRepository
                    r.downloaded_bytes,
                    r.current_bytes_per_second,
                    r.error_message
-            FROM core.sftp_sync_runs r
-            INNER JOIN core.sftp_sync_jobs j ON j.id = r.job_id
-            WHERE r.id = @id;
+            FROM core.get_sftp_sync_run(@id) r;
             """;
 
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
@@ -169,16 +150,12 @@ public sealed class SftpSyncRunRepository : ISftpSyncRunRepository
         return normalized.Length == 0 ? null : normalized;
     }
 
-    private static string GetSortExpression(string sortBy)
+    private static string NormalizeSortBy(string sortBy)
     {
         return sortBy switch
         {
-            "status" => "r.status",
-            "jobName" => "j.name",
-            "size" => "r.total_bytes",
-            "progress" => "CASE WHEN r.total_bytes = 0 THEN 0 ELSE r.downloaded_bytes::numeric / r.total_bytes END",
-            "completedAt" => "r.completed_at",
-            _ => "r.started_at"
+            "status" or "jobName" or "size" or "progress" or "completedAt" => sortBy,
+            _ => "startedAt"
         };
     }
 

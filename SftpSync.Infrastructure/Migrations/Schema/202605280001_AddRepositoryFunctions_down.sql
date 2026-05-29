@@ -1,0 +1,13 @@
+DROP FUNCTION IF EXISTS core.count_download_queue_items(uuid, text[], text);
+DROP FUNCTION IF EXISTS core.get_download_queue_items(uuid, text[], text, text, text, integer, integer);
+DROP FUNCTION IF EXISTS core.get_sftp_sync_runs(text[], text, text, text, integer, integer);
+DROP FUNCTION IF EXISTS core.count_sftp_sync_runs(text[], text);
+DROP FUNCTION IF EXISTS core.get_sftp_sync_run(uuid);
+DROP FUNCTION IF EXISTS core.upsert_sftp_sync_job(uuid, uuid, varchar(200), varchar(1000), varchar(1000), integer, boolean);
+DROP FUNCTION IF EXISTS core.get_sftp_sync_job(uuid);
+DROP FUNCTION IF EXISTS core.get_sftp_sync_jobs();
+DROP FUNCTION IF EXISTS core.has_any_sftp_connection_profile_encrypted_secrets();
+DROP FUNCTION IF EXISTS core.upsert_sftp_connection_profile(uuid, varchar(200), varchar(255), integer, varchar(200), text, text, text, boolean);
+DROP FUNCTION IF EXISTS core.get_sftp_connection_profile(uuid);
+DROP FUNCTION IF EXISTS core.get_sftp_connection_profiles();
+DROP FUNCTION IF EXISTS core.insert_system_property_if_missing(varchar(32), varchar(200), varchar(1000));

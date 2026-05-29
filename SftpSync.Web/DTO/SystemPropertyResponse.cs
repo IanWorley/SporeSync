@@ -1,6 +1,6 @@
 namespace SftpSync.Web.DTO;
 
 public sealed record SystemPropertyResponse(
-    string Id,
+    Guid Id,
     string PropertyName,
     string PropertyValue);

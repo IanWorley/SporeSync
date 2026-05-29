@@ -33,22 +33,9 @@ public sealed class DownloadQueueItemRepository : IDownloadQueueItemRepository
         var pageSize = Math.Clamp(query.PageSize, 1, 200);
         var offset = (pageNumber - 1) * pageSize;
         var statuses = NormalizeStatuses(query.Statuses);
-        var sortExpression = GetSortExpression(query.SortBy);
         var sortDirection = IsAscending(query.SortDirection) ? "ASC" : "DESC";
 
-        const string whereSql = """
-            WHERE sync_run_id = @run_id
-              AND (@statuses::text[] IS NULL OR status = ANY(@statuses))
-              AND (@search IS NULL OR remote_path ILIKE @search OR destination_path ILIKE @search)
-            """;
-
-        var countSql = $"""
-            SELECT count(*)
-            FROM core.download_queue_items
-            {whereSql};
-            """;
-
-        var itemsSql = $"""
+        const string sql = """
             SELECT id,
                    job_id,
                    sync_run_id,
@@ -66,22 +53,29 @@ public sealed class DownloadQueueItemRepository : IDownloadQueueItemRepository
                    started_at,
                    completed_at,
                    updated_at
-            FROM core.download_queue_items
-            {whereSql}
-            ORDER BY {sortExpression} {sortDirection}, queued_at DESC, id
-            LIMIT @page_size OFFSET @offset;
+            FROM core.get_download_queue_items(
+                @run_id,
+                @statuses,
+                @search,
+                @sort_by,
+                @sort_direction,
+                @page_size,
+                @offset);
             """;
 
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
 
+        const string countSql = "SELECT core.count_download_queue_items(@run_id, @statuses, @search);";
         await using var countCommand = new NpgsqlCommand(countSql, connection);
         AddQueryParameters(countCommand, runId, statuses, query.Search);
         var totalCount = (long)(await countCommand.ExecuteScalarAsync(cancellationToken)
             ?? throw new InvalidOperationException("Queue item count query did not return a value."));
 
         var items = new List<DownloadQueueItem>();
-        await using var itemsCommand = new NpgsqlCommand(itemsSql, connection);
+        await using var itemsCommand = new NpgsqlCommand(sql, connection);
         AddQueryParameters(itemsCommand, runId, statuses, query.Search);
+        itemsCommand.Parameters.AddWithValue("sort_by", NormalizeSortBy(query.SortBy));
+        itemsCommand.Parameters.AddWithValue("sort_direction", sortDirection);
         itemsCommand.Parameters.AddWithValue("page_size", pageSize);
         itemsCommand.Parameters.AddWithValue("offset", offset);
 
@@ -128,17 +122,12 @@ public sealed class DownloadQueueItemRepository : IDownloadQueueItemRepository
         return normalized.Length == 0 ? null : normalized;
     }
 
-    private static string GetSortExpression(string sortBy)
+    private static string NormalizeSortBy(string sortBy)
     {
         return sortBy switch
         {
-            "status" => "status",
-            "basename" => "regexp_replace(remote_path, '^.*/', '')",
-            "path" => "remote_path",
-            "size" => "file_size_bytes",
-            "progress" => "CASE WHEN file_size_bytes = 0 THEN 0 ELSE bytes_downloaded::numeric / file_size_bytes END",
-            "completedAt" => "completed_at",
-            _ => "queued_at"
+            "status" or "basename" or "path" or "size" or "progress" or "completedAt" => sortBy,
+            _ => "queuedAt"
         };
     }
 

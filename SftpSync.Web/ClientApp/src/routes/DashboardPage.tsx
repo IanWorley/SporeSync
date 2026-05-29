@@ -9,6 +9,7 @@ import {
   ChevronsRight,
   Database,
   FileWarning,
+  Folder,
   Loader2,
   Play,
   Search,
@@ -142,7 +143,7 @@ export function DashboardPage() {
     <div className="space-y-4">
       <SectionHeader
         title={isDashboardRoute ? "Operational Dashboard" : "Run History"}
-        description="Live sync runs, queue progress, filters, and selected file details."
+        description="Live sync runs, queue progress, filters, and selected item details (files or opaque folder groups)."
         actions={<ConnectionIndicator state={signalRState} />}
       />
 
@@ -432,7 +433,7 @@ function QueueTable({
       <table className="w-full min-w-[940px] text-left text-sm">
         <thead className="bg-muted text-xs uppercase text-muted-foreground">
           <tr>
-            <SortableHeader column="basename" active={sortBy} direction={sortDirection} onSort={onSort}>File</SortableHeader>
+            <SortableHeader column="basename" active={sortBy} direction={sortDirection} onSort={onSort}>Item</SortableHeader>
             <SortableHeader column="status" active={sortBy} direction={sortDirection} onSort={onSort}>Status</SortableHeader>
             <SortableHeader column="currentBytesPerSecond" active={sortBy} direction={sortDirection} onSort={onSort}>Speed</SortableHeader>
             <th className="px-4 py-3">ETA</th>
@@ -449,8 +450,14 @@ function QueueTable({
               onClick={() => onSelectItem(item.id)}
             >
               <td className="max-w-[300px] px-4 py-3">
-                <p className="truncate font-medium">{basename(item.remotePath)}</p>
+                <div className={cn("flex items-center gap-2", item.isGroup && "text-blue-600 dark:text-blue-400")}>
+                  {item.isGroup ? <Folder size={16} className="shrink-0" /> : null}
+                  <p className="truncate font-medium">{basename(item.remotePath)}</p>
+                </div>
                 {!compact && <p className="truncate text-xs text-muted-foreground">{item.remotePath}</p>}
+                {item.isGroup && (
+                  <span className="inline-block rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-950 dark:text-blue-300">Folder group</span>
+                )}
               </td>
               <td className="px-4 py-3"><StatusBadge status={item.status} /></td>
               <td className="px-4 py-3">{formatRate(item.currentBytesPerSecond)}</td>
@@ -500,7 +507,11 @@ function ItemDetails({ item, onClose }: { item?: DownloadQueueItem; onClose: () 
   return (
     <aside className="fixed inset-y-0 right-0 z-40 flex w-full max-w-md flex-col border-l border-border bg-panel shadow-xl sm:top-14">
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
-        <h3 className="truncate text-sm font-semibold">{basename(item.remotePath)}</h3>
+        <div className="flex min-w-0 items-center gap-2">
+          {item.isGroup ? <Folder size={18} className="shrink-0 text-blue-600 dark:text-blue-400" /> : null}
+          <h3 className="truncate text-sm font-semibold">{basename(item.remotePath)}</h3>
+          {item.isGroup && <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-950 dark:text-blue-300">Folder group</span>}
+        </div>
         <Button onClick={onClose}>Close</Button>
       </div>
       <dl className="grid gap-4 overflow-auto p-4 text-sm">

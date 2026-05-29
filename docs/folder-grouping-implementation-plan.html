@@ -390,6 +390,8 @@
         <li>Update any TypeScript types and the API client if new fields appear.</li>
         <li>Consider a small visual treatment (subtle background or icon) so users instantly recognize a row represents a whole subtree.</li>
       </ul>
+      <p class="status" style="margin-top:8px;">✓ Completed 2026-05-29 (minimal opaque-only changes; continuous push)</p>
+      <p class="note" style="font-size:0.9em;">Phase 7 delivered exactly per 377-389 (no expand/collapse ever added). After Phase 6 commit, immediate minimal edits to DashboardPage.tsx: added lucide-react Folder icon; neutral "Item" column header; group rows now render Folder icon + blue accent + "Folder group" badge + subtle text color (subtle visual treatment); ItemDetails header + title also show icon + badge when isGroup; updated page description from "selected file details" to neutral language. All progress/speed/ETA/search/pagination/cache/SignalR already worked because backend sends aggregates on group rows (Phase 3/6). Frontend prod build green (tsc + vite). Zero new types or API changes. No leaf exposure. Rolling straight to Phase 8.</p>
 
       <h3>Phase 8 — Testing &amp; Validation</h3>
       <ul>

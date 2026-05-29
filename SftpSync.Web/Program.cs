@@ -1,3 +1,4 @@
+using System.Text.Json;
 using FluentMigrator.Runner;
 using Scalar.AspNetCore;
 using SftpSync.Business;
@@ -11,7 +12,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 var testcontainerDatabase = await TestcontainerDatabase.StartIfEnabledAsync(builder.Configuration);
 
-builder.Services.AddControllers();
+builder.Services.AddControllers().AddJsonOptions(options => options.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase);
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddOpenApi();
 builder.Services.AddSignalR();

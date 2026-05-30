@@ -22,7 +22,7 @@ public static class ServiceExtension
         services.AddScoped<ISftpSyncRunService, SftpSyncRunService>();
         services.AddScoped<IDownloadQueueItemService, DownloadQueueItemService>();
         services.AddScoped<ISystemPropertyService, SystemPropertyService>();
-        services.AddSingleton<ISftpClientFactory, SftpClientFactory>();
+        services.AddScoped<ISftpClientFactory, SftpClientFactory>();
         services.AddScoped<RealSftpDirectoryScanner>();
         services.AddScoped<SftpFileDownloader>();
         services.AddScoped<IChangeDetector, ChangeDetector>();

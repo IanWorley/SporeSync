@@ -3,7 +3,9 @@ using FluentMigrator.Runner;
 using Scalar.AspNetCore;
 using SftpSync.Business;
 using SftpSync.Business.Interface;
+using SftpSync.Domain.Interface;
 using SftpSync.Infrastructure;
+using SftpSync.Infrastructure.Logging;
 using SftpSync.Web;
 using SftpSync.Web.Hubs;
 
@@ -27,6 +29,11 @@ using (var scope = app.Services.CreateScope())
 {
     scope.ServiceProvider.GetRequiredService<IMigrationRunner>().MigrateUp();
     await scope.ServiceProvider.GetRequiredService<IEncryptionKeyInitializer>().InitializeAsync();
+
+    var dbLogConfig = scope.ServiceProvider.GetRequiredService<DbLoggingConfiguration>();
+    var propRepo = scope.ServiceProvider.GetRequiredService<ISystemPropertyRepository>();
+    var initialLevel = await propRepo.GetByNameAsync("db_log_level");
+    dbLogConfig.SetLevel(initialLevel?.PropertyValue);
 }
 
 if (app.Environment.IsDevelopment())

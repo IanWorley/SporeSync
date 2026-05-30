@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import {
   AlertCircle,
   Check,
@@ -289,16 +290,122 @@ export function SettingsPage() {
 }
 
 export function LogsPage() {
+  const queryClient = useQueryClient();
+  const [selectedLevel, setSelectedLevel] = useState<"debug" | "info" | "warning" | "error">("info");
+  const [autoRefresh, setAutoRefresh] = useState(true);
+
+  const levelQuery = useQuery({
+    queryKey: ["db-log-level"],
+    queryFn: async () => {
+      try {
+        const res = await api.getDbLogLevel();
+        const lvl = (res.propertyValue || "info").toLowerCase() as any;
+        setSelectedLevel(["debug", "info", "warning", "error"].includes(lvl) ? lvl : "info");
+        return res;
+      } catch {
+        return null;
+      }
+    },
+  });
+
+  const setLevelMutation = useMutation({
+    mutationFn: (value: string) => api.setDbLogLevel(value),
+    onSuccess: async (res) => {
+      setSelectedLevel(res.propertyValue.toLowerCase() as any);
+      await queryClient.invalidateQueries({ queryKey: ["db-log-level"] });
+    },
+  });
+
+  const logsQuery = useQuery({
+    queryKey: ["db-logs", selectedLevel],
+    queryFn: () => api.getDbLogs(selectedLevel, 150),
+    refetchInterval: autoRefresh ? 5000 : false,
+  });
+
+  const handleLevelChange = (newLevel: string) => {
+    setSelectedLevel(newLevel as any);
+    setLevelMutation.mutate(newLevel);
+  };
+
   return (
     <div className="space-y-4">
       <SectionHeader
-        title="Logs"
-        description="Placeholder route reserved for the LogAppended SignalR contract."
+        title="DB Call Logs"
+        description="Recent database repository calls. Level is controlled by the db_log_level system property (default: info)."
+        actions={
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={autoRefresh}
+                onChange={(e) => setAutoRefresh(e.target.checked)}
+              />
+              Auto-refresh (5s)
+            </label>
+            <select
+              value={selectedLevel}
+              onChange={(e) => handleLevelChange(e.target.value)}
+              className="rounded border border-border bg-panel px-3 py-1.5 text-sm"
+              disabled={setLevelMutation.isPending}
+            >
+              <option value="debug">Debug</option>
+              <option value="info">Info</option>
+              <option value="warning">Warning</option>
+              <option value="error">Error</option>
+            </select>
+          </div>
+        }
       />
-      <section className="rounded-lg border border-border bg-panel p-4 font-mono text-sm text-muted-foreground">
-        <p>No persisted log stream is configured yet.</p>
-        <p className="mt-2">Live contract: LogAppended</p>
-      </section>
+
+      <div className="overflow-hidden rounded-lg border border-border bg-panel">
+        <div className="grid grid-cols-[180px_80px_120px_1fr_1fr] border-b border-border bg-muted px-4 py-2 text-xs font-semibold uppercase text-muted-foreground">
+          <span>Time</span>
+          <span>Level</span>
+          <span>Duration</span>
+          <span>Operation</span>
+          <span>Params / Error</span>
+        </div>
+        <div className="max-h-[520px] overflow-auto text-sm">
+          {logsQuery.data?.items?.length ? (
+            logsQuery.data.items.map((entry, idx) => (
+              <div key={idx} className="grid grid-cols-[180px_80px_120px_1fr_1fr] border-b border-border px-4 py-2 even:bg-muted/40">
+                <span className="font-mono text-xs text-muted-foreground">
+                  {new Date(entry.timestamp).toLocaleTimeString()}
+                </span>
+                <span>
+                  <span
+                    className={
+                      entry.level === "error"
+                        ? "rounded bg-red-500/10 px-1.5 py-0.5 text-xs text-red-600"
+                        : entry.level === "warning"
+                        ? "rounded bg-amber-500/10 px-1.5 py-0.5 text-xs text-amber-600"
+                        : "rounded bg-sky-500/10 px-1.5 py-0.5 text-xs text-sky-600"
+                    }
+                  >
+                    {entry.level}
+                  </span>
+                </span>
+                <span className="font-mono text-xs">{entry.durationMs} ms</span>
+                <span className="font-medium">{entry.operation}</span>
+                <span className="truncate text-xs text-muted-foreground">
+                  {entry.exceptionMessage ? (
+                    <span className="text-red-600">{entry.exceptionMessage}</span>
+                  ) : (
+                    entry.paramNames || "—"
+                  )}
+                </span>
+              </div>
+            ))
+          ) : (
+            <div className="px-4 py-8 text-center text-muted-foreground">No DB calls logged yet at this level.</div>
+          )}
+        </div>
+      </div>
+
+      <p className="text-xs text-muted-foreground">
+        SQL text is logged at Debug level. Current effective level: <code>{logsQuery.data?.currentLevel ?? levelQuery.data?.propertyValue ?? "info"}</code>.
+        Changes take effect immediately for new calls.
+      </p>
     </div>
   );
 }

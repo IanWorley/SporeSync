@@ -1,16 +1,20 @@
+using Microsoft.Extensions.Logging;
 using Npgsql;
 using SftpSync.Domain.Interface;
 using SftpSync.Domain.Model;
+using SftpSync.Infrastructure.Logging;
 
 namespace SftpSync.Infrastructure.Repository;
 
 public sealed class SystemPropertyRepository : ISystemPropertyRepository
 {
     private readonly NpgsqlDataSource _dataSource;
+    private readonly ILogger<SystemPropertyRepository> _logger;
 
-    public SystemPropertyRepository(NpgsqlDataSource dataSource)
+    public SystemPropertyRepository(NpgsqlDataSource dataSource, ILogger<SystemPropertyRepository> logger)
     {
         _dataSource = dataSource;
+        _logger = logger;
     }
 
     public async Task<SystemProperty?> GetByNameAsync(

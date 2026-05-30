@@ -1,16 +1,20 @@
+using Microsoft.Extensions.Logging;
 using Npgsql;
 using SftpSync.Domain.Interface;
 using SftpSync.Domain.Model;
+using SftpSync.Infrastructure.Logging;
 
 namespace SftpSync.Infrastructure.Repository;
 
 public sealed class SftpConnectionProfileRepository : ISftpConnectionProfileRepository
 {
     private readonly NpgsqlDataSource _dataSource;
+    private readonly ILogger<SftpConnectionProfileRepository> _logger;
 
-    public SftpConnectionProfileRepository(NpgsqlDataSource dataSource)
+    public SftpConnectionProfileRepository(NpgsqlDataSource dataSource, ILogger<SftpConnectionProfileRepository> logger)
     {
         _dataSource = dataSource;
+        _logger = logger;
     }
 
     public async Task<IReadOnlyCollection<SftpConnectionProfile>> GetAllAsync(

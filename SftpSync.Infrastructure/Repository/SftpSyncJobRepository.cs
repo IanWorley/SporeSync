@@ -1,16 +1,28 @@
+using Microsoft.Extensions.Logging;
 using Npgsql;
 using SftpSync.Domain.Interface;
 using SftpSync.Domain.Model;
+using SftpSync.Infrastructure.Logging;
 
 namespace SftpSync.Infrastructure.Repository;
 
 public sealed class SftpSyncJobRepository : ISftpSyncJobRepository
 {
     private readonly NpgsqlDataSource _dataSource;
+    private readonly ILogger<SftpSyncJobRepository> _logger;
+    private readonly DbLoggingConfiguration _config;
+    private readonly DbCallLogBuffer _buffer;
 
-    public SftpSyncJobRepository(NpgsqlDataSource dataSource)
+    public SftpSyncJobRepository(
+        NpgsqlDataSource dataSource,
+        ILogger<SftpSyncJobRepository> logger,
+        DbLoggingConfiguration config,
+        DbCallLogBuffer buffer)
     {
         _dataSource = dataSource;
+        _logger = logger;
+        _config = config;
+        _buffer = buffer;
     }
 
     public async Task<IReadOnlyCollection<SftpSyncJob>> GetAllAsync(
@@ -32,14 +44,16 @@ public sealed class SftpSyncJobRepository : ISftpSyncJobRepository
 
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
         await using var command = new NpgsqlCommand(sql, connection);
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
 
-        while (await reader.ReadAsync(cancellationToken))
-        {
-            jobs.Add(ReadSftpSyncJob(reader));
-        }
-
-        return jobs;
+        return await DbCommandLogger.ExecuteReaderAsync(_logger, _config, _buffer, command, "GetAllJobs",
+            async reader =>
+            {
+                while (await reader.ReadAsync(cancellationToken))
+                {
+                    jobs.Add(ReadSftpSyncJob(reader));
+                }
+                return jobs;
+            }, cancellationToken);
     }
 
     public async Task<SftpSyncJob?> GetByIdAsync(
@@ -62,13 +76,15 @@ public sealed class SftpSyncJobRepository : ISftpSyncJobRepository
         await using var command = new NpgsqlCommand(sql, connection);
         command.Parameters.AddWithValue("id", id);
 
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        if (!await reader.ReadAsync(cancellationToken))
-        {
-            return null;
-        }
-
-        return ReadSftpSyncJob(reader);
+        return await DbCommandLogger.ExecuteReaderAsync(_logger, _config, _buffer, command, "GetJobById",
+            async reader =>
+            {
+                if (!await reader.ReadAsync(cancellationToken))
+                {
+                    return null;
+                }
+                return ReadSftpSyncJob(reader);
+            }, cancellationToken);
     }
 
     public async Task<SftpSyncJob> UpsertAsync(
@@ -104,13 +120,15 @@ public sealed class SftpSyncJobRepository : ISftpSyncJobRepository
         command.Parameters.AddWithValue("polling_interval_seconds", job.PollingIntervalSeconds);
         command.Parameters.AddWithValue("is_enabled", job.IsEnabled);
 
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        if (!await reader.ReadAsync(cancellationToken))
-        {
-            throw new InvalidOperationException("SFTP sync job upsert did not return a row.");
-        }
-
-        return ReadSftpSyncJob(reader);
+        return await DbCommandLogger.ExecuteReaderAsync(_logger, _config, _buffer, command, "UpsertJob",
+            async reader =>
+            {
+                if (!await reader.ReadAsync(cancellationToken))
+                {
+                    throw new InvalidOperationException("SFTP sync job upsert did not return a row.");
+                }
+                return ReadSftpSyncJob(reader);
+            }, cancellationToken);
     }
 
     public async Task<IReadOnlyCollection<SftpSyncJob>> GetDueJobsAsync(
@@ -132,14 +150,16 @@ public sealed class SftpSyncJobRepository : ISftpSyncJobRepository
 
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
         await using var command = new NpgsqlCommand(sql, connection);
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
 
-        while (await reader.ReadAsync(cancellationToken))
-        {
-            jobs.Add(ReadSftpSyncJob(reader));
-        }
-
-        return jobs;
+        return await DbCommandLogger.ExecuteReaderAsync(_logger, _config, _buffer, command, "GetDueJobs",
+            async reader =>
+            {
+                while (await reader.ReadAsync(cancellationToken))
+                {
+                    jobs.Add(ReadSftpSyncJob(reader));
+                }
+                return jobs;
+            }, cancellationToken);
     }
 
     public async Task MarkPolledAsync(Guid id, CancellationToken cancellationToken = default)
@@ -153,11 +173,15 @@ public sealed class SftpSyncJobRepository : ISftpSyncJobRepository
         await using var command = new NpgsqlCommand(sql, connection);
         command.Parameters.AddWithValue("id", id);
 
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        if (!await reader.ReadAsync(cancellationToken))
-        {
-            throw new InvalidOperationException($"SFTP sync job '{id}' was not found when marking polled.");
-        }
+        await DbCommandLogger.ExecuteReaderAsync(_logger, _config, _buffer, command, "MarkJobPolled",
+            async reader =>
+            {
+                if (!await reader.ReadAsync(cancellationToken))
+                {
+                    throw new InvalidOperationException($"SFTP sync job '{id}' was not found when marking polled.");
+                }
+                return true;
+            }, cancellationToken);
     }
 
     private static SftpSyncJob ReadSftpSyncJob(NpgsqlDataReader reader)

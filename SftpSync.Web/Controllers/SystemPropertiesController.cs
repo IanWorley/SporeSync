@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using SftpSync.Business.Interface;
 using SftpSync.Domain.Model;
+using SftpSync.Infrastructure.Logging;
 using SftpSync.Web.DTO;
 
 namespace SftpSync.Web.Controllers;
@@ -10,10 +11,14 @@ namespace SftpSync.Web.Controllers;
 public sealed class SystemPropertiesController : ControllerBase
 {
     private readonly ISystemPropertyService _systemPropertyService;
+    private readonly DbLoggingConfiguration _dbLoggingConfig;
 
-    public SystemPropertiesController(ISystemPropertyService systemPropertyService)
+    public SystemPropertiesController(
+        ISystemPropertyService systemPropertyService,
+        DbLoggingConfiguration dbLoggingConfig)
     {
         _systemPropertyService = systemPropertyService;
+        _dbLoggingConfig = dbLoggingConfig;
     }
 
     [HttpGet("{propertyName}")]
@@ -51,6 +56,11 @@ public sealed class SystemPropertiesController : ControllerBase
             request.PropertyValue,
             cancellationToken);
 
+        if (string.Equals(propertyName, "db_log_level", StringComparison.OrdinalIgnoreCase))
+        {
+            _dbLoggingConfig.SetLevel(request.PropertyValue);
+        }
+
         return Ok(ToResponse(systemProperty));
     }
 
@@ -64,6 +74,6 @@ public sealed class SystemPropertiesController : ControllerBase
 
     private static bool IsEditableProperty(string propertyName)
     {
-        return false;
+        return string.Equals(propertyName, "db_log_level", StringComparison.OrdinalIgnoreCase);
     }
 }

@@ -94,4 +94,30 @@ export const api = {
     fetchJson<SftpSyncRun>(`/api/sftp-sync-jobs/${id}/run`, {
       method: "POST",
     }),
+  getDbLogLevel: () => fetchJson<SystemPropertyResponse>("/api/system-properties/db_log_level"),
+  setDbLogLevel: (value: string) =>
+    fetchJson<SystemPropertyResponse>("/api/system-properties/db_log_level", {
+      method: "PUT",
+      body: JSON.stringify({ propertyValue: value }),
+    }),
+  getDbLogs: (minLevel?: string, limit = 100) =>
+    fetchJson<{ items: DbCallLogEntry[]; currentLevel: string }>(
+      `/api/system/db-logs?minLevel=${minLevel ?? ""}&limit=${limit}`,
+    ),
 };
+
+export interface SystemPropertyResponse {
+  id: string;
+  propertyName: string;
+  propertyValue: string;
+}
+
+export interface DbCallLogEntry {
+  timestamp: string;
+  level: string;
+  operation: string;
+  durationMs: number;
+  paramNames: string;
+  exceptionMessage: string | null;
+  sqlText: string | null;
+}

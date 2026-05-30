@@ -177,6 +177,10 @@ public sealed class EncryptionKeyInitializer : IEncryptionKeyInitializer
             FirstRunCompletedAtPropertyName,
             now.UtcDateTime.ToString("O"),
             cancellationToken);
+        await _systemPropertyRepository.InsertIfMissingAsync(
+            "db_log_level",
+            "info",
+            cancellationToken);
     }
 
     private static DateTimeOffset GetKeyFileCreatedAt(string keyPath)

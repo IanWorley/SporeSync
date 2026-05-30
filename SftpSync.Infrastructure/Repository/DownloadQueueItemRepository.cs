@@ -17,6 +17,7 @@ public sealed class DownloadQueueItemRepository : IDownloadQueueItemRepository
     private const string OpGetSyncedRemoteState = "GetSyncedRemoteState";
     private const string OpClaimNextQueueItem = "ClaimNextQueueItem";
     private const string OpUpdateQueueItemProgress = "UpdateQueueItemProgress";
+    private const string OpMarkRemoteDeletedItems = "MarkRemoteDeletedItems";
     private const string OpRequeueFailedItems = "RequeueFailedItems";
 
     private static readonly HashSet<string> AllowedStatuses = new(StringComparer.OrdinalIgnoreCase)
@@ -402,6 +403,65 @@ public sealed class DownloadQueueItemRepository : IDownloadQueueItemRepository
                     throw new InvalidOperationException($"Download queue item '{update.Id}' was not found when updating progress.");
                 }
                 return ReadItem(reader);
+            }, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<DownloadQueueItem>> MarkRemoteDeletedAsync(
+        Guid jobId,
+        Guid syncRunId,
+        IReadOnlyCollection<string> remotePaths,
+        CancellationToken cancellationToken = default)
+    {
+        if (remotePaths.Count == 0)
+        {
+            return Array.Empty<DownloadQueueItem>();
+        }
+
+        const string sql = """
+            SELECT id,
+                   job_id,
+                   sync_run_id,
+                   remote_path,
+                   destination_path,
+                   file_size_bytes,
+                   remote_modified_at,
+                   status,
+                   bytes_downloaded,
+                   current_bytes_per_second,
+                   retry_count,
+                   handled_reason,
+                   error_message,
+                   queued_at,
+                   started_at,
+                   completed_at,
+                   updated_at,
+                   is_group,
+                   group_remote_path,
+                   child_count
+            FROM core.mark_remote_deleted_download_queue_items(
+                @job_id,
+                @sync_run_id,
+                @remote_paths);
+            """;
+
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.AddWithValue("job_id", jobId);
+        command.Parameters.AddWithValue("sync_run_id", syncRunId);
+        command.Parameters.Add(new NpgsqlParameter<string[]>("remote_paths", NpgsqlDbType.Array | NpgsqlDbType.Text)
+        {
+            TypedValue = remotePaths.Distinct(StringComparer.Ordinal).ToArray()
+        });
+
+        return await DbCommandLogger.ExecuteReaderAsync(_logger, command, OpMarkRemoteDeletedItems,
+            async reader =>
+            {
+                var items = new List<DownloadQueueItem>();
+                while (await reader.ReadAsync(cancellationToken))
+                {
+                    items.Add(ReadItem(reader));
+                }
+                return items;
             }, cancellationToken);
     }
 

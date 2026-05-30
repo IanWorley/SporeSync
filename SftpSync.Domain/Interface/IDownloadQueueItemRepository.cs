@@ -30,6 +30,12 @@ public interface IDownloadQueueItemRepository
         UpdateDownloadQueueItemProgress update,
         CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<DownloadQueueItem>> MarkRemoteDeletedAsync(
+        Guid jobId,
+        Guid syncRunId,
+        IReadOnlyCollection<string> remotePaths,
+        CancellationToken cancellationToken = default);
+
     Task<int> RequeueFailedAsync(
         Guid jobId,
         Guid syncRunId,

@@ -390,4 +390,46 @@ public sealed class RepositoryIntegrationTests : IClassFixture<RepositoryTestcon
         Assert.True(syncedState.ContainsKey("/remote/incoming/file.txt"));
         Assert.Equal("queued", syncedState["/remote/incoming/file.txt"].Status);
     }
+
+    [Fact]
+    public async Task DownloadQueueItemRepository_MarkRemoteDeleted_SkipsCompletedVisibleItems()
+    {
+        var profileRepository = new SftpConnectionProfileRepository(_fixture.DataSource);
+        var jobRepository = new SftpSyncJobRepository(_fixture.DataSource);
+        var runRepository = new SftpSyncRunRepository(_fixture.DataSource);
+        var queueRepository = new DownloadQueueItemRepository(_fixture.DataSource);
+
+        var profile = await profileRepository.UpsertAsync(CreateProfile());
+        var job = await jobRepository.UpsertAsync(CreateJob(profile.Id));
+        var run = await runRepository.CreateAsync(job.Id);
+
+        var item = await queueRepository.UpsertAsync(new UpsertDownloadQueueItem
+        {
+            JobId = job.Id,
+            SyncRunId = run.Id,
+            RemotePath = "/incoming/deleted.csv",
+            DestinationPath = "/local/incoming/deleted.csv",
+            FileSizeBytes = 100,
+            RemoteModifiedAt = DateTimeOffset.UtcNow,
+            IsGroup = false,
+            ChildCount = 0
+        });
+        await queueRepository.UpdateProgressAsync(new UpdateDownloadQueueItemProgress
+        {
+            Id = item.Id,
+            Status = "completed",
+            BytesDownloaded = 100
+        });
+
+        var marked = await queueRepository.MarkRemoteDeletedAsync(
+            job.Id,
+            run.Id,
+            ["/incoming/deleted.csv"]);
+
+        var skipped = Assert.Single(marked);
+        Assert.Equal(item.Id, skipped.Id);
+        Assert.Equal("skipped", skipped.Status);
+        Assert.Equal("remote_deleted", skipped.HandledReason);
+        Assert.Equal(0, skipped.BytesDownloaded);
+    }
 }

@@ -60,6 +60,16 @@ public sealed class SyncRunOrchestrator : ISyncRunOrchestrator
 
             var syncedState = await _queueRepository.GetSyncedStateAsync(job.Id, cancellationToken);
             var changes = _changeDetector.DetectChanges(scanResult, syncedState);
+            var remoteDeletedItems = await _queueRepository.MarkRemoteDeletedAsync(
+                job.Id,
+                run.Id,
+                changes.RemoteDeletedPaths,
+                cancellationToken);
+
+            foreach (var item in remoteDeletedItems)
+            {
+                await _notifier.NotifyQueueItemUpdatedAsync(item, cancellationToken);
+            }
 
             foreach (var entry in changes.EntriesToEnqueue)
             {
@@ -81,14 +91,16 @@ public sealed class SyncRunOrchestrator : ISyncRunOrchestrator
 
             await _queueRepository.RequeueFailedAsync(job.Id, run.Id, cancellationToken);
 
+            var totalVisibleCount = changes.EnqueuedVisibleCount + remoteDeletedItems.Count;
             if (changes.EnqueuedVisibleCount == 0)
             {
                 return await UpdateRunAsync(run.Id, new UpdateSftpSyncRunStatus
                 {
                     Id = run.Id,
                     Status = "completed",
-                    TotalFileCount = 0,
-                    TotalBytes = 0
+                    TotalFileCount = totalVisibleCount,
+                    TotalBytes = 0,
+                    SkippedFileCount = remoteDeletedItems.Count
                 }, cancellationToken);
             }
 
@@ -96,7 +108,7 @@ public sealed class SyncRunOrchestrator : ISyncRunOrchestrator
             {
                 Id = run.Id,
                 Status = "downloading",
-                TotalFileCount = changes.EnqueuedVisibleCount,
+                TotalFileCount = totalVisibleCount,
                 TotalBytes = changes.EnqueuedTotalBytes
             }, cancellationToken);
         }

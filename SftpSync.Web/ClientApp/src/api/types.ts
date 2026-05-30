@@ -26,8 +26,8 @@ export interface DownloadQueueItem {
   id: string;
   jobId: string;
   syncRunId: string | null;
-  remotePath: string;
-  destinationPath: string;
+  remotePath: string | null;
+  destinationPath: string | null;
   fileSizeBytes: number;
   remoteModifiedAt: string | null;
   status: string;

@@ -262,7 +262,7 @@ export function DashboardPage() {
     target: "local" | "remote",
   ) => {
     const label = item.isGroup ? "folder group" : "file";
-    const path = target === "local" ? item.destinationPath : item.remotePath;
+    const path = displayPath(item, target);
     if (
       !window.confirm(
         `Delete this ${label} ${target === "local" ? "locally" : "remotely"}?\n\n${path}`,
@@ -503,7 +503,7 @@ function useDashboardSignalR(
         pushToast({
           id: Date.now(),
           tone: "error",
-          message: `${basename(item.remotePath)} failed`,
+          message: `${displayName(item)} failed`,
         });
       }
     });
@@ -687,13 +687,11 @@ function QueueTable({
                   {item.isGroup ? (
                     <Folder size={16} className="shrink-0" />
                   ) : null}
-                  <p className="truncate font-medium">
-                    {basename(item.remotePath)}
-                  </p>
+                  <p className="truncate font-medium">{displayName(item)}</p>
                 </div>
                 {!compact && (
                   <p className="truncate text-xs text-muted-foreground">
-                    {item.remotePath}
+                    {displayPath(item, "remote")}
                   </p>
                 )}
                 {item.isGroup && (
@@ -724,7 +722,7 @@ function QueueTable({
               </td>
               {!compact && (
                 <td className="max-w-[280px] truncate px-4 py-3 text-muted-foreground">
-                  {item.destinationPath}
+                  {displayPath(item, "local")}
                 </td>
               )}
             </tr>
@@ -794,7 +792,7 @@ function ItemDetails({
             />
           ) : null}
           <h3 className="truncate text-sm font-semibold">
-            {basename(item.remotePath)}
+            {displayName(item)}
           </h3>
           {item.isGroup && (
             <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-950 dark:text-blue-300">
@@ -824,8 +822,8 @@ function ItemDetails({
           </Button>
         </div>
         <Detail label="Status" value={<StatusBadge status={item.status} />} />
-        <Detail label="Remote Path" value={item.remotePath} />
-        <Detail label="Destination Path" value={item.destinationPath} />
+        <Detail label="Remote Path" value={displayPath(item, "remote")} />
+        <Detail label="Destination Path" value={displayPath(item, "local")} />
         <Detail
           label="Progress"
           value={`${formatBytes(item.bytesDownloaded)} / ${formatBytes(item.fileSizeBytes)}`}
@@ -929,6 +927,15 @@ function formatEta(item: DownloadQueueItem) {
   if (seconds < 60) return `${seconds}s`;
   if (seconds < 3600) return `${Math.ceil(seconds / 60)}m`;
   return `${Math.ceil(seconds / 3600)}h`;
+}
+
+function displayName(item: DownloadQueueItem) {
+  return basename(displayPath(item, "remote"));
+}
+
+function displayPath(item: DownloadQueueItem, target: "local" | "remote") {
+  const path = target === "local" ? item.destinationPath : item.remotePath;
+  return path ?? item.groupRemotePath ?? "Unknown path";
 }
 
 function basename(path: string) {

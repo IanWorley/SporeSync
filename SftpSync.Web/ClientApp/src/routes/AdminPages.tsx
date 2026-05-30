@@ -290,7 +290,9 @@ export function SettingsPage() {
 
 export function LogsPage() {
   const queryClient = useQueryClient();
-  const [selectedLevel, setSelectedLevel] = useState<"debug" | "info" | "warning" | "error">("info");
+  const [selectedLevel, setSelectedLevel] = useState<
+    "debug" | "info" | "warning" | "error"
+  >("info");
   const [autoRefresh, setAutoRefresh] = useState(true);
 
   const levelQuery = useQuery({
@@ -298,8 +300,14 @@ export function LogsPage() {
     queryFn: async () => {
       try {
         const res = await api.getDbLogLevel();
-        const lvl = (res.propertyValue || "info").toLowerCase() as "debug" | "info" | "warning" | "error";
-        setSelectedLevel(["debug", "info", "warning", "error"].includes(lvl) ? lvl : "info");
+        const lvl = (res.propertyValue || "info").toLowerCase() as
+          | "debug"
+          | "info"
+          | "warning"
+          | "error";
+        setSelectedLevel(
+          ["debug", "info", "warning", "error"].includes(lvl) ? lvl : "info",
+        );
         return res;
       } catch {
         return null;
@@ -310,7 +318,13 @@ export function LogsPage() {
   const setLevelMutation = useMutation({
     mutationFn: (value: string) => api.setDbLogLevel(value),
     onSuccess: async (res) => {
-      setSelectedLevel(res.propertyValue.toLowerCase() as "debug" | "info" | "warning" | "error");
+      setSelectedLevel(
+        res.propertyValue.toLowerCase() as
+          | "debug"
+          | "info"
+          | "warning"
+          | "error",
+      );
       await queryClient.invalidateQueries({ queryKey: ["db-log-level"] });
     },
   });
@@ -367,7 +381,10 @@ export function LogsPage() {
         <div className="max-h-[520px] overflow-auto text-sm">
           {logsQuery.data?.items?.length ? (
             logsQuery.data.items.map((entry) => (
-              <div key={entry.timestamp} className="grid grid-cols-[180px_80px_120px_1fr_1fr] border-b border-border px-4 py-2 even:bg-muted/40">
+              <div
+                key={entry.timestamp}
+                className="grid grid-cols-[180px_80px_120px_1fr_1fr] border-b border-border px-4 py-2 even:bg-muted/40"
+              >
                 <span className="font-mono text-xs text-muted-foreground">
                   {new Date(entry.timestamp).toLocaleTimeString()}
                 </span>
@@ -377,8 +394,8 @@ export function LogsPage() {
                       entry.level === "error"
                         ? "rounded bg-red-500/10 px-1.5 py-0.5 text-xs text-red-600"
                         : entry.level === "warning"
-                        ? "rounded bg-amber-500/10 px-1.5 py-0.5 text-xs text-amber-600"
-                        : "rounded bg-sky-500/10 px-1.5 py-0.5 text-xs text-sky-600"
+                          ? "rounded bg-amber-500/10 px-1.5 py-0.5 text-xs text-amber-600"
+                          : "rounded bg-sky-500/10 px-1.5 py-0.5 text-xs text-sky-600"
                     }
                   >
                     {entry.level}
@@ -388,7 +405,9 @@ export function LogsPage() {
                 <span className="font-medium">{entry.operation}</span>
                 <span className="truncate text-xs text-muted-foreground">
                   {entry.exceptionMessage ? (
-                    <span className="text-red-600">{entry.exceptionMessage}</span>
+                    <span className="text-red-600">
+                      {entry.exceptionMessage}
+                    </span>
                   ) : (
                     entry.paramNames || "—"
                   )}
@@ -396,14 +415,21 @@ export function LogsPage() {
               </div>
             ))
           ) : (
-            <div className="px-4 py-8 text-center text-muted-foreground">No DB calls logged yet at this level.</div>
+            <div className="px-4 py-8 text-center text-muted-foreground">
+              No DB calls logged yet at this level.
+            </div>
           )}
         </div>
       </div>
 
       <p className="text-xs text-muted-foreground">
-        SQL text is logged at Debug level. Current effective level: <code>{logsQuery.data?.currentLevel ?? levelQuery.data?.propertyValue ?? "info"}</code>.
-        Changes take effect immediately for new calls.
+        SQL text is logged at Debug level. Current effective level:{" "}
+        <code>
+          {logsQuery.data?.currentLevel ??
+            levelQuery.data?.propertyValue ??
+            "info"}
+        </code>
+        . Changes take effect immediately for new calls.
       </p>
     </div>
   );

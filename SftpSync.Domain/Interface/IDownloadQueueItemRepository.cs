@@ -9,6 +9,10 @@ public interface IDownloadQueueItemRepository
         QueueItemQuery query,
         CancellationToken cancellationToken = default);
 
+    Task<DownloadQueueItem?> GetByIdAsync(
+        Guid id,
+        CancellationToken cancellationToken = default);
+
     // Phase 3 addition (plan:341): for future worker to load a group's internal leaves for requeue/resume.
     // Uses the Phase 2 internal SQL helper. Never exposed to UI paths (enforces no leaf leakage).
     Task<IReadOnlyList<DownloadQueueItem>> GetLeavesForGroupAsync(

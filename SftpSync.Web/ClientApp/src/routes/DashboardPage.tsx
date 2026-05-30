@@ -1,5 +1,5 @@
 import { HubConnectionBuilder, LogLevel } from "@microsoft/signalr";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams, useRouterState } from "@tanstack/react-router";
 import {
   ArrowDown,
@@ -11,6 +11,7 @@ import {
   Folder,
   Loader2,
   Search,
+  Trash2,
   Wifi,
   WifiOff,
 } from "lucide-react";
@@ -155,6 +156,38 @@ export function DashboardPage() {
     },
     enabled: Boolean(effectiveRunId),
   });
+  const deleteFileMutation = useMutation({
+    mutationFn: ({
+      item,
+      target,
+    }: {
+      item: DownloadQueueItem;
+      target: "local" | "remote";
+    }) => {
+      if (!item.syncRunId) {
+        throw new Error("Queue item is not associated with a run.");
+      }
+
+      return api.deleteQueueItemFile(item.syncRunId, item.id, target);
+    },
+    onSuccess: (result) => {
+      pushToast({
+        id: Date.now(),
+        tone: "success",
+        message: result.existed
+          ? `Deleted ${result.target} file`
+          : `${capitalize(result.target)} file was already missing`,
+      });
+    },
+    onError: (error) => {
+      pushToast({
+        id: Date.now(),
+        tone: "error",
+        message:
+          error instanceof Error ? error.message : "Delete request failed",
+      });
+    },
+  });
 
   const selectedItem = queueQuery.data?.items.find(
     (item) => item.id === selectedItemId,
@@ -224,6 +257,23 @@ export function DashboardPage() {
     }
   };
 
+  const deleteSelectedFile = (
+    item: DownloadQueueItem,
+    target: "local" | "remote",
+  ) => {
+    const label = item.isGroup ? "folder group" : "file";
+    const path = target === "local" ? item.destinationPath : item.remotePath;
+    if (
+      !window.confirm(
+        `Delete this ${label} ${target === "local" ? "locally" : "remotely"}?\n\n${path}`,
+      )
+    ) {
+      return;
+    }
+
+    deleteFileMutation.mutate({ item, target });
+  };
+
   return (
     <div className="space-y-4">
       <SectionHeader
@@ -231,7 +281,6 @@ export function DashboardPage() {
         description="Live sync runs, queue progress, filters, and selected item details (files or opaque folder groups)."
         actions={<ConnectionIndicator state={signalRState} />}
       />
-
 
       <div className="grid gap-4 xl:grid-cols-[minmax(280px,0.45fr)_minmax(0,1fr)]">
         <section className="overflow-hidden rounded-lg border border-border bg-panel">
@@ -389,6 +438,8 @@ export function DashboardPage() {
 
       <ItemDetails
         item={selectedItem}
+        isDeleting={deleteFileMutation.isPending}
+        onDelete={deleteSelectedFile}
         onClose={() => setSelectedItemId(undefined)}
       />
       <ToastStack toasts={toasts} />
@@ -719,9 +770,13 @@ function SortableHeader({
 
 function ItemDetails({
   item,
+  isDeleting,
+  onDelete,
   onClose,
 }: {
   item?: DownloadQueueItem;
+  isDeleting: boolean;
+  onDelete: (item: DownloadQueueItem, target: "local" | "remote") => void;
   onClose: () => void;
 }) {
   if (!item) {
@@ -750,6 +805,24 @@ function ItemDetails({
         <Button onClick={onClose}>Close</Button>
       </div>
       <dl className="grid gap-4 overflow-auto p-4 text-sm">
+        <div className="grid gap-2 sm:grid-cols-2">
+          <Button
+            className="justify-start border-red-500/40 text-red-600 hover:bg-red-500/10 dark:text-red-400"
+            disabled={isDeleting}
+            onClick={() => onDelete(item, "local")}
+          >
+            <Trash2 size={16} />
+            Delete Local
+          </Button>
+          <Button
+            className="justify-start border-red-500/40 text-red-600 hover:bg-red-500/10 dark:text-red-400"
+            disabled={isDeleting}
+            onClick={() => onDelete(item, "remote")}
+          >
+            <Trash2 size={16} />
+            Delete Remote
+          </Button>
+        </div>
         <Detail label="Status" value={<StatusBadge status={item.status} />} />
         <Detail label="Remote Path" value={item.remotePath} />
         <Detail label="Destination Path" value={item.destinationPath} />
@@ -860,6 +933,10 @@ function formatEta(item: DownloadQueueItem) {
 
 function basename(path: string) {
   return path.split(/[\\/]/).pop() || path;
+}
+
+function capitalize(value: string) {
+  return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 function toggleValue(values: string[], value: string) {

@@ -217,6 +217,35 @@ public sealed class DownloadQueueItemRepository : IDownloadQueueItemRepository
             }, cancellationToken);
     }
 
+    public async Task<DownloadQueueItem?> GetByIdAsync(
+        Guid id,
+        CancellationToken cancellationToken = default)
+    {
+        const string sql = """
+            SELECT id, job_id, sync_run_id, remote_path, destination_path, file_size_bytes,
+                   remote_modified_at, status, bytes_downloaded, current_bytes_per_second,
+                   retry_count, handled_reason, error_message, queued_at, started_at,
+                   completed_at, updated_at, is_group, group_remote_path, child_count
+            FROM core.download_queue_items
+            WHERE id = @id;
+            """;
+
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.AddWithValue("id", id);
+
+        return await DbCommandLogger.ExecuteReaderAsync(_logger, command, OpGetQueueItems,
+            async reader =>
+            {
+                if (!await reader.ReadAsync(cancellationToken))
+                {
+                    return null;
+                }
+
+                return ReadItem(reader);
+            }, cancellationToken);
+    }
+
     public async Task<DownloadQueueItem> UpsertAsync(
         UpsertDownloadQueueItem item,
         CancellationToken cancellationToken = default)

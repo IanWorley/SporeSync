@@ -21,6 +21,7 @@ public static class ServiceExtension
         services.AddScoped<ISftpSyncJobService, SftpSyncJobService>();
         services.AddScoped<ISftpSyncRunService, SftpSyncRunService>();
         services.AddScoped<IDownloadQueueItemService, DownloadQueueItemService>();
+        services.AddScoped<IDownloadQueueItemFileDeleteService, DownloadQueueItemFileDeleteService>();
         services.AddScoped<ISystemPropertyService, SystemPropertyService>();
         services.AddScoped<ISftpClientFactory, SftpClientFactory>();
         services.AddScoped<RealSftpDirectoryScanner>();

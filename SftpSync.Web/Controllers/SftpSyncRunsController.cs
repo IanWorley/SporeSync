@@ -11,13 +11,16 @@ public sealed class SftpSyncRunsController : ControllerBase
 {
     private readonly ISftpSyncRunService _runService;
     private readonly IDownloadQueueItemService _queueItemService;
+    private readonly IDownloadQueueItemFileDeleteService _queueItemFileDeleteService;
 
     public SftpSyncRunsController(
         ISftpSyncRunService runService,
-        IDownloadQueueItemService queueItemService)
+        IDownloadQueueItemService queueItemService,
+        IDownloadQueueItemFileDeleteService queueItemFileDeleteService)
     {
         _runService = runService;
         _queueItemService = queueItemService;
+        _queueItemFileDeleteService = queueItemFileDeleteService;
     }
 
     [HttpGet]
@@ -84,6 +87,41 @@ public sealed class SftpSyncRunsController : ControllerBase
             cancellationToken);
 
         return Ok(ToPagedResponse(result, ToQueueItemResponse));
+    }
+
+    [HttpDelete("{runId:guid}/queue-items/{queueItemId:guid}/local")]
+    public async Task<ActionResult<DeleteQueueItemFileResponse>> DeleteQueueItemLocalFile(
+        Guid runId,
+        Guid queueItemId,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _queueItemFileDeleteService.DeleteLocalAsync(runId, queueItemId, cancellationToken);
+        return ToDeleteResponse(result);
+    }
+
+    [HttpDelete("{runId:guid}/queue-items/{queueItemId:guid}/remote")]
+    public async Task<ActionResult<DeleteQueueItemFileResponse>> DeleteQueueItemRemoteFile(
+        Guid runId,
+        Guid queueItemId,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _queueItemFileDeleteService.DeleteRemoteAsync(runId, queueItemId, cancellationToken);
+        return ToDeleteResponse(result);
+    }
+
+    private ActionResult<DeleteQueueItemFileResponse> ToDeleteResponse(DeleteQueueItemFileResult result)
+    {
+        return result.Status switch
+        {
+            DeleteQueueItemFileStatus.NotFound => NotFound(),
+            DeleteQueueItemFileStatus.JobNotFound => NotFound(new { message = "Queue item's sync job was not found." }),
+            DeleteQueueItemFileStatus.Failed => BadRequest(new { message = result.ErrorMessage }),
+            _ => Ok(new DeleteQueueItemFileResponse(
+                result.QueueItemId,
+                result.Target,
+                result.Path,
+                result.Existed))
+        };
     }
 
     private static PagedResponse<TResponse> ToPagedResponse<TModel, TResponse>(

@@ -1,4 +1,5 @@
 import type {
+  DeleteQueueItemFileResponse,
   DownloadQueueItem,
   PagedResponse,
   SftpConnectionProfile,
@@ -67,6 +68,15 @@ export const api = {
     fetchJson<PagedResponse<DownloadQueueItem>>(
       `/api/sftp-sync-runs/${runId}/queue-items${toQueryString(query)}`,
     ),
+  deleteQueueItemFile: (
+    runId: string,
+    queueItemId: string,
+    target: "local" | "remote",
+  ) =>
+    fetchJson<DeleteQueueItemFileResponse>(
+      `/api/sftp-sync-runs/${runId}/queue-items/${queueItemId}/${target}`,
+      { method: "DELETE" },
+    ),
   jobs: () => fetchJson<SftpSyncJob[]>("/api/sftp-sync-jobs"),
   createJob: (request: UpsertSftpSyncJob) =>
     fetchJson<SftpSyncJob>("/api/sftp-sync-jobs", {
@@ -94,7 +104,8 @@ export const api = {
     fetchJson<SftpSyncRun>(`/api/sftp-sync-jobs/${id}/run`, {
       method: "POST",
     }),
-  getDbLogLevel: () => fetchJson<SystemPropertyResponse>("/api/system-properties/db_log_level"),
+  getDbLogLevel: () =>
+    fetchJson<SystemPropertyResponse>("/api/system-properties/db_log_level"),
   setDbLogLevel: (value: string) =>
     fetchJson<SystemPropertyResponse>("/api/system-properties/db_log_level", {
       method: "PUT",

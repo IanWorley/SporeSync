@@ -46,6 +46,13 @@ export interface DownloadQueueItem {
   childCount: number;
 }
 
+export interface DeleteQueueItemFileResponse {
+  queueItemId: string;
+  target: "local" | "remote";
+  path: string;
+  existed: boolean;
+}
+
 export interface SftpSyncJob {
   id: string;
   connectionProfileId: string;

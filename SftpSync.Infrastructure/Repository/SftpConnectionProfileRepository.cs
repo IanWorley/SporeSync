@@ -8,6 +8,11 @@ namespace SftpSync.Infrastructure.Repository;
 
 public sealed class SftpConnectionProfileRepository : ISftpConnectionProfileRepository
 {
+    private const string OpGetAllProfiles = "GetAllProfiles";
+    private const string OpGetProfileById = "GetProfileById";
+    private const string OpUpsertProfile = "UpsertProfile";
+    private const string OpHasAnyEncryptedSecrets = "HasAnyEncryptedSecrets";
+
     private readonly NpgsqlDataSource _dataSource;
     private readonly ILogger<SftpConnectionProfileRepository> _logger;
 
@@ -33,18 +38,19 @@ public sealed class SftpConnectionProfileRepository : ISftpConnectionProfileRepo
             FROM core.get_sftp_connection_profiles();
             """;
 
-        var profiles = new List<SftpConnectionProfile>();
-
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
         await using var command = new NpgsqlCommand(sql, connection);
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
 
-        while (await reader.ReadAsync(cancellationToken))
-        {
-            profiles.Add(ReadProfile(reader));
-        }
-
-        return profiles;
+        return await DbCommandLogger.ExecuteReaderAsync(_logger, command, OpGetAllProfiles,
+            async reader =>
+            {
+                var profiles = new List<SftpConnectionProfile>();
+                while (await reader.ReadAsync(cancellationToken))
+                {
+                    profiles.Add(ReadProfile(reader));
+                }
+                return profiles;
+            }, cancellationToken);
     }
 
     public async Task<SftpConnectionProfile?> GetByIdAsync(
@@ -68,13 +74,15 @@ public sealed class SftpConnectionProfileRepository : ISftpConnectionProfileRepo
         await using var command = new NpgsqlCommand(sql, connection);
         command.Parameters.AddWithValue("id", id);
 
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        if (!await reader.ReadAsync(cancellationToken))
-        {
-            return null;
-        }
-
-        return ReadProfile(reader);
+        return await DbCommandLogger.ExecuteReaderAsync(_logger, command, OpGetProfileById,
+            async reader =>
+            {
+                if (!await reader.ReadAsync(cancellationToken))
+                {
+                    return null;
+                }
+                return ReadProfile(reader);
+            }, cancellationToken);
     }
 
     public async Task<SftpConnectionProfile> UpsertAsync(
@@ -117,13 +125,15 @@ public sealed class SftpConnectionProfileRepository : ISftpConnectionProfileRepo
             (object?)profile.EncryptedPrivateKeyPassphrase ?? DBNull.Value);
         command.Parameters.AddWithValue("is_default", profile.IsDefault);
 
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        if (!await reader.ReadAsync(cancellationToken))
-        {
-            throw new InvalidOperationException("SFTP connection profile upsert did not return a row.");
-        }
-
-        return ReadProfile(reader);
+        return await DbCommandLogger.ExecuteReaderAsync(_logger, command, OpUpsertProfile,
+            async reader =>
+            {
+                if (!await reader.ReadAsync(cancellationToken))
+                {
+                    throw new InvalidOperationException("SFTP connection profile upsert did not return a row.");
+                }
+                return ReadProfile(reader);
+            }, cancellationToken);
     }
 
     public async Task<bool> HasAnyEncryptedSecretsAsync(CancellationToken cancellationToken = default)
@@ -135,7 +145,7 @@ public sealed class SftpConnectionProfileRepository : ISftpConnectionProfileRepo
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
         await using var command = new NpgsqlCommand(sql, connection);
 
-        return (bool)(await command.ExecuteScalarAsync(cancellationToken)
+        return (bool)(await DbCommandLogger.ExecuteScalarAsync(_logger, command, OpHasAnyEncryptedSecrets, cancellationToken)
             ?? throw new InvalidOperationException("Encrypted secret existence query did not return a value."));
     }
 

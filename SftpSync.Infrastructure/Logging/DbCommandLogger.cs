@@ -4,14 +4,21 @@ using Npgsql;
 
 namespace SftpSync.Infrastructure.Logging;
 
-internal static class DbCommandLogger
+public static class DbCommandLogger
 {
     private const long SlowQueryThresholdMs = 500;
 
+    private static DbLoggingConfiguration? _config;
+    private static DbCallLogBuffer? _buffer;
+
+    public static void Configure(DbLoggingConfiguration config, DbCallLogBuffer buffer)
+    {
+        _config = config;
+        _buffer = buffer;
+    }
+
     public static async Task<T> ExecuteReaderAsync<T>(
         ILogger logger,
-        DbLoggingConfiguration config,
-        DbCallLogBuffer buffer,
         NpgsqlCommand command,
         string operation,
         Func<NpgsqlDataReader, Task<T>> readFunc,
@@ -20,7 +27,7 @@ internal static class DbCommandLogger
         var paramNames = string.Join(", ", command.Parameters.Select(p => p.ParameterName));
         var sqlText = command.CommandText;
 
-        if (config.ShouldLog(LogLevel.Debug))
+        if (_config!.ShouldLog(LogLevel.Debug))
         {
             logger.LogDebug("DB {Operation} executing SQL: {Sql} | Params: [{ParamNames}]",
                 operation, sqlText, paramNames);
@@ -33,22 +40,19 @@ internal static class DbCommandLogger
             var result = await readFunc(reader);
             stopwatch.Stop();
 
-            var durationMs = stopwatch.ElapsedMilliseconds;
-            LogCompletion(logger, config, buffer, operation, durationMs, paramNames, sqlText, null);
+            LogCompletion(logger, operation, stopwatch.ElapsedMilliseconds, paramNames, sqlText, null);
             return result;
         }
         catch (Exception ex)
         {
             stopwatch.Stop();
-            LogError(logger, config, buffer, operation, stopwatch.ElapsedMilliseconds, paramNames, sqlText, ex);
+            LogError(logger, operation, stopwatch.ElapsedMilliseconds, paramNames, sqlText, ex);
             throw;
         }
     }
 
     public static async Task ExecuteNonQueryAsync(
         ILogger logger,
-        DbLoggingConfiguration config,
-        DbCallLogBuffer buffer,
         NpgsqlCommand command,
         string operation,
         CancellationToken cancellationToken = default)
@@ -56,7 +60,7 @@ internal static class DbCommandLogger
         var paramNames = string.Join(", ", command.Parameters.Select(p => p.ParameterName));
         var sqlText = command.CommandText;
 
-        if (config.ShouldLog(LogLevel.Debug))
+        if (_config!.ShouldLog(LogLevel.Debug))
         {
             logger.LogDebug("DB {Operation} executing SQL: {Sql} | Params: [{ParamNames}]",
                 operation, sqlText, paramNames);
@@ -68,21 +72,71 @@ internal static class DbCommandLogger
             await command.ExecuteNonQueryAsync(cancellationToken);
             stopwatch.Stop();
 
-            var durationMs = stopwatch.ElapsedMilliseconds;
-            LogCompletion(logger, config, buffer, operation, durationMs, paramNames, sqlText, null);
+            LogCompletion(logger, operation, stopwatch.ElapsedMilliseconds, paramNames, sqlText, null);
         }
         catch (Exception ex)
         {
             stopwatch.Stop();
-            LogError(logger, config, buffer, operation, stopwatch.ElapsedMilliseconds, paramNames, sqlText, ex);
+            LogError(logger, operation, stopwatch.ElapsedMilliseconds, paramNames, sqlText, ex);
             throw;
         }
     }
 
+    public static async Task<object?> ExecuteScalarAsync(
+        ILogger logger,
+        NpgsqlCommand command,
+        string operation,
+        CancellationToken cancellationToken = default)
+    {
+        var paramNames = string.Join(", ", command.Parameters.Select(p => p.ParameterName));
+        var sqlText = command.CommandText;
+
+        if (_config!.ShouldLog(LogLevel.Debug))
+        {
+            logger.LogDebug("DB {Operation} executing SQL: {Sql} | Params: [{ParamNames}]",
+                operation, sqlText, paramNames);
+        }
+
+        var stopwatch = Stopwatch.StartNew();
+        try
+        {
+            var result = await command.ExecuteScalarAsync(cancellationToken);
+            stopwatch.Stop();
+
+            LogCompletion(logger, operation, stopwatch.ElapsedMilliseconds, paramNames, sqlText, null);
+            return result is DBNull ? null : result;
+        }
+        catch (Exception ex)
+        {
+            stopwatch.Stop();
+            LogError(logger, operation, stopwatch.ElapsedMilliseconds, paramNames, sqlText, ex);
+            throw;
+        }
+    }
+
+    public static async Task<T> ExecuteScalarAsync<T>(
+        ILogger logger,
+        NpgsqlCommand command,
+        string operation,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await ExecuteScalarAsync(logger, command, operation, cancellationToken);
+
+        if (result is null)
+        {
+            return default!;
+        }
+
+        if (result is T typed)
+        {
+            return typed;
+        }
+
+        return (T)Convert.ChangeType(result, typeof(T));
+    }
+
     private static void LogCompletion(
         ILogger logger,
-        DbLoggingConfiguration config,
-        DbCallLogBuffer buffer,
         string operation,
         long durationMs,
         string paramNames,
@@ -94,7 +148,7 @@ internal static class DbCommandLogger
             ? "DB {Operation} completed in {DurationMs}ms (SLOW > {Threshold}ms) | Params: [{ParamNames}]"
             : "DB {Operation} completed in {DurationMs}ms | Params: [{ParamNames}]";
 
-        if (config.ShouldLog(level))
+        if (_config!.ShouldLog(level))
         {
             if (level == LogLevel.Warning)
             {
@@ -106,7 +160,7 @@ internal static class DbCommandLogger
             }
         }
 
-        buffer.Add(new DbCallLogEntry(
+        _buffer!.Add(new DbCallLogEntry(
             DateTimeOffset.UtcNow,
             level.ToString().ToLowerInvariant(),
             operation,
@@ -118,21 +172,19 @@ internal static class DbCommandLogger
 
     private static void LogError(
         ILogger logger,
-        DbLoggingConfiguration config,
-        DbCallLogBuffer buffer,
         string operation,
         long durationMs,
         string paramNames,
         string sqlText,
         Exception ex)
     {
-        if (config.ShouldLog(LogLevel.Error))
+        if (_config!.ShouldLog(LogLevel.Error))
         {
-            logger.LogError(ex, "DB {Operation} failed after {DurationMs}ms | Params: [{ParamNames}]",
-                operation, durationMs, paramNames);
+            logger.LogError(ex, "DB {Operation} failed after {DurationMs}ms | SQL: {Sql} | Params: [{ParamNames}]",
+                operation, durationMs, sqlText, paramNames);
         }
 
-        buffer.Add(new DbCallLogEntry(
+        _buffer!.Add(new DbCallLogEntry(
             DateTimeOffset.UtcNow,
             "error",
             operation,

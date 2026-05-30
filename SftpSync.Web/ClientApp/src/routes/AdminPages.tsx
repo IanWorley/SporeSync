@@ -298,7 +298,7 @@ export function LogsPage() {
     queryFn: async () => {
       try {
         const res = await api.getDbLogLevel();
-        const lvl = (res.propertyValue || "info").toLowerCase() as any;
+        const lvl = (res.propertyValue || "info").toLowerCase() as "debug" | "info" | "warning" | "error";
         setSelectedLevel(["debug", "info", "warning", "error"].includes(lvl) ? lvl : "info");
         return res;
       } catch {
@@ -310,7 +310,7 @@ export function LogsPage() {
   const setLevelMutation = useMutation({
     mutationFn: (value: string) => api.setDbLogLevel(value),
     onSuccess: async (res) => {
-      setSelectedLevel(res.propertyValue.toLowerCase() as any);
+      setSelectedLevel(res.propertyValue.toLowerCase() as "debug" | "info" | "warning" | "error");
       await queryClient.invalidateQueries({ queryKey: ["db-log-level"] });
     },
   });
@@ -322,7 +322,7 @@ export function LogsPage() {
   });
 
   const handleLevelChange = (newLevel: string) => {
-    setSelectedLevel(newLevel as any);
+    setSelectedLevel(newLevel as "debug" | "info" | "warning" | "error");
     setLevelMutation.mutate(newLevel);
   };
 
@@ -366,8 +366,8 @@ export function LogsPage() {
         </div>
         <div className="max-h-[520px] overflow-auto text-sm">
           {logsQuery.data?.items?.length ? (
-            logsQuery.data.items.map((entry, idx) => (
-              <div key={idx} className="grid grid-cols-[180px_80px_120px_1fr_1fr] border-b border-border px-4 py-2 even:bg-muted/40">
+            logsQuery.data.items.map((entry) => (
+              <div key={entry.timestamp} className="grid grid-cols-[180px_80px_120px_1fr_1fr] border-b border-border px-4 py-2 even:bg-muted/40">
                 <span className="font-mono text-xs text-muted-foreground">
                   {new Date(entry.timestamp).toLocaleTimeString()}
                 </span>

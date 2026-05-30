@@ -9,6 +9,15 @@ namespace SftpSync.Infrastructure.Repository;
 
 public sealed class SftpSyncRunRepository : ISftpSyncRunRepository
 {
+    private const string OpCountRuns = "CountRuns";
+    private const string OpGetRuns = "GetRuns";
+    private const string OpGetRunById = "GetRunById";
+    private const string OpCreateRun = "CreateRun";
+    private const string OpUpdateRunStatus = "UpdateRunStatus";
+    private const string OpJobHasActiveRun = "JobHasActiveRun";
+    private const string OpRecalculateAggregates = "RecalculateAggregates";
+    private const string OpRunHasPendingDownloads = "RunHasPendingDownloads";
+
     private static readonly HashSet<string> AllowedStatuses = new(StringComparer.OrdinalIgnoreCase)
     {
         "queued",
@@ -21,19 +30,11 @@ public sealed class SftpSyncRunRepository : ISftpSyncRunRepository
 
     private readonly NpgsqlDataSource _dataSource;
     private readonly ILogger<SftpSyncRunRepository> _logger;
-    private readonly DbLoggingConfiguration _config;
-    private readonly DbCallLogBuffer _buffer;
 
-    public SftpSyncRunRepository(
-        NpgsqlDataSource dataSource,
-        ILogger<SftpSyncRunRepository> logger,
-        DbLoggingConfiguration config,
-        DbCallLogBuffer buffer)
+    public SftpSyncRunRepository(NpgsqlDataSource dataSource, ILogger<SftpSyncRunRepository> logger)
     {
         _dataSource = dataSource;
         _logger = logger;
-        _config = config;
-        _buffer = buffer;
     }
 
     public async Task<PagedResult<SftpSyncRun>> GetRunsAsync(
@@ -75,10 +76,9 @@ public sealed class SftpSyncRunRepository : ISftpSyncRunRepository
         const string countSql = "SELECT core.count_sftp_sync_runs(@statuses, @search);";
         await using var countCommand = new NpgsqlCommand(countSql, connection);
         AddQueryParameters(countCommand, statuses, query.Search);
-        var totalCount = (long)(await countCommand.ExecuteScalarAsync(cancellationToken)
+        var totalCount = (long)(await DbCommandLogger.ExecuteScalarAsync(_logger, countCommand, OpCountRuns, cancellationToken)
             ?? throw new InvalidOperationException("Run count query did not return a value."));
 
-        var runs = new List<SftpSyncRun>();
         await using var itemsCommand = new NpgsqlCommand(sql, connection);
         AddQueryParameters(itemsCommand, statuses, query.Search);
         itemsCommand.Parameters.AddWithValue("sort_by", NormalizeSortBy(query.SortBy));
@@ -86,11 +86,16 @@ public sealed class SftpSyncRunRepository : ISftpSyncRunRepository
         itemsCommand.Parameters.AddWithValue("page_size", pageSize);
         itemsCommand.Parameters.AddWithValue("offset", offset);
 
-        await using var reader = await itemsCommand.ExecuteReaderAsync(cancellationToken);
-        while (await reader.ReadAsync(cancellationToken))
-        {
-            runs.Add(ReadRun(reader));
-        }
+        var runs = await DbCommandLogger.ExecuteReaderAsync(_logger, itemsCommand, OpGetRuns,
+            async reader =>
+            {
+                var items = new List<SftpSyncRun>();
+                while (await reader.ReadAsync(cancellationToken))
+                {
+                    items.Add(ReadRun(reader));
+                }
+                return items;
+            }, cancellationToken);
 
         return new PagedResult<SftpSyncRun>
         {
@@ -127,13 +132,15 @@ public sealed class SftpSyncRunRepository : ISftpSyncRunRepository
         await using var command = new NpgsqlCommand(sql, connection);
         command.Parameters.AddWithValue("id", id);
 
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        if (!await reader.ReadAsync(cancellationToken))
-        {
-            return null;
-        }
-
-        return ReadRun(reader);
+        return await DbCommandLogger.ExecuteReaderAsync(_logger, command, OpGetRunById,
+            async reader =>
+            {
+                if (!await reader.ReadAsync(cancellationToken))
+                {
+                    return null;
+                }
+                return ReadRun(reader);
+            }, cancellationToken);
     }
 
     public async Task<SftpSyncRun> CreateAsync(
@@ -162,13 +169,15 @@ public sealed class SftpSyncRunRepository : ISftpSyncRunRepository
         await using var command = new NpgsqlCommand(sql, connection);
         command.Parameters.AddWithValue("job_id", jobId);
 
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        if (!await reader.ReadAsync(cancellationToken))
-        {
-            throw new InvalidOperationException("SFTP sync run create did not return a row.");
-        }
-
-        return ReadRun(reader);
+        return await DbCommandLogger.ExecuteReaderAsync(_logger, command, OpCreateRun,
+            async reader =>
+            {
+                if (!await reader.ReadAsync(cancellationToken))
+                {
+                    throw new InvalidOperationException("SFTP sync run create did not return a row.");
+                }
+                return ReadRun(reader);
+            }, cancellationToken);
     }
 
     public async Task<SftpSyncRun> UpdateStatusAsync(
@@ -216,13 +225,15 @@ public sealed class SftpSyncRunRepository : ISftpSyncRunRepository
         command.Parameters.AddWithValue("current_bytes_per_second", (object?)update.CurrentBytesPerSecond ?? DBNull.Value);
         command.Parameters.AddWithValue("error_message", (object?)update.ErrorMessage ?? DBNull.Value);
 
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        if (!await reader.ReadAsync(cancellationToken))
-        {
-            throw new InvalidOperationException($"SFTP sync run '{update.Id}' was not found when updating status.");
-        }
-
-        return ReadRun(reader);
+        return await DbCommandLogger.ExecuteReaderAsync(_logger, command, OpUpdateRunStatus,
+            async reader =>
+            {
+                if (!await reader.ReadAsync(cancellationToken))
+                {
+                    throw new InvalidOperationException($"SFTP sync run '{update.Id}' was not found when updating status.");
+                }
+                return ReadRun(reader);
+            }, cancellationToken);
     }
 
     public async Task<bool> HasActiveRunAsync(
@@ -235,8 +246,7 @@ public sealed class SftpSyncRunRepository : ISftpSyncRunRepository
         await using var command = new NpgsqlCommand(sql, connection);
         command.Parameters.AddWithValue("job_id", jobId);
 
-        var result = await command.ExecuteScalarAsync(cancellationToken);
-        return result is true;
+        return await DbCommandLogger.ExecuteScalarAsync<bool>(_logger, command, OpJobHasActiveRun, cancellationToken);
     }
 
     public async Task<SftpSyncRun> RecalculateAggregatesAsync(
@@ -265,13 +275,15 @@ public sealed class SftpSyncRunRepository : ISftpSyncRunRepository
         await using var command = new NpgsqlCommand(sql, connection);
         command.Parameters.AddWithValue("run_id", runId);
 
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        if (!await reader.ReadAsync(cancellationToken))
-        {
-            throw new InvalidOperationException($"SFTP sync run '{runId}' was not found when recalculating aggregates.");
-        }
-
-        return ReadRun(reader);
+        return await DbCommandLogger.ExecuteReaderAsync(_logger, command, OpRecalculateAggregates,
+            async reader =>
+            {
+                if (!await reader.ReadAsync(cancellationToken))
+                {
+                    throw new InvalidOperationException($"SFTP sync run '{runId}' was not found when recalculating aggregates.");
+                }
+                return ReadRun(reader);
+            }, cancellationToken);
     }
 
     public async Task<bool> HasPendingDownloadsAsync(
@@ -284,8 +296,7 @@ public sealed class SftpSyncRunRepository : ISftpSyncRunRepository
         await using var command = new NpgsqlCommand(sql, connection);
         command.Parameters.AddWithValue("run_id", runId);
 
-        var result = await command.ExecuteScalarAsync(cancellationToken);
-        return result is true;
+        return await DbCommandLogger.ExecuteScalarAsync<bool>(_logger, command, OpRunHasPendingDownloads, cancellationToken);
     }
 
     private static void AddQueryParameters(

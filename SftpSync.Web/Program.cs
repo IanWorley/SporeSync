@@ -27,6 +27,10 @@ var app = builder.Build();
 
 using (var scope = app.Services.CreateScope())
 {
+    DbCommandLogger.Configure(
+        scope.ServiceProvider.GetRequiredService<DbLoggingConfiguration>(),
+        scope.ServiceProvider.GetRequiredService<DbCallLogBuffer>());
+
     scope.ServiceProvider.GetRequiredService<IMigrationRunner>().MigrateUp();
     await scope.ServiceProvider.GetRequiredService<IEncryptionKeyInitializer>().InitializeAsync();
 

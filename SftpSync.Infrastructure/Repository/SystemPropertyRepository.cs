@@ -8,6 +8,10 @@ namespace SftpSync.Infrastructure.Repository;
 
 public sealed class SystemPropertyRepository : ISystemPropertyRepository
 {
+    private const string OpGetPropertyByName = "GetPropertyByName";
+    private const string OpUpsertProperty = "UpsertProperty";
+    private const string OpInsertPropertyIfMissing = "InsertPropertyIfMissing";
+
     private readonly NpgsqlDataSource _dataSource;
     private readonly ILogger<SystemPropertyRepository> _logger;
 
@@ -30,13 +34,15 @@ public sealed class SystemPropertyRepository : ISystemPropertyRepository
         await using var command = new NpgsqlCommand(sql, connection);
         command.Parameters.AddWithValue("property_name", propertyName);
 
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        if (!await reader.ReadAsync(cancellationToken))
-        {
-            return null;
-        }
-
-        return ReadSystemProperty(reader);
+        return await DbCommandLogger.ExecuteReaderAsync(_logger, command, OpGetPropertyByName,
+            async reader =>
+            {
+                if (!await reader.ReadAsync(cancellationToken))
+                {
+                    return null;
+                }
+                return ReadSystemProperty(reader);
+            }, cancellationToken);
     }
 
     public async Task<SystemProperty> UpsertAsync(
@@ -55,13 +61,15 @@ public sealed class SystemPropertyRepository : ISystemPropertyRepository
         command.Parameters.AddWithValue("property_name", propertyName);
         command.Parameters.AddWithValue("property_value", propertyValue);
 
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        if (!await reader.ReadAsync(cancellationToken))
-        {
-            throw new InvalidOperationException("System property upsert did not return a row.");
-        }
-
-        return ReadSystemProperty(reader);
+        return await DbCommandLogger.ExecuteReaderAsync(_logger, command, OpUpsertProperty,
+            async reader =>
+            {
+                if (!await reader.ReadAsync(cancellationToken))
+                {
+                    throw new InvalidOperationException("System property upsert did not return a row.");
+                }
+                return ReadSystemProperty(reader);
+            }, cancellationToken);
     }
 
     public async Task<SystemProperty> InsertIfMissingAsync(
@@ -80,13 +88,15 @@ public sealed class SystemPropertyRepository : ISystemPropertyRepository
         command.Parameters.AddWithValue("property_name", propertyName);
         command.Parameters.AddWithValue("property_value", propertyValue);
 
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        if (!await reader.ReadAsync(cancellationToken))
-        {
-            throw new InvalidOperationException("System property insert-if-missing did not return a row.");
-        }
-
-        return ReadSystemProperty(reader);
+        return await DbCommandLogger.ExecuteReaderAsync(_logger, command, OpInsertPropertyIfMissing,
+            async reader =>
+            {
+                if (!await reader.ReadAsync(cancellationToken))
+                {
+                    throw new InvalidOperationException("System property insert-if-missing did not return a row.");
+                }
+                return ReadSystemProperty(reader);
+            }, cancellationToken);
     }
 
     private static SystemProperty ReadSystemProperty(NpgsqlDataReader reader)

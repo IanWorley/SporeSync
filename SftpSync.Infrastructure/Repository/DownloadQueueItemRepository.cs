@@ -9,6 +9,15 @@ namespace SftpSync.Infrastructure.Repository;
 
 public sealed class DownloadQueueItemRepository : IDownloadQueueItemRepository
 {
+    private const string OpCountQueueItems = "CountQueueItems";
+    private const string OpGetQueueItems = "GetQueueItems";
+    private const string OpGetGroupLeaves = "GetGroupLeaves";
+    private const string OpUpsertQueueItem = "UpsertQueueItem";
+    private const string OpGetSyncedRemoteState = "GetSyncedRemoteState";
+    private const string OpClaimNextQueueItem = "ClaimNextQueueItem";
+    private const string OpUpdateQueueItemProgress = "UpdateQueueItemProgress";
+    private const string OpRequeueFailedItems = "RequeueFailedItems";
+
     private static readonly HashSet<string> AllowedStatuses = new(StringComparer.OrdinalIgnoreCase)
     {
         "queued",
@@ -75,10 +84,9 @@ public sealed class DownloadQueueItemRepository : IDownloadQueueItemRepository
         const string countSql = "SELECT core.count_download_queue_items(@run_id, @statuses, @search);";
         await using var countCommand = new NpgsqlCommand(countSql, connection);
         AddQueryParameters(countCommand, runId, statuses, query.Search);
-        var totalCount = (long)(await countCommand.ExecuteScalarAsync(cancellationToken)
+        var totalCount = (long)(await DbCommandLogger.ExecuteScalarAsync(_logger, countCommand, OpCountQueueItems, cancellationToken)
             ?? throw new InvalidOperationException("Queue item count query did not return a value."));
 
-        var items = new List<DownloadQueueItem>();
         await using var itemsCommand = new NpgsqlCommand(sql, connection);
         AddQueryParameters(itemsCommand, runId, statuses, query.Search);
         itemsCommand.Parameters.AddWithValue("sort_by", NormalizeSortBy(query.SortBy));
@@ -86,11 +94,16 @@ public sealed class DownloadQueueItemRepository : IDownloadQueueItemRepository
         itemsCommand.Parameters.AddWithValue("page_size", pageSize);
         itemsCommand.Parameters.AddWithValue("offset", offset);
 
-        await using var reader = await itemsCommand.ExecuteReaderAsync(cancellationToken);
-        while (await reader.ReadAsync(cancellationToken))
-        {
-            items.Add(ReadItem(reader));
-        }
+        var items = await DbCommandLogger.ExecuteReaderAsync(_logger, itemsCommand, OpGetQueueItems,
+            async reader =>
+            {
+                var results = new List<DownloadQueueItem>();
+                while (await reader.ReadAsync(cancellationToken))
+                {
+                    results.Add(ReadItem(reader));
+                }
+                return results;
+            }, cancellationToken);
 
         return new PagedResult<DownloadQueueItem>
         {
@@ -188,13 +201,16 @@ public sealed class DownloadQueueItemRepository : IDownloadQueueItemRepository
         command.Parameters.AddWithValue("run_id", runId);
         command.Parameters.AddWithValue("group_remote_path", groupRemotePath);
 
-        var items = new List<DownloadQueueItem>();
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        while (await reader.ReadAsync(cancellationToken))
-        {
-            items.Add(ReadItem(reader));
-        }
-        return items;
+        return await DbCommandLogger.ExecuteReaderAsync(_logger, command, OpGetGroupLeaves,
+            async reader =>
+            {
+                var items = new List<DownloadQueueItem>();
+                while (await reader.ReadAsync(cancellationToken))
+                {
+                    items.Add(ReadItem(reader));
+                }
+                return items;
+            }, cancellationToken);
     }
 
     public async Task<DownloadQueueItem> UpsertAsync(
@@ -246,13 +262,15 @@ public sealed class DownloadQueueItemRepository : IDownloadQueueItemRepository
         command.Parameters.AddWithValue("group_remote_path", (object?)item.GroupRemotePath ?? DBNull.Value);
         command.Parameters.AddWithValue("child_count", item.ChildCount);
 
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        if (!await reader.ReadAsync(cancellationToken))
-        {
-            throw new InvalidOperationException("Download queue item upsert did not return a row.");
-        }
-
-        return ReadItem(reader);
+        return await DbCommandLogger.ExecuteReaderAsync(_logger, command, OpUpsertQueueItem,
+            async reader =>
+            {
+                if (!await reader.ReadAsync(cancellationToken))
+                {
+                    throw new InvalidOperationException("Download queue item upsert did not return a row.");
+                }
+                return ReadItem(reader);
+            }, cancellationToken);
     }
 
     public async Task<IReadOnlyDictionary<string, SyncedRemoteState>> GetSyncedStateAsync(
@@ -271,21 +289,23 @@ public sealed class DownloadQueueItemRepository : IDownloadQueueItemRepository
         await using var command = new NpgsqlCommand(sql, connection);
         command.Parameters.AddWithValue("job_id", jobId);
 
-        var states = new Dictionary<string, SyncedRemoteState>(StringComparer.Ordinal);
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        while (await reader.ReadAsync(cancellationToken))
-        {
-            var state = new SyncedRemoteState
+        return await DbCommandLogger.ExecuteReaderAsync(_logger, command, OpGetSyncedRemoteState,
+            async reader =>
             {
-                RemotePath = reader.GetString(0),
-                RemoteModifiedAt = reader.IsDBNull(1) ? null : reader.GetFieldValue<DateTimeOffset>(1),
-                FileSizeBytes = reader.GetInt64(2),
-                Status = reader.GetString(3)
-            };
-            states[state.RemotePath] = state;
-        }
-
-        return states;
+                var states = new Dictionary<string, SyncedRemoteState>(StringComparer.Ordinal);
+                while (await reader.ReadAsync(cancellationToken))
+                {
+                    var state = new SyncedRemoteState
+                    {
+                        RemotePath = reader.GetString(0),
+                        RemoteModifiedAt = reader.IsDBNull(1) ? null : reader.GetFieldValue<DateTimeOffset>(1),
+                        FileSizeBytes = reader.GetInt64(2),
+                        Status = reader.GetString(3)
+                    };
+                    states[state.RemotePath] = state;
+                }
+                return states;
+            }, cancellationToken);
     }
 
     public async Task<DownloadQueueItem?> ClaimNextAsync(CancellationToken cancellationToken = default)
@@ -316,13 +336,16 @@ public sealed class DownloadQueueItemRepository : IDownloadQueueItemRepository
 
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
         await using var command = new NpgsqlCommand(sql, connection);
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        if (!await reader.ReadAsync(cancellationToken))
-        {
-            return null;
-        }
 
-        return ReadItem(reader);
+        return await DbCommandLogger.ExecuteReaderAsync(_logger, command, OpClaimNextQueueItem,
+            async reader =>
+            {
+                if (!await reader.ReadAsync(cancellationToken))
+                {
+                    return null;
+                }
+                return ReadItem(reader);
+            }, cancellationToken);
     }
 
     public async Task<DownloadQueueItem> UpdateProgressAsync(
@@ -368,13 +391,15 @@ public sealed class DownloadQueueItemRepository : IDownloadQueueItemRepository
         command.Parameters.AddWithValue("error_message", (object?)update.ErrorMessage ?? DBNull.Value);
         command.Parameters.AddWithValue("handled_reason", (object?)update.HandledReason ?? DBNull.Value);
 
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        if (!await reader.ReadAsync(cancellationToken))
-        {
-            throw new InvalidOperationException($"Download queue item '{update.Id}' was not found when updating progress.");
-        }
-
-        return ReadItem(reader);
+        return await DbCommandLogger.ExecuteReaderAsync(_logger, command, OpUpdateQueueItemProgress,
+            async reader =>
+            {
+                if (!await reader.ReadAsync(cancellationToken))
+                {
+                    throw new InvalidOperationException($"Download queue item '{update.Id}' was not found when updating progress.");
+                }
+                return ReadItem(reader);
+            }, cancellationToken);
     }
 
     public async Task<int> RequeueFailedAsync(
@@ -391,7 +416,6 @@ public sealed class DownloadQueueItemRepository : IDownloadQueueItemRepository
         command.Parameters.AddWithValue("job_id", jobId);
         command.Parameters.AddWithValue("sync_run_id", syncRunId);
 
-        var result = await command.ExecuteScalarAsync(cancellationToken);
-        return Convert.ToInt32(result);
+        return await DbCommandLogger.ExecuteScalarAsync<int>(_logger, command, OpRequeueFailedItems, cancellationToken);
     }
 }

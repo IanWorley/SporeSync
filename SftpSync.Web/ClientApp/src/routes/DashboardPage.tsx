@@ -118,7 +118,7 @@ export function DashboardPage() {
         sortDirection: "desc",
       }),
   });
-  const statusQuery = useQuery({
+  const _statusQuery = useQuery({
     queryKey: queryKeys.status,
     queryFn: api.status,
     refetchInterval: 30_000,

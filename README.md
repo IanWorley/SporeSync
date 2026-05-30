@@ -8,7 +8,7 @@ SftpSync is an ASP.NET Core application with a React/Vite single-page app for mo
 - React, TypeScript, Vite, TanStack Router, and TanStack Query frontend
 - SignalR dashboard updates
 - PostgreSQL persistence with FluentMigrator migrations
-- Development simulation endpoints for local dashboard data (now includes realistic opaque folder groups + leaves for large syncs)
+- Real SFTP sync worker: scheduled job polling, incremental scan/enqueue, serial download to local filesystem
 - Backend-driven first-child opaque folder grouping: large directories appear as a small number of logical rows in the dashboard with subtree aggregates (see docs/folder-grouping-implementation-plan.html and docs/grouping-rules.md)
 - Scalar/OpenAPI API documentation
 - Optional Testcontainers-backed PostgreSQL development profile
@@ -84,6 +84,21 @@ The default connection string is in `SftpSync.Web/appsettings.json` and `SftpSyn
 ```
 
 For local development without Testcontainers, create a matching PostgreSQL database and user or override `ConnectionStrings:DefaultConnection` with environment variables, user secrets, or local configuration.
+
+Configure an SFTP connection profile and sync job through the admin UI or REST API (`/api/sftp-connection-profiles`, `/api/sftp-sync-jobs`). Trigger an immediate run with `POST /api/sftp-sync-jobs/{id}/run`. Enabled jobs are polled automatically every 10 seconds (configurable via `SftpSync:SchedulerIntervalSeconds`).
+
+Worker settings in `appsettings.json`:
+
+```json
+{
+  "SftpSync": {
+    "SchedulerIntervalSeconds": 10,
+    "DownloadPollIntervalMs": 1000,
+    "SftpConnectionTimeoutSeconds": 30,
+    "SftpOperationTimeoutSeconds": 300
+  }
+}
+```
 
 ## Common Commands
 

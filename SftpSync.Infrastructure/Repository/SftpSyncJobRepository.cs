@@ -113,6 +113,53 @@ public sealed class SftpSyncJobRepository : ISftpSyncJobRepository
         return ReadSftpSyncJob(reader);
     }
 
+    public async Task<IReadOnlyCollection<SftpSyncJob>> GetDueJobsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        const string sql = """
+            SELECT id,
+                   connection_profile_id,
+                   name,
+                   source_path,
+                   destination_path,
+                   polling_interval_seconds,
+                   is_enabled,
+                   last_polled_at
+            FROM core.get_due_sftp_sync_jobs();
+            """;
+
+        var jobs = new List<SftpSyncJob>();
+
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(sql, connection);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            jobs.Add(ReadSftpSyncJob(reader));
+        }
+
+        return jobs;
+    }
+
+    public async Task MarkPolledAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        const string sql = """
+            SELECT id
+            FROM core.mark_sftp_sync_job_polled(@id);
+            """;
+
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.AddWithValue("id", id);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            throw new InvalidOperationException($"SFTP sync job '{id}' was not found when marking polled.");
+        }
+    }
+
     private static SftpSyncJob ReadSftpSyncJob(NpgsqlDataReader reader)
     {
         return new SftpSyncJob

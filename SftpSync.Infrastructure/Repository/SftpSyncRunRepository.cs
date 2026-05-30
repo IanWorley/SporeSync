@@ -124,6 +124,158 @@ public sealed class SftpSyncRunRepository : ISftpSyncRunRepository
         return ReadRun(reader);
     }
 
+    public async Task<SftpSyncRun> CreateAsync(
+        Guid jobId,
+        CancellationToken cancellationToken = default)
+    {
+        const string sql = """
+            SELECT r.id,
+                   r.job_id,
+                   r.job_name,
+                   r.status,
+                   r.started_at,
+                   r.completed_at,
+                   r.total_file_count,
+                   r.completed_file_count,
+                   r.skipped_file_count,
+                   r.failed_file_count,
+                   r.total_bytes,
+                   r.downloaded_bytes,
+                   r.current_bytes_per_second,
+                   r.error_message
+            FROM core.create_sftp_sync_run(@job_id) r;
+            """;
+
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.AddWithValue("job_id", jobId);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            throw new InvalidOperationException("SFTP sync run create did not return a row.");
+        }
+
+        return ReadRun(reader);
+    }
+
+    public async Task<SftpSyncRun> UpdateStatusAsync(
+        UpdateSftpSyncRunStatus update,
+        CancellationToken cancellationToken = default)
+    {
+        const string sql = """
+            SELECT r.id,
+                   r.job_id,
+                   r.job_name,
+                   r.status,
+                   r.started_at,
+                   r.completed_at,
+                   r.total_file_count,
+                   r.completed_file_count,
+                   r.skipped_file_count,
+                   r.failed_file_count,
+                   r.total_bytes,
+                   r.downloaded_bytes,
+                   r.current_bytes_per_second,
+                   r.error_message
+            FROM core.update_sftp_sync_run_status(
+                @id,
+                @status,
+                @total_file_count,
+                @total_bytes,
+                @completed_file_count,
+                @skipped_file_count,
+                @failed_file_count,
+                @downloaded_bytes,
+                @current_bytes_per_second,
+                @error_message) r;
+            """;
+
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.AddWithValue("id", update.Id);
+        command.Parameters.AddWithValue("status", update.Status);
+        command.Parameters.AddWithValue("total_file_count", (object?)update.TotalFileCount ?? DBNull.Value);
+        command.Parameters.AddWithValue("total_bytes", (object?)update.TotalBytes ?? DBNull.Value);
+        command.Parameters.AddWithValue("completed_file_count", (object?)update.CompletedFileCount ?? DBNull.Value);
+        command.Parameters.AddWithValue("skipped_file_count", (object?)update.SkippedFileCount ?? DBNull.Value);
+        command.Parameters.AddWithValue("failed_file_count", (object?)update.FailedFileCount ?? DBNull.Value);
+        command.Parameters.AddWithValue("downloaded_bytes", (object?)update.DownloadedBytes ?? DBNull.Value);
+        command.Parameters.AddWithValue("current_bytes_per_second", (object?)update.CurrentBytesPerSecond ?? DBNull.Value);
+        command.Parameters.AddWithValue("error_message", (object?)update.ErrorMessage ?? DBNull.Value);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            throw new InvalidOperationException($"SFTP sync run '{update.Id}' was not found when updating status.");
+        }
+
+        return ReadRun(reader);
+    }
+
+    public async Task<bool> HasActiveRunAsync(
+        Guid jobId,
+        CancellationToken cancellationToken = default)
+    {
+        const string sql = "SELECT core.job_has_active_run(@job_id);";
+
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.AddWithValue("job_id", jobId);
+
+        var result = await command.ExecuteScalarAsync(cancellationToken);
+        return result is true;
+    }
+
+    public async Task<SftpSyncRun> RecalculateAggregatesAsync(
+        Guid runId,
+        CancellationToken cancellationToken = default)
+    {
+        const string sql = """
+            SELECT r.id,
+                   r.job_id,
+                   r.job_name,
+                   r.status,
+                   r.started_at,
+                   r.completed_at,
+                   r.total_file_count,
+                   r.completed_file_count,
+                   r.skipped_file_count,
+                   r.failed_file_count,
+                   r.total_bytes,
+                   r.downloaded_bytes,
+                   r.current_bytes_per_second,
+                   r.error_message
+            FROM core.recalculate_sftp_sync_run_aggregates(@run_id) r;
+            """;
+
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.AddWithValue("run_id", runId);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            throw new InvalidOperationException($"SFTP sync run '{runId}' was not found when recalculating aggregates.");
+        }
+
+        return ReadRun(reader);
+    }
+
+    public async Task<bool> HasPendingDownloadsAsync(
+        Guid runId,
+        CancellationToken cancellationToken = default)
+    {
+        const string sql = "SELECT core.run_has_pending_downloads(@run_id);";
+
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.AddWithValue("run_id", runId);
+
+        var result = await command.ExecuteScalarAsync(cancellationToken);
+        return result is true;
+    }
+
     private static void AddQueryParameters(
         NpgsqlCommand command,
         string[]? statuses,

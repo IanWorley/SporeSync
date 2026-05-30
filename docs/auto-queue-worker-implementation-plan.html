@@ -1,0 +1,770 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SftpSync Auto-Queue Worker Implementation Plan</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f7f8fa;
+      --fg: #1f2933;
+      --muted: #5f6b7a;
+      --panel: #ffffff;
+      --border: #d9dee7;
+      --accent: #0f6fdc;
+      --code: #eef2f7;
+      --good-bg: #dcfce7;
+      --good-fg: #166534;
+      --warn-bg: #fef3c7;
+      --warn-fg: #92400e;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #101418;
+        --fg: #e6e9ee;
+        --muted: #a8b1bd;
+        --panel: #171d24;
+        --border: #2d3743;
+        --accent: #58a6ff;
+        --code: #202833;
+        --good-bg: #14532d;
+        --good-fg: #bbf7d0;
+        --warn-bg: #451a03;
+        --warn-fg: #fde047;
+      }
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--fg);
+      font: 16px/1.55 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    main {
+      max-width: 1040px;
+      margin: 0 auto;
+      padding: 48px 24px 72px;
+    }
+
+    header {
+      margin-bottom: 32px;
+    }
+
+    h1, h2, h3 {
+      line-height: 1.2;
+      margin: 0;
+    }
+
+    h1 {
+      font-size: clamp(2rem, 4vw, 3rem);
+      letter-spacing: 0;
+    }
+
+    h2 {
+      margin-top: 32px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+      font-size: 1.45rem;
+    }
+
+    h3 {
+      margin-top: 24px;
+      font-size: 1.05rem;
+    }
+
+    p {
+      margin: 12px 0;
+    }
+
+    ul, ol {
+      margin: 12px 0 0;
+      padding-left: 24px;
+    }
+
+    li {
+      margin: 6px 0;
+    }
+
+    code {
+      background: var(--code);
+      border-radius: 4px;
+      padding: 1px 5px;
+      font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+      font-size: 0.94em;
+    }
+
+    pre {
+      background: var(--code);
+      padding: 16px;
+      border-radius: 8px;
+      overflow-x: auto;
+      font-size: 0.9em;
+      line-height: 1.5;
+    }
+
+    .summary {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 18px 20px;
+      margin-top: 20px;
+    }
+
+    .decision {
+      background: var(--good-bg);
+      color: var(--good-fg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px 18px;
+      margin: 16px 0;
+    }
+
+    .milestone {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 18px 20px;
+      margin-top: 16px;
+    }
+
+    .note {
+      color: var(--muted);
+    }
+
+    .status {
+      display: inline-block;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 2px 8px;
+      margin-left: 8px;
+      color: #166534;
+      background: #dcfce7;
+      font-size: 0.78rem;
+      font-weight: 700;
+      vertical-align: 2px;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      .status {
+        color: #bbf7d0;
+        background: #14532d;
+      }
+    }
+
+    .example {
+      background: var(--panel);
+      border-left: 4px solid var(--accent);
+      padding: 14px 18px;
+      margin: 16px 0;
+      border-radius: 0 8px 8px 0;
+    }
+
+    .warn {
+      background: var(--warn-bg);
+      color: var(--warn-fg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px 18px;
+      margin: 16px 0;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 16px 0;
+    }
+
+    th, td {
+      border: 1px solid var(--border);
+      padding: 8px 12px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: var(--panel);
+    }
+
+    a {
+      color: var(--accent);
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>SftpSync Auto-Queue Worker</h1>
+      <p class="note">Implementation plan for real SFTP sync: DB-driven job scheduling, incremental scan/enqueue, and serial download worker. Branch: <code>feat/auto-queue-job</code>.</p>
+
+      <div class="summary">
+        <p><strong>Goal:</strong> Replace <code>DevelopmentSimulationService</code> with a real background sync engine that polls enabled jobs from PostgreSQL, scans SFTP for new/changed files, enqueues work into <code>download_queue_items</code> (hybrid grouping model), and downloads to the local filesystem — broadcasting run/queue updates via existing SignalR infrastructure.</p>
+        <p><strong>References:</strong> <a href="grouping-rules.md"><code>docs/grouping-rules.md</code></a>, <a href="folder-grouping-implementation-plan.html">folder grouping plan</a>, <code>ISftpDirectoryScanner</code> in <code>SftpSync.Business/Scanning/</code>.</p>
+        <p><strong>Status:</strong> <span class="status">Requirements locked — ready to implement</span></p>
+      </div>
+    </header>
+
+    <section>
+      <h2>Locked Requirements</h2>
+      <p>All decisions below were confirmed during planning (2026-05-29).</p>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Area</th>
+            <th>Decision</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Scope</td>
+            <td>Full pipeline: scheduler + scan/enqueue + download worker + real SFTP</td>
+          </tr>
+          <tr>
+            <td>Job concurrency</td>
+            <td>Multiple jobs in parallel; <strong>one active run per job</strong> (skip if already running)</td>
+          </tr>
+          <tr>
+            <td>Download concurrency</td>
+            <td><strong>1 at a time</strong> (global serial)</td>
+          </tr>
+          <tr>
+            <td>Re-scan strategy</td>
+            <td><strong>New/changed only</strong> — compare remote mtime + size vs last synced state</td>
+          </tr>
+          <tr>
+            <td>Individual file failure</td>
+            <td>Item stays <code>failed</code>; run completes when nothing is <code>queued</code>/<code>downloading</code>/<code>comparing</code>; <strong>next poll re-queues failed items</strong></td>
+          </tr>
+          <tr>
+            <td>Run-level failure</td>
+            <td>No immediate retry; wait for next poll interval</td>
+          </tr>
+          <tr>
+            <td>Folder groups</td>
+            <td><strong>Recursive subtree download</strong> for <code>is_group = true</code> rows (per grouping rules locked decision #5)</td>
+          </tr>
+          <tr>
+            <td>Destination</td>
+            <td><strong>Local filesystem only</strong></td>
+          </tr>
+          <tr>
+            <td>Scheduler tick</td>
+            <td><strong>Every 10 seconds</strong></td>
+          </tr>
+          <tr>
+            <td><code>last_polled_at</code></td>
+            <td>Updated when scheduler <strong>picks up</strong> the job</td>
+          </tr>
+          <tr>
+            <td>Manual run</td>
+            <td><strong>Immediate</strong>; <strong>409 Conflict</strong> if job already has active run</td>
+          </tr>
+          <tr>
+            <td>SFTP</td>
+            <td>Real SFTP in dev and prod</td>
+          </tr>
+          <tr>
+            <td>Dev simulation</td>
+            <td><strong>Remove/replace</strong> <code>DevelopmentSimulationService</code></td>
+          </tr>
+          <tr>
+            <td>SFTP library</td>
+            <td><strong>SSH.NET</strong> (<code>SSH.NET</code> NuGet, <code>Renci.SshNet</code>)</td>
+          </tr>
+          <tr>
+            <td>Empty scan</td>
+            <td>Create run, mark <code>completed</code> immediately (audit trail)</td>
+          </tr>
+          <tr>
+            <td>Deployment</td>
+            <td>Single app instance — no distributed locking</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Current State</h2>
+      <ul>
+        <li>Jobs exist in <code>core.sftp_sync_jobs</code> with <code>polling_interval_seconds</code>, <code>is_enabled</code>, and <code>last_polled_at</code>.</li>
+        <li>Runs and queue items are persisted; repositories are <strong>read-only</strong> (writes only via dev simulation raw SQL).</li>
+        <li><code>ISftpDirectoryScanner</code> + <code>FakeSftpDirectoryScanner</code> exist; no real SFTP client.</li>
+        <li><code>DevelopmentSimulationService</code> is the only background worker — seeds and simulates progress; does not poll jobs from DB.</li>
+        <li>Hybrid grouping columns (<code>is_group</code>, <code>group_remote_path</code>, <code>child_count</code>) and SQL functions are complete (Phases 0–9 of folder grouping plan).</li>
+        <li>SignalR broadcaster (<code>RunUpdated</code>, <code>QueueItemUpdated</code>) is ready for real worker events.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Architecture</h2>
+
+      <div class="example">
+        <pre>JobSchedulerHostedService (every 10s)
+  → query due enabled jobs
+  → skip if active run exists for job
+  → update last_polled_at
+  → create run (queued → scanning)
+  → scan SFTP (RealSftpDirectoryScanner)
+  → diff new/changed vs synced state
+  → upsert queue items
+  → if no work: run → completed
+  → else: run → downloading
+
+DownloadWorkerHostedService (global serial)
+  → claim next queued item (any job/run)
+  → if is_group: download all internal leaves recursively
+  → else: download single file to local path
+  → update item + run aggregates + SignalR
+  → when run has no pending items: run → completed</pre>
+      </div>
+
+      <h3>Two-phase model</h3>
+      <ol>
+        <li><strong>Scan phase</strong> — job checks what exists on SFTP; matching work is written to the queue.</li>
+        <li><strong>Download phase</strong> — separate worker pulls from the queue and transfers files to disk.</li>
+      </ol>
+      <p>Scans for different jobs may run in parallel. Downloads are strictly serial (one at a time globally).</p>
+    </section>
+
+    <section>
+      <h2>Proposed Project Structure</h2>
+      <pre>SftpSync.Business/
+  Worker/
+    JobSchedulerHostedService.cs      # hosted in Web
+    DownloadWorkerHostedService.cs    # hosted in Web
+    ISyncRunOrchestrator.cs
+    SyncRunOrchestrator.cs
+    IChangeDetector.cs
+    ChangeDetector.cs
+  Sftp/
+    ISftpClientFactory.cs
+    SftpClientFactory.cs
+    RealSftpDirectoryScanner.cs       # ISftpDirectoryScanner impl
+    SftpFileDownloader.cs
+  Scanning/
+    ISftpDirectoryScanner.cs          # existing
+    FakeSftpDirectoryScanner.cs       # keep for tests
+
+SftpSync.Infrastructure/
+  Repository/                         # + write methods on job/run/queue repos
+
+SftpSync.Web/
+  Controllers/SftpSyncJobsController.cs # + POST {id}/run
+  # Remove: Development/, DevelopmentSimulationController</pre>
+    </section>
+
+    <section>
+      <h2>Implementation Phases</h2>
+
+      <h3>Phase 1 — Database &amp; Repository Writes</h3>
+      <p><strong>Problem:</strong> Repositories are read-only today. Runs and queue items are only written by dev simulation raw SQL.</p>
+
+      <h4>1a. SQL functions / migration</h4>
+      <p>New timestamped migration under <code>SftpSync.Infrastructure/Migrations/Schema/</code> (e.g. <code>20260530xxxx_AddWorkerRepositoryFunctions</code>):</p>
+      <table>
+        <thead>
+          <tr>
+            <th>Function</th>
+            <th>Purpose</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>core.get_due_sftp_sync_jobs()</code></td>
+            <td>Enabled jobs where <code>now() &gt;= last_polled_at + polling_interval</code> (or <code>last_polled_at IS NULL</code>)</td>
+          </tr>
+          <tr>
+            <td><code>core.mark_sftp_sync_job_polled(p_id)</code></td>
+            <td>Set <code>last_polled_at = now()</code></td>
+          </tr>
+          <tr>
+            <td><code>core.job_has_active_run(p_job_id)</code></td>
+            <td>True if run status IN (<code>queued</code>, <code>scanning</code>, <code>downloading</code>)</td>
+          </tr>
+          <tr>
+            <td><code>core.create_sftp_sync_run(p_job_id)</code></td>
+            <td>INSERT run with status <code>queued</code>, return row</td>
+          </tr>
+          <tr>
+            <td><code>core.update_sftp_sync_run_status(...)</code></td>
+            <td>Status transitions + counters + <code>error_message</code></td>
+          </tr>
+          <tr>
+            <td><code>core.upsert_download_queue_item(...)</code></td>
+            <td>INSERT or UPDATE on <code>(job_id, remote_path)</code> conflict — reset status to <code>queued</code> when re-enqueueing</td>
+          </tr>
+          <tr>
+            <td><code>core.get_synced_remote_state(p_job_id)</code></td>
+            <td>Returns <code>remote_path</code>, <code>remote_modified_at</code>, <code>file_size_bytes</code>, <code>status</code> for change detection</td>
+          </tr>
+          <tr>
+            <td><code>core.claim_next_download_queue_item()</code></td>
+            <td><code>FOR UPDATE SKIP LOCKED</code> — pick oldest <code>queued</code> item globally</td>
+          </tr>
+          <tr>
+            <td><code>core.update_download_queue_item_progress(...)</code></td>
+            <td>Status, bytes, timestamps, error</td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="note">Reuse existing unique index <code>ux_download_queue_items_job_remote_path</code> for incremental sync state across runs.</p>
+
+      <h4>1b. C# repository extensions</h4>
+      <ul>
+        <li><code>ISftpSyncJobRepository</code>: <code>GetDueJobsAsync</code>, <code>MarkPolledAsync</code></li>
+        <li><code>ISftpSyncRunRepository</code>: <code>CreateAsync</code>, <code>UpdateStatusAsync</code>, <code>HasActiveRunAsync</code>, <code>RecalculateAggregatesAsync</code></li>
+        <li><code>IDownloadQueueItemRepository</code>: <code>UpsertAsync</code>, <code>GetSyncedStateAsync</code>, <code>ClaimNextAsync</code>, <code>UpdateProgressAsync</code></li>
+      </ul>
+
+      <div class="milestone">
+        <strong>Milestone:</strong> Can create runs and queue items from application code (no raw SQL in worker).
+      </div>
+
+      <h3>Phase 2 — SFTP Client Layer</h3>
+      <ul>
+        <li>Add NuGet <code>SSH.NET</code> to <code>SftpSync.Business</code>.</li>
+        <li><code>SftpClientFactory</code> — load connection profile, decrypt credentials via <code>ISecretProtector</code>, return connected <code>SftpClient</code>.</li>
+        <li><code>RealSftpDirectoryScanner</code> — implement <code>ISftpDirectoryScanner</code> per <a href="grouping-rules.md"><code>grouping-rules.md</code></a>:
+          <ul>
+            <li>STAT on <code>sourcePath</code> → file vs directory</li>
+            <li>Non-recursive LIST for first children</li>
+            <li>Recursive walk for group subtrees</li>
+            <li>Return <code>FirstLevelScanResult</code> (visible + internal leaves + aggregates)</li>
+          </ul>
+        </li>
+        <li>Keep <code>FakeSftpDirectoryScanner</code> for unit tests.</li>
+      </ul>
+
+      <div class="milestone">
+        <strong>Milestone:</strong> Can scan a real SFTP server and produce grouping-compatible scan results.
+      </div>
+
+      <h3>Phase 3 — Change Detection (Incremental Sync)</h3>
+      <p>For each scanned entry (visible + internal leaves):</p>
+      <pre>existing = synced state for (job_id, remote_path)
+
+if existing is null:
+    → NEW → enqueue (status = queued)
+
+else if existing.status == 'completed'
+     AND existing.remote_modified_at == scanned.mtime
+     AND existing.file_size_bytes == scanned.size:
+    → UNCHANGED → skip
+
+else:
+    → CHANGED → re-enqueue (reset status, bytes_downloaded = 0, assign new sync_run_id)</pre>
+
+      <p><strong>Failed items (requirement 3C):</strong> During scan, query items with <code>status = 'failed'</code> for this job → reset to <code>queued</code>, attach to current run.</p>
+      <p><strong>Groups:</strong> Compare group row aggregates (total bytes + max mtime). If any leaf in subtree changed, re-enqueue the group row and all internal leaves.</p>
+
+      <h4>Run initialization</h4>
+      <ul>
+        <li><code>total_file_count</code> = count of <strong>visible</strong> entries actually enqueued (not skipped)</li>
+        <li><code>total_bytes</code> = sum of enqueued visible entry bytes</li>
+        <li>If both are 0 → run → <code>completed</code> immediately (empty scan audit trail)</li>
+      </ul>
+
+      <div class="milestone">
+        <strong>Milestone:</strong> Incremental enqueue works — unchanged files are skipped, new/changed/failed are queued.
+      </div>
+
+      <h3>Phase 4 — Job Scheduler</h3>
+      <pre>JobSchedulerHostedService (every 10 seconds):
+  dueJobs = GetDueJobsAsync()
+  for each job in dueJobs (parallel Task.WhenAll ok):
+    if HasActiveRunAsync(job.Id): continue
+    MarkPolledAsync(job.Id)
+    run = CreateRunAsync(job.Id)
+    broadcast RunUpdated (queued)
+    await orchestrator.ScanAsync(job, run)</pre>
+
+      <h4>Manual run — <code>POST /api/sftp-sync-jobs/{id}/run</code></h4>
+      <ul>
+        <li>Runs immediately even if not due yet</li>
+        <li><strong>409 Conflict</strong> if job already has active run</li>
+        <li><strong>400 Bad Request</strong> if job disabled</li>
+        <li><strong>404</strong> if job not found</li>
+        <li>Do <strong>not</strong> update <code>last_polled_at</code> on manual run (so scheduled poll is not delayed)</li>
+      </ul>
+
+      <div class="milestone">
+        <strong>Milestone:</strong> Enabled jobs auto-poll from DB on interval.
+      </div>
+
+      <h3>Phase 5 — Scan Orchestration</h3>
+      <p><code>SyncRunOrchestrator.ScanAsync</code>:</p>
+      <ol>
+        <li>Transition run → <code>scanning</code> (broadcast)</li>
+        <li>Open SFTP connection from job's <code>connection_profile_id</code></li>
+        <li>Call <code>RealSftpDirectoryScanner.ScanFirstLevelAsync</code></li>
+        <li>Run <code>ChangeDetector</code> on visible + internal entries</li>
+        <li>Upsert changed/new items with <code>sync_run_id = run.Id</code></li>
+        <li>Re-queue failed items for this job</li>
+        <li>Recalculate run totals</li>
+        <li>If no items enqueued → run → <code>completed</code> (broadcast)</li>
+        <li>Else → run → <code>downloading</code> (broadcast)</li>
+      </ol>
+      <p><strong>Scan errors</strong> (connection failure, auth, etc.): run → <code>failed</code> with <code>error_message</code>; no retry until next poll.</p>
+
+      <h3>Phase 6 — Download Worker</h3>
+      <pre>DownloadWorkerHostedService (global serial loop):
+  item = ClaimNextDownloadQueueItem()
+  if item is null: delay 1s; continue
+
+  if item.is_group:
+    leaves = GetLeavesForGroupAsync(runId, groupRemotePath)
+    download each leaf to local destination_path
+    update group aggregates as leaves progress
+  else:
+    download single file via SFTP Get → local path
+
+  on success: item → completed
+  on failure: item → failed (error_message); do NOT fail entire run
+
+  update run aggregates (bytes, counts, rate)
+  broadcast QueueItemUpdated + RunUpdated
+
+  if run has no items in (queued, comparing, downloading):
+    run → completed (failed_file_count may be &gt; 0)</pre>
+
+      <h4>Local filesystem writes</h4>
+      <ul>
+        <li>Create parent directories as needed</li>
+        <li>Write to temp file → atomic rename on success</li>
+        <li>Map <code>destination_path</code> from queue item directly to local path</li>
+        <li>Preserve relative structure under job's <code>destination_path</code> for group subtrees</li>
+      </ul>
+
+      <h4>Group download flow</h4>
+      <ol>
+        <li>Claim group row (<code>is_group = true</code>)</li>
+        <li>Load internal leaves via <code>GetLeavesForGroupAsync</code></li>
+        <li>Download each leaf sequentially (global serial already enforced)</li>
+        <li>Update group row <code>bytes_downloaded</code> as leaves complete</li>
+        <li>Group → <code>completed</code> when all leaves terminal; individual leaf failures do not fail the group row</li>
+      </ol>
+
+      <div class="milestone">
+        <strong>Milestone:</strong> Files land on local disk; dashboard shows real progress.
+      </div>
+
+      <h3>Phase 7 — Remove Dev Simulation</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Remove</th>
+            <th>Replace with</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>DevelopmentSimulationService</code></td>
+            <td><code>JobSchedulerHostedService</code> + <code>DownloadWorkerHostedService</code></td>
+          </tr>
+          <tr>
+            <td><code>DevelopmentSimulationController</code></td>
+            <td><code>POST /api/sftp-sync-jobs/{id}/run</code></td>
+          </tr>
+          <tr>
+            <td><code>Program.cs</code> dev sim registration</td>
+            <td>Register new worker hosted services</td>
+          </tr>
+          <tr>
+            <td>Dev sim seed SQL</td>
+            <td>Real jobs via existing jobs API + connection profiles</td>
+          </tr>
+          <tr>
+            <td>README dev sim references</td>
+            <td>Document real SFTP setup for local dev</td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="note">Keep <code>FakeSftpDirectoryScanner</code> and its tests for scanner unit tests.</p>
+
+      <h3>Phase 8 — SignalR Integration</h3>
+      <p>Reuse <code>IDashboardBroadcaster</code> after every state change:</p>
+      <ul>
+        <li>Run created / status change → <code>RunUpdatedAsync</code></li>
+        <li>Queue item upsert / progress → <code>QueueItemUpdatedAsync</code></li>
+      </ul>
+      <p class="note">No broadcaster changes expected — DTOs already support grouping fields.</p>
+
+      <h3>Phase 9 — Configuration</h3>
+      <pre>{
+  "SftpSync": {
+    "SchedulerIntervalSeconds": 10,
+    "DownloadPollIntervalMs": 1000,
+    "SftpConnectionTimeoutSeconds": 30,
+    "SftpOperationTimeoutSeconds": 300
+  }
+}</pre>
+      <p>Download concurrency fixed at <strong>1</strong> for v1. Config section leaves room to raise later.</p>
+
+      <h3>Phase 10 — Testing</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Layer</th>
+            <th>Tests</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>ChangeDetector</code></td>
+            <td>Unit: new, unchanged, changed, failed re-queue</td>
+          </tr>
+          <tr>
+            <td><code>RealSftpDirectoryScanner</code></td>
+            <td>Integration against test SFTP container or mocked client</td>
+          </tr>
+          <tr>
+            <td>Repositories</td>
+            <td>Extend <code>RepositoryIntegrationTests</code> for new SQL functions</td>
+          </tr>
+          <tr>
+            <td>Scheduler</td>
+            <td>Unit: skips active run, marks polled, creates run</td>
+          </tr>
+          <tr>
+            <td>Download worker</td>
+            <td>Unit with mocked SFTP + temp filesystem</td>
+          </tr>
+          <tr>
+            <td>Manual run API</td>
+            <td>Controller test: 409 when active run exists</td>
+          </tr>
+          <tr>
+            <td>End-to-end</td>
+            <td>Optional: Testcontainers PostgreSQL + SFTP test container</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Suggested Implementation Order</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Step</th>
+            <th>Deliverable</th>
+            <th>Milestone</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>1</td>
+            <td>SQL migrations + repository writes</td>
+            <td>Can create runs/items from code</td>
+          </tr>
+          <tr>
+            <td>2</td>
+            <td><code>SftpClientFactory</code> + <code>RealSftpDirectoryScanner</code></td>
+            <td>Can scan real SFTP</td>
+          </tr>
+          <tr>
+            <td>3</td>
+            <td><code>ChangeDetector</code> + scan orchestrator</td>
+            <td>Incremental enqueue works</td>
+          </tr>
+          <tr>
+            <td>4</td>
+            <td><code>JobSchedulerHostedService</code></td>
+            <td>Jobs auto-poll from DB</td>
+          </tr>
+          <tr>
+            <td>5</td>
+            <td><code>DownloadWorkerHostedService</code></td>
+            <td>Files land on disk</td>
+          </tr>
+          <tr>
+            <td>6</td>
+            <td>SignalR wiring</td>
+            <td>Dashboard live updates</td>
+          </tr>
+          <tr>
+            <td>7</td>
+            <td><code>POST /api/sftp-sync-jobs/{id}/run</code></td>
+            <td>Manual trigger</td>
+          </tr>
+          <tr>
+            <td>8</td>
+            <td>Remove dev simulation</td>
+            <td>Clean swap</td>
+          </tr>
+          <tr>
+            <td>9</td>
+            <td>Tests + README update</td>
+            <td>Merge-ready</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>API Changes</h2>
+
+      <h3>New endpoint</h3>
+      <pre>POST /api/sftp-sync-jobs/{id}/run
+
+→ 202 Accepted + SftpSyncRunResponse (new run)
+→ 404 if job not found
+→ 409 if job already has active run
+→ 400 if job disabled</pre>
+
+      <h3>Optional UI follow-up (not blocking)</h3>
+      <ul>
+        <li>"Run now" button on jobs page</li>
+        <li>Show <code>lastPolledAt</code> and next scheduled poll</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Risks &amp; Mitigations</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Risk</th>
+            <th>Mitigation</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Long downloads block other jobs (serial)</td>
+            <td>Acceptable for v1; config hook for future N</td>
+          </tr>
+          <tr>
+            <td><code>(job_id, remote_path)</code> uniqueness across runs</td>
+            <td>Upsert pattern; re-enqueue updates same row</td>
+          </tr>
+          <tr>
+            <td>SFTP connection reliability</td>
+            <td>Per-operation connect/disconnect; run-level failure on scan errors</td>
+          </tr>
+          <tr>
+            <td>Large group subtrees</td>
+            <td>Scanner discovers all leaves at scan time (existing design)</td>
+          </tr>
+          <tr>
+            <td>Removing dev sim breaks local demo without SFTP</td>
+            <td>Document test connection profile setup in README</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Related Documents</h2>
+      <ul>
+        <li><a href="grouping-rules.md"><code>docs/grouping-rules.md</code></a> — authoritative grouping algorithm (scanner + worker must follow)</li>
+        <li><a href="folder-grouping-implementation-plan.html"><code>docs/folder-grouping-implementation-plan.html</code></a> — completed grouping phases 0–9</li>
+        <li><code>SftpSync.Business/Scanning/ISftpDirectoryScanner.cs</code> — scan contract + worker usage notes</li>
+        <li><code>SftpSync.Web/Hubs/DashboardBroadcaster.cs</code> — SignalR events for live dashboard</li>
+      </ul>
+    </section>
+  </main>
+</body>
+</html>

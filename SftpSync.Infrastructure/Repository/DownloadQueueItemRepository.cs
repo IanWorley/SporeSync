@@ -192,4 +192,202 @@ public sealed class DownloadQueueItemRepository : IDownloadQueueItemRepository
         }
         return items;
     }
+
+    public async Task<DownloadQueueItem> UpsertAsync(
+        UpsertDownloadQueueItem item,
+        CancellationToken cancellationToken = default)
+    {
+        const string sql = """
+            SELECT id,
+                   job_id,
+                   sync_run_id,
+                   remote_path,
+                   destination_path,
+                   file_size_bytes,
+                   remote_modified_at,
+                   status,
+                   bytes_downloaded,
+                   current_bytes_per_second,
+                   retry_count,
+                   handled_reason,
+                   error_message,
+                   queued_at,
+                   started_at,
+                   completed_at,
+                   updated_at,
+                   is_group,
+                   group_remote_path,
+                   child_count
+            FROM core.upsert_download_queue_item(
+                @job_id,
+                @sync_run_id,
+                @remote_path,
+                @destination_path,
+                @file_size_bytes,
+                @remote_modified_at,
+                @is_group,
+                @group_remote_path,
+                @child_count);
+            """;
+
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.AddWithValue("job_id", item.JobId);
+        command.Parameters.AddWithValue("sync_run_id", item.SyncRunId);
+        command.Parameters.AddWithValue("remote_path", item.RemotePath);
+        command.Parameters.AddWithValue("destination_path", item.DestinationPath);
+        command.Parameters.AddWithValue("file_size_bytes", item.FileSizeBytes);
+        command.Parameters.AddWithValue("remote_modified_at", (object?)item.RemoteModifiedAt ?? DBNull.Value);
+        command.Parameters.AddWithValue("is_group", item.IsGroup);
+        command.Parameters.AddWithValue("group_remote_path", (object?)item.GroupRemotePath ?? DBNull.Value);
+        command.Parameters.AddWithValue("child_count", item.ChildCount);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            throw new InvalidOperationException("Download queue item upsert did not return a row.");
+        }
+
+        return ReadItem(reader);
+    }
+
+    public async Task<IReadOnlyDictionary<string, SyncedRemoteState>> GetSyncedStateAsync(
+        Guid jobId,
+        CancellationToken cancellationToken = default)
+    {
+        const string sql = """
+            SELECT remote_path,
+                   remote_modified_at,
+                   file_size_bytes,
+                   status
+            FROM core.get_synced_remote_state(@job_id);
+            """;
+
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.AddWithValue("job_id", jobId);
+
+        var states = new Dictionary<string, SyncedRemoteState>(StringComparer.Ordinal);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            var state = new SyncedRemoteState
+            {
+                RemotePath = reader.GetString(0),
+                RemoteModifiedAt = reader.IsDBNull(1) ? null : reader.GetFieldValue<DateTimeOffset>(1),
+                FileSizeBytes = reader.GetInt64(2),
+                Status = reader.GetString(3)
+            };
+            states[state.RemotePath] = state;
+        }
+
+        return states;
+    }
+
+    public async Task<DownloadQueueItem?> ClaimNextAsync(CancellationToken cancellationToken = default)
+    {
+        const string sql = """
+            SELECT id,
+                   job_id,
+                   sync_run_id,
+                   remote_path,
+                   destination_path,
+                   file_size_bytes,
+                   remote_modified_at,
+                   status,
+                   bytes_downloaded,
+                   current_bytes_per_second,
+                   retry_count,
+                   handled_reason,
+                   error_message,
+                   queued_at,
+                   started_at,
+                   completed_at,
+                   updated_at,
+                   is_group,
+                   group_remote_path,
+                   child_count
+            FROM core.claim_next_download_queue_item();
+            """;
+
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(sql, connection);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        return ReadItem(reader);
+    }
+
+    public async Task<DownloadQueueItem> UpdateProgressAsync(
+        UpdateDownloadQueueItemProgress update,
+        CancellationToken cancellationToken = default)
+    {
+        const string sql = """
+            SELECT id,
+                   job_id,
+                   sync_run_id,
+                   remote_path,
+                   destination_path,
+                   file_size_bytes,
+                   remote_modified_at,
+                   status,
+                   bytes_downloaded,
+                   current_bytes_per_second,
+                   retry_count,
+                   handled_reason,
+                   error_message,
+                   queued_at,
+                   started_at,
+                   completed_at,
+                   updated_at,
+                   is_group,
+                   group_remote_path,
+                   child_count
+            FROM core.update_download_queue_item_progress(
+                @id,
+                @status,
+                @bytes_downloaded,
+                @current_bytes_per_second,
+                @error_message,
+                @handled_reason);
+            """;
+
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.AddWithValue("id", update.Id);
+        command.Parameters.AddWithValue("status", update.Status);
+        command.Parameters.AddWithValue("bytes_downloaded", update.BytesDownloaded);
+        command.Parameters.AddWithValue("current_bytes_per_second", (object?)update.CurrentBytesPerSecond ?? DBNull.Value);
+        command.Parameters.AddWithValue("error_message", (object?)update.ErrorMessage ?? DBNull.Value);
+        command.Parameters.AddWithValue("handled_reason", (object?)update.HandledReason ?? DBNull.Value);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            throw new InvalidOperationException($"Download queue item '{update.Id}' was not found when updating progress.");
+        }
+
+        return ReadItem(reader);
+    }
+
+    public async Task<int> RequeueFailedAsync(
+        Guid jobId,
+        Guid syncRunId,
+        CancellationToken cancellationToken = default)
+    {
+        const string sql = """
+            SELECT core.requeue_failed_download_queue_items(@job_id, @sync_run_id);
+            """;
+
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.AddWithValue("job_id", jobId);
+        command.Parameters.AddWithValue("sync_run_id", syncRunId);
+
+        var result = await command.ExecuteScalarAsync(cancellationToken);
+        return Convert.ToInt32(result);
+    }
 }

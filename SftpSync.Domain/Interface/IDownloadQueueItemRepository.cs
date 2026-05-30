@@ -15,4 +15,23 @@ public interface IDownloadQueueItemRepository
         Guid runId,
         string groupRemotePath,
         CancellationToken cancellationToken = default);
+
+    Task<DownloadQueueItem> UpsertAsync(
+        UpsertDownloadQueueItem item,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyDictionary<string, SyncedRemoteState>> GetSyncedStateAsync(
+        Guid jobId,
+        CancellationToken cancellationToken = default);
+
+    Task<DownloadQueueItem?> ClaimNextAsync(CancellationToken cancellationToken = default);
+
+    Task<DownloadQueueItem> UpdateProgressAsync(
+        UpdateDownloadQueueItemProgress update,
+        CancellationToken cancellationToken = default);
+
+    Task<int> RequeueFailedAsync(
+        Guid jobId,
+        Guid syncRunId,
+        CancellationToken cancellationToken = default);
 }

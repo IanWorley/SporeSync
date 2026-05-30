@@ -1,0 +1,12 @@
+DROP FUNCTION IF EXISTS core.recalculate_sftp_sync_run_aggregates(uuid);
+DROP FUNCTION IF EXISTS core.run_has_pending_downloads(uuid);
+DROP FUNCTION IF EXISTS core.requeue_failed_download_queue_items(uuid, uuid);
+DROP FUNCTION IF EXISTS core.update_download_queue_item_progress(uuid, varchar, bigint, numeric, text, varchar);
+DROP FUNCTION IF EXISTS core.claim_next_download_queue_item();
+DROP FUNCTION IF EXISTS core.get_synced_remote_state(uuid);
+DROP FUNCTION IF EXISTS core.upsert_download_queue_item(uuid, uuid, varchar, varchar, bigint, timestamptz, boolean, varchar, integer);
+DROP FUNCTION IF EXISTS core.update_sftp_sync_run_status(uuid, varchar, integer, bigint, integer, integer, integer, bigint, numeric, text);
+DROP FUNCTION IF EXISTS core.create_sftp_sync_run(uuid);
+DROP FUNCTION IF EXISTS core.job_has_active_run(uuid);
+DROP FUNCTION IF EXISTS core.mark_sftp_sync_job_polled(uuid);
+DROP FUNCTION IF EXISTS core.get_due_sftp_sync_jobs();

@@ -120,5 +120,11 @@ public sealed class SftpSyncJobServiceTests
             LastCancellationToken = cancellationToken;
             return Task.FromResult(UpsertResult);
         }
+
+        public Task<IReadOnlyCollection<SftpSyncJob>> GetDueJobsAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyCollection<SftpSyncJob>>(Array.Empty<SftpSyncJob>());
+
+        public Task MarkPolledAsync(Guid id, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
     }
 }

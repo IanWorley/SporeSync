@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using SftpSync.Business.Interface;
 using SftpSync.Domain.Model;
+using SftpSync.Web;
 using SftpSync.Web.DTO;
 
 namespace SftpSync.Web.Controllers;
@@ -10,10 +11,14 @@ namespace SftpSync.Web.Controllers;
 public sealed class SftpSyncJobsController : ControllerBase
 {
     private readonly ISftpSyncJobService _sftpSyncJobService;
+    private readonly ISyncJobRunService _syncJobRunService;
 
-    public SftpSyncJobsController(ISftpSyncJobService sftpSyncJobService)
+    public SftpSyncJobsController(
+        ISftpSyncJobService sftpSyncJobService,
+        ISyncJobRunService syncJobRunService)
     {
         _sftpSyncJobService = sftpSyncJobService;
+        _syncJobRunService = syncJobRunService;
     }
 
     [HttpGet]
@@ -73,6 +78,21 @@ public sealed class SftpSyncJobsController : ControllerBase
             cancellationToken);
 
         return Ok(ToResponse(job));
+    }
+
+    [HttpPost("{id:guid}/run")]
+    public async Task<ActionResult<SftpSyncRunResponse>> RunNow(
+        Guid id,
+        CancellationToken cancellationToken)
+    {
+        var result = await _syncJobRunService.TriggerManualRunAsync(id, cancellationToken);
+        return result.Error switch
+        {
+            SyncJobRunError.NotFound => NotFound(),
+            SyncJobRunError.Disabled => BadRequest(new { message = "Job is disabled." }),
+            SyncJobRunError.ActiveRunExists => Conflict(new { message = "Job already has an active run." }),
+            _ => Accepted(SyncDashboardNotifier.ToRunResponse(result.Run!))
+        };
     }
 
     private static UpsertSftpSyncJob ToUpsertModel(Guid? id, UpsertSftpSyncJobRequest request)

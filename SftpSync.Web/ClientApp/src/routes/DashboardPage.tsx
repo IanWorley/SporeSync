@@ -1,5 +1,5 @@
 import { HubConnectionBuilder, LogLevel } from "@microsoft/signalr";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams, useRouterState } from "@tanstack/react-router";
 import {
   ArrowDown,
@@ -7,14 +7,10 @@ import {
   CheckCircle2,
   ChevronsLeft,
   ChevronsRight,
-  Database,
   FileWarning,
   Folder,
   Loader2,
-  Play,
   Search,
-  Square,
-  WandSparkles,
   Wifi,
   WifiOff,
 } from "lucide-react";
@@ -236,7 +232,6 @@ export function DashboardPage() {
         actions={<ConnectionIndicator state={signalRState} />}
       />
 
-      {statusQuery.data?.environment === "Development" && <DevelopmentPanel />}
 
       <div className="grid gap-4 xl:grid-cols-[minmax(280px,0.45fr)_minmax(0,1fr)]">
         <section className="overflow-hidden rounded-lg border border-border bg-panel">
@@ -491,56 +486,6 @@ function useDashboardSignalR(
   }, [pushToast, queryClient, runId]);
 
   return state;
-}
-
-function DevelopmentPanel() {
-  const queryClient = useQueryClient();
-  const mutationOptions = {
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["runs"] }),
-  };
-  const seedMutation = useMutation({
-    mutationFn: api.seedSimulation,
-    ...mutationOptions,
-  });
-  const startMutation = useMutation({
-    mutationFn: api.startSimulation,
-    ...mutationOptions,
-  });
-  const stopMutation = useMutation({
-    mutationFn: api.stopSimulation,
-    ...mutationOptions,
-  });
-  const busy =
-    seedMutation.isPending || startMutation.isPending || stopMutation.isPending;
-
-  return (
-    <section className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-panel px-4 py-3">
-      <div className="flex items-center gap-3">
-        <Database size={18} className="text-accent" />
-        <div>
-          <h3 className="text-sm font-semibold">Development Simulation</h3>
-          <p className="text-xs text-muted-foreground">
-            Seed sample data and drive fake progress through the normal
-            dashboard contracts.
-          </p>
-        </div>
-      </div>
-      <div className="flex flex-wrap gap-2">
-        <Button disabled={busy} onClick={() => seedMutation.mutate()}>
-          <WandSparkles size={16} />
-          Seed
-        </Button>
-        <Button disabled={busy} onClick={() => startMutation.mutate()}>
-          <Play size={16} />
-          Start
-        </Button>
-        <Button disabled={busy} onClick={() => stopMutation.mutate()}>
-          <Square size={16} />
-          Stop
-        </Button>
-      </div>
-    </section>
-  );
 }
 
 function ConnectionIndicator({ state }: { state: SignalRState }) {

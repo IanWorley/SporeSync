@@ -5,7 +5,6 @@ using SftpSync.Business;
 using SftpSync.Business.Interface;
 using SftpSync.Infrastructure;
 using SftpSync.Web;
-using SftpSync.Web.Development;
 using SftpSync.Web.Hubs;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -17,10 +16,9 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddOpenApi();
 builder.Services.AddSignalR();
 builder.Services.AddSingleton<IDashboardBroadcaster, DashboardBroadcaster>();
-builder.Services.AddSingleton<DevelopmentSimulationService>();
-builder.Services.AddHostedService(provider => provider.GetRequiredService<DevelopmentSimulationService>());
+builder.Services.AddSingleton<ISyncDashboardNotifier, SyncDashboardNotifier>();
 
-builder.Services.RegisterBusinessLogic();
+builder.Services.RegisterBusinessLogic(builder.Configuration);
 builder.Services.RegisterInfrastructure(builder.Configuration);
 
 var app = builder.Build();

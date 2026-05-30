@@ -9,4 +9,8 @@ public interface ISftpSyncJobRepository
     Task<SftpSyncJob?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
 
     Task<SftpSyncJob> UpsertAsync(UpsertSftpSyncJob job, CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyCollection<SftpSyncJob>> GetDueJobsAsync(CancellationToken cancellationToken = default);
+
+    Task MarkPolledAsync(Guid id, CancellationToken cancellationToken = default);
 }

@@ -90,16 +90,8 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(request),
     }),
-  seedSimulation: () =>
-    fetchJson<{ runId: string }>("/api/development/simulation/seed", {
-      method: "POST",
-    }),
-  startSimulation: () =>
-    fetchJson<{ isRunning: boolean }>("/api/development/simulation/start", {
-      method: "POST",
-    }),
-  stopSimulation: () =>
-    fetchJson<{ isRunning: boolean }>("/api/development/simulation/stop", {
+  runJob: (id: string) =>
+    fetchJson<SftpSyncRun>(`/api/sftp-sync-jobs/${id}/run`, {
       method: "POST",
     }),
 };

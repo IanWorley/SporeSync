@@ -323,4 +323,71 @@ public sealed class RepositoryIntegrationTests : IClassFixture<RepositoryTestcon
         command.Parameters.AddWithValue("bytes_downloaded", bytesDownloaded);
         await command.ExecuteNonQueryAsync();
     }
+
+    [Fact]
+    public async Task WorkerRepositories_CreateRunClaimAndRequeue_WorkThroughPostgres()
+    {
+        var profileRepository = new SftpConnectionProfileRepository(_fixture.DataSource);
+        var jobRepository = new SftpSyncJobRepository(_fixture.DataSource);
+        var runRepository = new SftpSyncRunRepository(_fixture.DataSource);
+        var queueRepository = new DownloadQueueItemRepository(_fixture.DataSource);
+
+        var profile = await profileRepository.UpsertAsync(new SftpConnectionProfile
+        {
+            Id = Guid.NewGuid(),
+            Name = $"profile-{Guid.NewGuid():N}",
+            Host = "sftp.example.com",
+            Port = 22,
+            Username = "sync-user",
+            EncryptedPassword = "encrypted-password",
+            IsDefault = false
+        });
+
+        var job = await jobRepository.UpsertAsync(new UpsertSftpSyncJob
+        {
+            ConnectionProfileId = profile.Id,
+            Name = $"job-{Guid.NewGuid():N}",
+            SourcePath = "/remote/incoming",
+            DestinationPath = "/data/incoming",
+            PollingIntervalSeconds = 120,
+            IsEnabled = true
+        });
+
+        Assert.False(await runRepository.HasActiveRunAsync(job.Id));
+        var run = await runRepository.CreateAsync(job.Id);
+        Assert.Equal("queued", run.Status);
+        Assert.True(await runRepository.HasActiveRunAsync(job.Id));
+
+        var item = await queueRepository.UpsertAsync(new UpsertDownloadQueueItem
+        {
+            JobId = job.Id,
+            SyncRunId = run.Id,
+            RemotePath = "/remote/incoming/file.txt",
+            DestinationPath = "/data/incoming/file.txt",
+            FileSizeBytes = 100,
+            RemoteModifiedAt = DateTimeOffset.UtcNow,
+            IsGroup = false,
+            ChildCount = 0
+        });
+        Assert.Equal("queued", item.Status);
+
+        var claimed = await queueRepository.ClaimNextAsync();
+        Assert.NotNull(claimed);
+        Assert.Equal("downloading", claimed!.Status);
+
+        await queueRepository.UpdateProgressAsync(new UpdateDownloadQueueItemProgress
+        {
+            Id = claimed.Id,
+            Status = "failed",
+            BytesDownloaded = 0,
+            ErrorMessage = "test failure"
+        });
+
+        var requeuedCount = await queueRepository.RequeueFailedAsync(job.Id, run.Id);
+        Assert.Equal(1, requeuedCount);
+
+        var syncedState = await queueRepository.GetSyncedStateAsync(job.Id);
+        Assert.True(syncedState.ContainsKey("/remote/incoming/file.txt"));
+        Assert.Equal("queued", syncedState["/remote/incoming/file.txt"].Status);
+    }
 }

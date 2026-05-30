@@ -489,9 +489,9 @@ BEGIN
           AND (qi.is_group = true OR (qi.is_group = false AND qi.group_remote_path IS NULL))
     ),
     stats AS (
-        SELECT count(*) FILTER (WHERE status = 'completed')::integer AS completed_file_count,
-               count(*) FILTER (WHERE status = 'failed')::integer AS failed_file_count,
-               count(*) FILTER (WHERE status = 'skipped')::integer AS skipped_file_count,
+        SELECT count(*) FILTER (WHERE visible_items.status = 'completed')::integer AS completed_file_count,
+               count(*) FILTER (WHERE visible_items.status = 'failed')::integer AS failed_file_count,
+               count(*) FILTER (WHERE visible_items.status = 'skipped')::integer AS skipped_file_count,
                coalesce(sum(bytes_downloaded), 0)::bigint AS downloaded_bytes,
                max(current_bytes_per_second) AS current_bytes_per_second
         FROM visible_items

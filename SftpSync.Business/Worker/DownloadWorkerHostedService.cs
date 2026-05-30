@@ -191,7 +191,7 @@ public sealed class DownloadWorkerHostedService : BackgroundService
         return await queueRepository.UpdateProgressAsync(new UpdateDownloadQueueItemProgress
         {
             Id = groupItem.Id,
-            Status = "completed",
+            Status = groupFailed ? "failed" : "completed",
             BytesDownloaded = groupBytesDownloaded,
             CurrentBytesPerSecond = latestRate,
             ErrorMessage = groupFailed ? "One or more files in the group failed to download." : null

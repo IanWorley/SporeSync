@@ -90,6 +90,14 @@ public sealed class JobSchedulerHostedService : BackgroundService
 
         var run = await runRepository.CreateAsync(job.Id, cancellationToken);
         await notifier.NotifyRunUpdatedAsync(run, cancellationToken);
-        await orchestrator.ScanAsync(job, run, cancellationToken);
+        
+        try
+        {
+            await orchestrator.ScanAsync(job, run, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to scan job {JobId} run {RunId}", job.Id, run.Id);
+        }
     }
 }

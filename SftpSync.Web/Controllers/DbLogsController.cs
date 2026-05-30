@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
+using SftpSync.Business.Constants;
 using SftpSync.Infrastructure.Logging;
 
 namespace SftpSync.Web.Controllers;
@@ -39,10 +40,10 @@ public sealed class DbLogsController : ControllerBase
         if (string.IsNullOrWhiteSpace(value)) return null;
         return value.Trim().ToLowerInvariant() switch
         {
-            "debug" => LogLevel.Debug,
-            "info" or "information" => LogLevel.Information,
-            "warn" or "warning" => LogLevel.Warning,
-            "error" => LogLevel.Error,
+            LogLevelConstants.Debug => LogLevel.Debug,
+            LogLevelConstants.Info or LogLevelConstants.Information => LogLevel.Information,
+            LogLevelConstants.Warn or LogLevelConstants.Warning => LogLevel.Warning,
+            LogLevelConstants.Error => LogLevel.Error,
             _ => null
         };
     }

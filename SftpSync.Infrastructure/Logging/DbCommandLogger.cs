@@ -11,6 +11,10 @@ public static class DbCommandLogger
     private static DbLoggingConfiguration? _config;
     private static DbCallLogBuffer? _buffer;
 
+    private static DbLoggingConfiguration Config => _config ??= new DbLoggingConfiguration();
+
+    private static DbCallLogBuffer Buffer => _buffer ??= new DbCallLogBuffer();
+
     public static void Configure(DbLoggingConfiguration config, DbCallLogBuffer buffer)
     {
         _config = config;
@@ -27,7 +31,7 @@ public static class DbCommandLogger
         var paramNames = string.Join(", ", command.Parameters.Select(p => p.ParameterName));
         var sqlText = command.CommandText;
 
-        if (_config!.ShouldLog(LogLevel.Debug))
+        if (Config.ShouldLog(LogLevel.Debug))
         {
             logger.LogDebug("DB {Operation} executing SQL: {Sql} | Params: [{ParamNames}]",
                 operation, sqlText, paramNames);
@@ -60,7 +64,7 @@ public static class DbCommandLogger
         var paramNames = string.Join(", ", command.Parameters.Select(p => p.ParameterName));
         var sqlText = command.CommandText;
 
-        if (_config!.ShouldLog(LogLevel.Debug))
+        if (Config.ShouldLog(LogLevel.Debug))
         {
             logger.LogDebug("DB {Operation} executing SQL: {Sql} | Params: [{ParamNames}]",
                 operation, sqlText, paramNames);
@@ -91,7 +95,7 @@ public static class DbCommandLogger
         var paramNames = string.Join(", ", command.Parameters.Select(p => p.ParameterName));
         var sqlText = command.CommandText;
 
-        if (_config!.ShouldLog(LogLevel.Debug))
+        if (Config.ShouldLog(LogLevel.Debug))
         {
             logger.LogDebug("DB {Operation} executing SQL: {Sql} | Params: [{ParamNames}]",
                 operation, sqlText, paramNames);
@@ -148,7 +152,7 @@ public static class DbCommandLogger
             ? "DB {Operation} completed in {DurationMs}ms (SLOW > {Threshold}ms) | Params: [{ParamNames}]"
             : "DB {Operation} completed in {DurationMs}ms | Params: [{ParamNames}]";
 
-        if (_config!.ShouldLog(level))
+        if (Config.ShouldLog(level))
         {
             if (level == LogLevel.Warning)
             {
@@ -160,7 +164,7 @@ public static class DbCommandLogger
             }
         }
 
-        _buffer!.Add(new DbCallLogEntry(
+        Buffer.Add(new DbCallLogEntry(
             DateTimeOffset.UtcNow,
             level.ToString().ToLowerInvariant(),
             operation,
@@ -178,13 +182,13 @@ public static class DbCommandLogger
         string sqlText,
         Exception ex)
     {
-        if (_config!.ShouldLog(LogLevel.Error))
+        if (Config.ShouldLog(LogLevel.Error))
         {
             logger.LogError(ex, "DB {Operation} failed after {DurationMs}ms | SQL: {Sql} | Params: [{ParamNames}]",
                 operation, durationMs, sqlText, paramNames);
         }
 
-        _buffer!.Add(new DbCallLogEntry(
+        Buffer.Add(new DbCallLogEntry(
             DateTimeOffset.UtcNow,
             "error",
             operation,

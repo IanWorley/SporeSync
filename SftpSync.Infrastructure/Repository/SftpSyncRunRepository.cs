@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
 using NpgsqlTypes;
 using SftpSync.Domain.Interface;
@@ -31,10 +32,12 @@ public sealed class SftpSyncRunRepository : ISftpSyncRunRepository
     private readonly NpgsqlDataSource _dataSource;
     private readonly ILogger<SftpSyncRunRepository> _logger;
 
-    public SftpSyncRunRepository(NpgsqlDataSource dataSource, ILogger<SftpSyncRunRepository> logger)
+    public SftpSyncRunRepository(
+        NpgsqlDataSource dataSource,
+        ILogger<SftpSyncRunRepository>? logger = null)
     {
         _dataSource = dataSource;
-        _logger = logger;
+        _logger = logger ?? NullLogger<SftpSyncRunRepository>.Instance;
     }
 
     public async Task<PagedResult<SftpSyncRun>> GetRunsAsync(

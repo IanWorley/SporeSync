@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
 using SftpSync.Domain.Interface;
 using SftpSync.Domain.Model;
@@ -15,10 +16,12 @@ public sealed class SystemPropertyRepository : ISystemPropertyRepository
     private readonly NpgsqlDataSource _dataSource;
     private readonly ILogger<SystemPropertyRepository> _logger;
 
-    public SystemPropertyRepository(NpgsqlDataSource dataSource, ILogger<SystemPropertyRepository> logger)
+    public SystemPropertyRepository(
+        NpgsqlDataSource dataSource,
+        ILogger<SystemPropertyRepository>? logger = null)
     {
         _dataSource = dataSource;
-        _logger = logger;
+        _logger = logger ?? NullLogger<SystemPropertyRepository>.Instance;
     }
 
     public async Task<SystemProperty?> GetByNameAsync(

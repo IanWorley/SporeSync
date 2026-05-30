@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
 using NpgsqlTypes;
 using SftpSync.Domain.Interface;
@@ -31,10 +32,12 @@ public sealed class DownloadQueueItemRepository : IDownloadQueueItemRepository
     private readonly NpgsqlDataSource _dataSource;
     private readonly ILogger<DownloadQueueItemRepository> _logger;
 
-    public DownloadQueueItemRepository(NpgsqlDataSource dataSource, ILogger<DownloadQueueItemRepository> logger)
+    public DownloadQueueItemRepository(
+        NpgsqlDataSource dataSource,
+        ILogger<DownloadQueueItemRepository>? logger = null)
     {
         _dataSource = dataSource;
-        _logger = logger;
+        _logger = logger ?? NullLogger<DownloadQueueItemRepository>.Instance;
     }
 
     public async Task<PagedResult<DownloadQueueItem>> GetByRunIdAsync(

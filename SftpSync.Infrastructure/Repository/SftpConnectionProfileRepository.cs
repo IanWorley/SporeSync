@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
 using SftpSync.Domain.Interface;
 using SftpSync.Domain.Model;
@@ -16,10 +17,12 @@ public sealed class SftpConnectionProfileRepository : ISftpConnectionProfileRepo
     private readonly NpgsqlDataSource _dataSource;
     private readonly ILogger<SftpConnectionProfileRepository> _logger;
 
-    public SftpConnectionProfileRepository(NpgsqlDataSource dataSource, ILogger<SftpConnectionProfileRepository> logger)
+    public SftpConnectionProfileRepository(
+        NpgsqlDataSource dataSource,
+        ILogger<SftpConnectionProfileRepository>? logger = null)
     {
         _dataSource = dataSource;
-        _logger = logger;
+        _logger = logger ?? NullLogger<SftpConnectionProfileRepository>.Instance;
     }
 
     public async Task<IReadOnlyCollection<SftpConnectionProfile>> GetAllAsync(

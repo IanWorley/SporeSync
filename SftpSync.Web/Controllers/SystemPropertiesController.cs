@@ -15,10 +15,10 @@ public sealed class SystemPropertiesController : ControllerBase
 
     public SystemPropertiesController(
         ISystemPropertyService systemPropertyService,
-        DbLoggingConfiguration dbLoggingConfig)
+        DbLoggingConfiguration? dbLoggingConfig = null)
     {
         _systemPropertyService = systemPropertyService;
-        _dbLoggingConfig = dbLoggingConfig;
+        _dbLoggingConfig = dbLoggingConfig ?? new DbLoggingConfiguration();
     }
 
     [HttpGet("{propertyName}")]

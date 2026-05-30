@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
 using SftpSync.Domain.Interface;
 using SftpSync.Domain.Model;
@@ -17,10 +18,12 @@ public sealed class SftpSyncJobRepository : ISftpSyncJobRepository
     private readonly NpgsqlDataSource _dataSource;
     private readonly ILogger<SftpSyncJobRepository> _logger;
 
-    public SftpSyncJobRepository(NpgsqlDataSource dataSource, ILogger<SftpSyncJobRepository> logger)
+    public SftpSyncJobRepository(
+        NpgsqlDataSource dataSource,
+        ILogger<SftpSyncJobRepository>? logger = null)
     {
         _dataSource = dataSource;
-        _logger = logger;
+        _logger = logger ?? NullLogger<SftpSyncJobRepository>.Instance;
     }
 
     public async Task<IReadOnlyCollection<SftpSyncJob>> GetAllAsync(

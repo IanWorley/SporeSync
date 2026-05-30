@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Text;
 using FluentMigrator;
 
 namespace SftpSync.Infrastructure.Migrations;
@@ -26,13 +27,41 @@ internal static class EmbeddedSqlScripts
             return Array.Empty<string>();
         }
 
+        var trimmedPrefix = resourcePrefix.Trim();
+        var prefixes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            trimmedPrefix,
+            NormalizeResourcePrefix(trimmedPrefix),
+        };
+
         return assembly.GetManifestResourceNames()
-            .Where(name => name.StartsWith(resourcePrefix, StringComparison.OrdinalIgnoreCase))
+            .Where(name => prefixes.Any(prefix => name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
             .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
             .Select(name => ReadEmbeddedScript(assembly, name))
             .Where(script => !string.IsNullOrWhiteSpace(script))
             .Select(script => script!)
             .ToArray();
+    }
+
+    private static string NormalizeResourcePrefix(string resourcePrefix)
+    {
+        var builder = new StringBuilder(resourcePrefix.Length + 4);
+
+        for (var i = 0; i < resourcePrefix.Length; i++)
+        {
+            var character = resourcePrefix[i];
+            if (character == '.'
+                && i + 1 < resourcePrefix.Length
+                && char.IsDigit(resourcePrefix[i + 1]))
+            {
+                builder.Append("._");
+                continue;
+            }
+
+            builder.Append(character);
+        }
+
+        return builder.ToString();
     }
 
     internal static void ExecuteSqlScript(Migration migration, string? script)

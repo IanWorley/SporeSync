@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>SftpSync First-Boot Encryption Key Spec</title>
+  <title>SporeSync First-Boot Encryption Key Spec</title>
   <style>
     :root {
       color-scheme: light dark;
@@ -168,7 +168,7 @@
 <body>
   <main>
     <header>
-      <h1>SftpSync First-Boot Encryption Key Spec</h1>
+      <h1>SporeSync First-Boot Encryption Key Spec</h1>
       <p class="note">Implementation specification for generating, storing, validating, and hiding the key used to encrypt SFTP passwords, private keys, and private-key passphrases.</p>
       <div class="summary">
         <p><strong>Decision:</strong> Generate a 32-byte encryption key on first boot, store it in a local key file outside the database, cache it in memory after startup validation, and never expose it to the frontend or generic system-property API.</p>
@@ -215,9 +215,9 @@
       <h2>Key Storage</h2>
       <ul>
         <li>Use config key <code>Security:EncryptionKeyPath</code> for the key file path.</li>
-        <li>If no path is configured, default to <code>%LOCALAPPDATA%\SftpSync\encryption.key</code> on Windows.</li>
-        <li>On macOS/Linux, default to <code>$HOME/.sftpsync/encryption.key</code> when <code>HOME</code> exists.</li>
-        <li>Final fallback is <code>AppContext.BaseDirectory/.sftpsync/encryption.key</code>.</li>
+        <li>If no path is configured, default to <code>%LOCALAPPDATA%\SporeSync\encryption.key</code> on Windows.</li>
+        <li>On macOS/Linux, default to <code>$HOME/.sporesync/encryption.key</code> when <code>HOME</code> exists.</li>
+        <li>Final fallback is <code>AppContext.BaseDirectory/.sporesync/encryption.key</code>.</li>
         <li>The key file format is base64 text containing exactly 32 random bytes. Surrounding whitespace is ignored.</li>
         <li>Never store the key material in the database.</li>
         <li>Never overwrite an existing key file automatically.</li>
@@ -308,7 +308,7 @@
         <li>Use AES-GCM as the current <code>SecretProtector</code> does.</li>
         <li>Keep encrypted payload format <code>v1:nonce:tag:ciphertext</code>.</li>
         <li>Do not implement key rotation in this change.</li>
-        <li>Remove production use of <code>SFTPSYNC_SECRET_KEY</code>. This is a breaking change.</li>
+        <li>Remove production use of <code>SPORESYNC_SECRET_KEY</code>. This is a breaking change.</li>
         <li>Existing deployments must re-enter SFTP secrets or manually preserve the intended key file.</li>
         <li>Do not decrypt every stored profile during startup. Validate only key file format and length.</li>
         <li>If a stored secret was encrypted with a different key, fail when that secret is actually decrypted or used.</li>
@@ -363,7 +363,7 @@
         <li>Pre-provisioned valid key file is accepted and first-run signoff is created.</li>
         <li>Concurrent startup converges on one exclusively created key file.</li>
         <li><code>SecretProtector</code> round-trips using the initialized key provider.</li>
-        <li>Tests no longer depend on <code>SFTPSYNC_SECRET_KEY</code>.</li>
+        <li>Tests no longer depend on <code>SPORESYNC_SECRET_KEY</code>.</li>
         <li>System-property API returns <code>404</code> for security metadata and unknown names.</li>
         <li>Status API returns encryption initialized/version fields without key path or metadata timestamps.</li>
       </ul>

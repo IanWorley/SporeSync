@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <ClientAppDirectory>ClientApp/</ClientAppDirectory>
+    <SpaRoot>$(ClientAppDirectory)</SpaRoot>
+    <SpaProxyServerUrl>http://localhost:5173</SpaProxyServerUrl>
+    <SpaProxyLaunchCommand>npm run dev</SpaProxyLaunchCommand>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.0" />
+    <PackageReference Include="Microsoft.AspNetCore.SpaProxy" Version="10.0.0" />
+    <PackageReference Include="Scalar.AspNetCore" Version="2.12.35" />
+    <PackageReference Include="Testcontainers.PostgreSql" Version="4.12.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SporeSync.Business\SporeSync.Business.csproj" />
+    <ProjectReference Include="..\SporeSync.Infrastructure\SporeSync.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Remove="$(ClientAppDirectory)**" />
+    <None Remove="$(ClientAppDirectory)node_modules/**" />
+    <None Update="$(ClientAppDirectory)**" CopyToOutputDirectory="Never" CopyToPublishDirectory="Never" />
+  </ItemGroup>
+
+  <Target Name="BuildClientApp" BeforeTargets="ComputeFilesToPublish">
+    <Exec WorkingDirectory="$(ClientAppDirectory)" Command="npm ci" />
+    <Exec WorkingDirectory="$(ClientAppDirectory)" Command="npm run build" />
+    <ItemGroup>
+      <DistFiles Include="wwwroot/**" />
+      <ResolvedFileToPublish Include="@(DistFiles->'%(FullPath)')" Exclude="@(ResolvedFileToPublish)">
+        <RelativePath>wwwroot\%(RecursiveDir)%(Filename)%(Extension)</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+  </Target>
+</Project>

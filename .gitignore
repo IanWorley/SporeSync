@@ -5,6 +5,6 @@ obj/
 **/obj/
 TestResults/
 artifacts/
-SftpSync.Web/ClientApp/node_modules/
-SftpSync.Web/ClientApp/dist/
-SftpSync.Web/wwwroot/
+SporeSync.Web/ClientApp/node_modules/
+SporeSync.Web/ClientApp/dist/
+SporeSync.Web/wwwroot/

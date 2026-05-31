@@ -1,4 +1,4 @@
-# SftpSync First-Child Opaque Folder Grouping Rules
+# SporeSync First-Child Opaque Folder Grouping Rules
 
 Backend-driven implementation plan for first-child opaque folder grouping, recursive nested downloads, size-based progress, and requeue support.
 

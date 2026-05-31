@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>SftpSync Auto-Queue Worker Implementation Plan</title>
+  <title>SporeSync Auto-Queue Worker Implementation Plan</title>
   <style>
     :root {
       color-scheme: light dark;
@@ -196,12 +196,12 @@
 <body>
   <main>
     <header>
-      <h1>SftpSync Auto-Queue Worker</h1>
+      <h1>SporeSync Auto-Queue Worker</h1>
       <p class="note">Implementation plan for real SFTP sync: DB-driven job scheduling, incremental scan/enqueue, and serial download worker. Branch: <code>feat/auto-queue-job</code>.</p>
 
       <div class="summary">
         <p><strong>Goal:</strong> Replace <code>DevelopmentSimulationService</code> with a real background sync engine that polls enabled jobs from PostgreSQL, scans SFTP for new/changed files, enqueues work into <code>download_queue_items</code> (hybrid grouping model), and downloads to the local filesystem — broadcasting run/queue updates via existing SignalR infrastructure.</p>
-        <p><strong>References:</strong> <a href="grouping-rules.md"><code>docs/grouping-rules.md</code></a>, <a href="folder-grouping-implementation-plan.html">folder grouping plan</a>, <code>ISftpDirectoryScanner</code> in <code>SftpSync.Business/Scanning/</code>.</p>
+        <p><strong>References:</strong> <a href="grouping-rules.md"><code>docs/grouping-rules.md</code></a>, <a href="folder-grouping-implementation-plan.html">folder grouping plan</a>, <code>ISftpDirectoryScanner</code> in <code>SporeSync.Business/Scanning/</code>.</p>
         <p><strong>Status:</strong> <span class="status">Requirements locked — ready to implement</span></p>
       </div>
     </header>
@@ -331,7 +331,7 @@ DownloadWorkerHostedService (global serial)
 
     <section>
       <h2>Proposed Project Structure</h2>
-      <pre>SftpSync.Business/
+      <pre>SporeSync.Business/
   Worker/
     JobSchedulerHostedService.cs      # hosted in Web
     DownloadWorkerHostedService.cs    # hosted in Web
@@ -348,11 +348,11 @@ DownloadWorkerHostedService (global serial)
     ISftpDirectoryScanner.cs          # existing
     FakeSftpDirectoryScanner.cs       # keep for tests
 
-SftpSync.Infrastructure/
+SporeSync.Infrastructure/
   Repository/                         # + write methods on job/run/queue repos
 
-SftpSync.Web/
-  Controllers/SftpSyncJobsController.cs # + POST {id}/run
+SporeSync.Web/
+  Controllers/SporeSyncJobsController.cs # + POST {id}/run
   # Remove: Development/, DevelopmentSimulationController</pre>
     </section>
 
@@ -363,7 +363,7 @@ SftpSync.Web/
       <p><strong>Problem:</strong> Repositories are read-only today. Runs and queue items are only written by dev simulation raw SQL.</p>
 
       <h4>1a. SQL functions / migration</h4>
-      <p>New timestamped migration under <code>SftpSync.Infrastructure/Migrations/Schema/</code> (e.g. <code>20260530xxxx_AddWorkerRepositoryFunctions</code>):</p>
+      <p>New timestamped migration under <code>SporeSync.Infrastructure/Migrations/Schema/</code> (e.g. <code>20260530xxxx_AddWorkerRepositoryFunctions</code>):</p>
       <table>
         <thead>
           <tr>
@@ -414,8 +414,8 @@ SftpSync.Web/
 
       <h4>1b. C# repository extensions</h4>
       <ul>
-        <li><code>ISftpSyncJobRepository</code>: <code>GetDueJobsAsync</code>, <code>MarkPolledAsync</code></li>
-        <li><code>ISftpSyncRunRepository</code>: <code>CreateAsync</code>, <code>UpdateStatusAsync</code>, <code>HasActiveRunAsync</code>, <code>RecalculateAggregatesAsync</code></li>
+        <li><code>ISporeSyncJobRepository</code>: <code>GetDueJobsAsync</code>, <code>MarkPolledAsync</code></li>
+        <li><code>ISporeSyncRunRepository</code>: <code>CreateAsync</code>, <code>UpdateStatusAsync</code>, <code>HasActiveRunAsync</code>, <code>RecalculateAggregatesAsync</code></li>
         <li><code>IDownloadQueueItemRepository</code>: <code>UpsertAsync</code>, <code>GetSyncedStateAsync</code>, <code>ClaimNextAsync</code>, <code>UpdateProgressAsync</code></li>
       </ul>
 
@@ -425,7 +425,7 @@ SftpSync.Web/
 
       <h3>Phase 2 — SFTP Client Layer</h3>
       <ul>
-        <li>Add NuGet <code>SSH.NET</code> to <code>SftpSync.Business</code>.</li>
+        <li>Add NuGet <code>SSH.NET</code> to <code>SporeSync.Business</code>.</li>
         <li><code>SftpClientFactory</code> — load connection profile, decrypt credentials via <code>ISecretProtector</code>, return connected <code>SftpClient</code>.</li>
         <li><code>RealSftpDirectoryScanner</code> — implement <code>ISftpDirectoryScanner</code> per <a href="grouping-rules.md"><code>grouping-rules.md</code></a>:
           <ul>
@@ -594,7 +594,7 @@ else:
 
       <h3>Phase 9 — Configuration</h3>
       <pre>{
-  "SftpSync": {
+  "SporeSync": {
     "SchedulerIntervalSeconds": 10,
     "DownloadPollIntervalMs": 1000,
     "SftpConnectionTimeoutSeconds": 30,
@@ -710,7 +710,7 @@ else:
       <h3>New endpoint</h3>
       <pre>POST /api/sftp-sync-jobs/{id}/run
 
-→ 202 Accepted + SftpSyncRunResponse (new run)
+→ 202 Accepted + SporeSyncRunResponse (new run)
 → 404 if job not found
 → 409 if job already has active run
 → 400 if job disabled</pre>
@@ -761,8 +761,8 @@ else:
       <ul>
         <li><a href="grouping-rules.md"><code>docs/grouping-rules.md</code></a> — authoritative grouping algorithm (scanner + worker must follow)</li>
         <li><a href="folder-grouping-implementation-plan.html"><code>docs/folder-grouping-implementation-plan.html</code></a> — completed grouping phases 0–9</li>
-        <li><code>SftpSync.Business/Scanning/ISftpDirectoryScanner.cs</code> — scan contract + worker usage notes</li>
-        <li><code>SftpSync.Web/Hubs/DashboardBroadcaster.cs</code> — SignalR events for live dashboard</li>
+        <li><code>SporeSync.Business/Scanning/ISftpDirectoryScanner.cs</code> — scan contract + worker usage notes</li>
+        <li><code>SporeSync.Web/Hubs/DashboardBroadcaster.cs</code> — SignalR events for live dashboard</li>
       </ul>
     </section>
   </main>

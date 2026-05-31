@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>SftpSync UI Implementation Plan</title>
+  <title>SporeSync UI Implementation Plan</title>
   <style>
     :root {
       color-scheme: light dark;
@@ -142,10 +142,10 @@
 <body>
   <main>
     <header>
-      <h1>SftpSync UI Implementation Plan</h1>
+      <h1>SporeSync UI Implementation Plan</h1>
       <p class="note">Planning checkpoint for the React/TanStack UI and supporting ASP.NET Core backend APIs.</p>
       <div class="summary">
-        <p><strong>Decision:</strong> Build an integrated React UI in <code>SftpSync.Web/ClientApp</code>, developed with Vite and served by ASP.NET Core after publish.</p>
+        <p><strong>Decision:</strong> Build an integrated React UI in <code>SporeSync.Web/ClientApp</code>, developed with Vite and served by ASP.NET Core after publish.</p>
         <p><strong>Primary goal:</strong> Make the operational dashboard the home screen, centered on live sync runs and file queue progress, with secondary admin pages for jobs, connection profiles, settings, logs, and about.</p>
       </div>
     </header>
@@ -153,7 +153,7 @@
     <section>
       <h2>Core Architecture</h2>
       <ul>
-        <li>Use Vite React with TypeScript inside <code>SftpSync.Web/ClientApp</code>.</li>
+        <li>Use Vite React with TypeScript inside <code>SporeSync.Web/ClientApp</code>.</li>
         <li>Run ASP.NET Core and Vite as separate dev processes. Vite proxies <code>/api</code> and <code>/hubs</code> to ASP.NET Core.</li>
         <li>Make <code>dotnet publish</code> build the React app through an MSBuild target and include the built static assets.</li>
         <li>Use TanStack Query, Router, Table, and Virtual.</li>
@@ -274,7 +274,7 @@
       <div class="milestone">
         <h3><span class="tag">2.</span>Frontend Foundation <span class="status">Complete</span></h3>
         <p>Vite React app, routing, theme system, app shell, navigation, generated types, API client, CI, and publish integration.</p>
-        <p class="note">Completed in the second implementation pass: Vite React/TypeScript app under <code>SftpSync.Web/ClientApp</code>, TanStack Router/Query foundation, Tailwind theme tokens with persisted light/dark/system mode, responsive navigation shell, hand-written API client plus OpenAPI type-generation script, frontend lint/test/build scripts, CI Node steps, ASP.NET static SPA serving, and <code>dotnet publish</code> client build integration.</p>
+        <p class="note">Completed in the second implementation pass: Vite React/TypeScript app under <code>SporeSync.Web/ClientApp</code>, TanStack Router/Query foundation, Tailwind theme tokens with persisted light/dark/system mode, responsive navigation shell, hand-written API client plus OpenAPI type-generation script, frontend lint/test/build scripts, CI Node steps, ASP.NET static SPA serving, and <code>dotnet publish</code> client build integration.</p>
       </div>
       <div class="milestone">
         <h3><span class="tag">3.</span>Dashboard <span class="status">Complete</span></h3>

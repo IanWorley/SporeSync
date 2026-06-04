@@ -132,6 +132,12 @@ npm run build --prefix SporeSync.Web/ClientApp
 
 # Publish the web app
 dotnet publish SporeSync.Web/SporeSync.Web.csproj --configuration Release --output ./artifacts/publish
+
+# Update the changelog from git history
+scripts/update-changelog.sh
+
+# Create a release changelog section locally
+scripts/update-changelog.sh --version 0.1.0
 ```
 
 `dotnet publish` runs `npm ci` and `npm run build` for `SporeSync.Web/ClientApp`, then publishes the built SPA assets from `SporeSync.Web/wwwroot`.
@@ -175,4 +181,5 @@ npm run build --prefix SporeSync.Web/ClientApp
 
 ## CI/CD
 
-GitHub Actions restores .NET and Node dependencies, runs frontend lint/tests/build, builds the solution, runs .NET tests with coverage collection, publishes a web artifact, and can publish a container image to GitHub Container Registry on pushes.
+GitHub Actions restores .NET and Node dependencies, validates the changelog generator, runs frontend lint/tests/build, builds the solution, runs .NET tests with coverage collection, publishes a web artifact, updates `CHANGELOG.md` from git history after successful main/master builds, and can publish a container image to GitHub Container Registry on tags.
+Run the CI/CD workflow manually with `changelog_version` before tagging to create a release changelog section.

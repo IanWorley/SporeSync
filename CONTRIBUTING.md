@@ -62,6 +62,25 @@ npm run biome:check
 npm test
 ```
 
+## Changelog
+
+`CHANGELOG.md` is generated from git history. To refresh the Unreleased section:
+
+```bash
+scripts/update-changelog.sh
+```
+
+To prepare a release section before tagging:
+
+```bash
+scripts/update-changelog.sh --version 0.1.0
+git add CHANGELOG.md
+git commit -m "docs: update changelog for 0.1.0"
+git tag v0.1.0
+```
+
+The CI/CD workflow refreshes `CHANGELOG.md` automatically after successful pushes to `main`/`master`. It can also be run manually with `changelog_version` and `changelog_date` inputs to create a release section before tagging.
+
 ## Pull Requests
 
 Before submitting:

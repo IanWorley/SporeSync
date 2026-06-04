@@ -1,5 +1,6 @@
 using Renci.SshNet.Common;
 using SporeSync.Business.Interface;
+using SporeSync.Business.Security;
 using SporeSync.Business.Sftp;
 using SporeSync.Domain.Interface;
 
@@ -10,15 +11,18 @@ public sealed class DownloadQueueItemFileDeleteService : IDownloadQueueItemFileD
     private readonly IDownloadQueueItemRepository _queueItemRepository;
     private readonly ISporeSyncJobRepository _jobRepository;
     private readonly ISftpClientFactory _clientFactory;
+    private readonly LocalDestinationPathSandbox _destinationPathSandbox;
 
     public DownloadQueueItemFileDeleteService(
         IDownloadQueueItemRepository queueItemRepository,
         ISporeSyncJobRepository jobRepository,
-        ISftpClientFactory clientFactory)
+        ISftpClientFactory clientFactory,
+        LocalDestinationPathSandbox destinationPathSandbox)
     {
         _queueItemRepository = queueItemRepository;
         _jobRepository = jobRepository;
         _clientFactory = clientFactory;
+        _destinationPathSandbox = destinationPathSandbox;
     }
 
     public async Task<DeleteQueueItemFileResult> DeleteLocalAsync(
@@ -34,12 +38,15 @@ public sealed class DownloadQueueItemFileDeleteService : IDownloadQueueItemFileD
 
         try
         {
-            var existed = DeleteLocalPath(item.DestinationPath, item.IsGroup);
+            var localPath = _destinationPathSandbox.RequireContainedPath(
+                item.DestinationPath,
+                nameof(item.DestinationPath));
+            var existed = DeleteLocalPath(localPath, item.IsGroup);
             return new DeleteQueueItemFileResult(
                 DeleteQueueItemFileStatus.Deleted,
                 item.Id,
                 "local",
-                item.DestinationPath,
+                localPath,
                 existed);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)

@@ -1,3 +1,6 @@
+using Microsoft.Extensions.Options;
+using SporeSync.Business;
+using SporeSync.Business.Security;
 using SporeSync.Business.Service;
 using SporeSync.Domain.Interface;
 using SporeSync.Domain.Model;
@@ -10,7 +13,7 @@ public sealed class SporeSyncJobServiceTests
     public async Task GetConfiguredJobsAsync_DelegatesToRepository()
     {
         var repository = new RecordingSporeSyncJobRepository();
-        var service = new SporeSyncJobService(repository);
+        var service = CreateService(repository);
         var cancellationToken = new CancellationTokenSource().Token;
 
         var result = await service.GetConfiguredJobsAsync(cancellationToken);
@@ -23,7 +26,7 @@ public sealed class SporeSyncJobServiceTests
     public async Task GetByIdAsync_DelegatesToRepository()
     {
         var repository = new RecordingSporeSyncJobRepository();
-        var service = new SporeSyncJobService(repository);
+        var service = CreateService(repository);
         var jobId = Guid.NewGuid();
         var cancellationToken = new CancellationTokenSource().Token;
 
@@ -38,21 +41,55 @@ public sealed class SporeSyncJobServiceTests
     public async Task UpsertAsync_DelegatesToRepository()
     {
         var repository = new RecordingSporeSyncJobRepository();
-        var service = new SporeSyncJobService(repository);
+        var service = CreateService(repository);
         var cancellationToken = new CancellationTokenSource().Token;
+        var destinationPath = Path.Combine(TestDestinationRoot, "incoming");
         var job = new UpsertSporeSyncJob
         {
             ConnectionProfileId = Guid.NewGuid(),
             Name = "sync incoming",
             SourcePath = "/incoming",
-            DestinationPath = "/local/incoming"
+            DestinationPath = destinationPath
         };
 
         var result = await service.UpsertAsync(job, cancellationToken);
 
-        Assert.Same(repository.UpsertedJob, job);
+        Assert.NotSame(repository.UpsertedJob, job);
+        Assert.Equal(destinationPath, repository.UpsertedJob?.DestinationPath);
         Assert.Same(repository.UpsertResult, result);
         Assert.Equal(cancellationToken, repository.LastCancellationToken);
+    }
+
+    [Fact]
+    public async Task UpsertAsync_ThrowsAndSkipsRepository_WhenDestinationEscapesRoot()
+    {
+        var repository = new RecordingSporeSyncJobRepository();
+        var service = CreateService(repository);
+        var job = new UpsertSporeSyncJob
+        {
+            ConnectionProfileId = Guid.NewGuid(),
+            Name = "sync incoming",
+            SourcePath = "/incoming",
+            DestinationPath = Path.Combine(TestDestinationRoot, "..", "outside")
+        };
+
+        var exception = await Assert.ThrowsAsync<ArgumentException>(() => service.UpsertAsync(job));
+
+        Assert.Contains("configured destination root", exception.Message);
+        Assert.Null(repository.UpsertedJob);
+    }
+
+    private static string TestDestinationRoot =>
+        Path.Combine(Path.GetTempPath(), "sporesync-destination-root");
+
+    private static SporeSyncJobService CreateService(RecordingSporeSyncJobRepository repository)
+    {
+        var sandbox = new LocalDestinationPathSandbox(Options.Create(new SporeSyncOptions
+        {
+            DestinationRootPath = TestDestinationRoot
+        }));
+
+        return new SporeSyncJobService(repository, sandbox);
     }
 
     private sealed class RecordingSporeSyncJobRepository : ISporeSyncJobRepository

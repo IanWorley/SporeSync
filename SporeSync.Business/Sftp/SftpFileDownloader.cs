@@ -1,20 +1,23 @@
 using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 using Renci.SshNet;
-using SporeSync.Business.Sftp;
+using SporeSync.Business.Security;
 
 namespace SporeSync.Business.Sftp;
 
 public sealed class SftpFileDownloader
 {
     private readonly ISftpClientFactory _clientFactory;
+    private readonly LocalDestinationPathSandbox _destinationPathSandbox;
     private readonly ILogger<SftpFileDownloader> _logger;
 
     public SftpFileDownloader(
         ISftpClientFactory clientFactory,
+        LocalDestinationPathSandbox destinationPathSandbox,
         ILogger<SftpFileDownloader> logger)
     {
         _clientFactory = clientFactory;
+        _destinationPathSandbox = destinationPathSandbox;
         _logger = logger;
     }
 
@@ -24,6 +27,20 @@ public sealed class SftpFileDownloader
         string localPath,
         CancellationToken cancellationToken = default)
     {
+        try
+        {
+            localPath = _destinationPathSandbox.RequireContainedPath(localPath, nameof(localPath));
+        }
+        catch (ArgumentException ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Refusing to download {RemotePath} to unsafe local path {LocalPath}",
+                remotePath,
+                localPath);
+            return new SftpDownloadResult(false, 0, null, ex.Message);
+        }
+
         await using var connected = await _clientFactory.ConnectAsync(connectionProfileId, cancellationToken);
         var client = connected.Client;
 

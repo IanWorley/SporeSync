@@ -1,4 +1,5 @@
 using SporeSync.Business.Interface;
+using SporeSync.Business.Security;
 using SporeSync.Domain.Interface;
 using SporeSync.Domain.Model;
 
@@ -7,10 +8,14 @@ namespace SporeSync.Business.Service;
 public sealed class SporeSyncJobService : ISporeSyncJobService
 {
     private readonly ISporeSyncJobRepository _sporeSyncJobRepository;
+    private readonly LocalDestinationPathSandbox _destinationPathSandbox;
 
-    public SporeSyncJobService(ISporeSyncJobRepository sporeSyncJobRepository)
+    public SporeSyncJobService(
+        ISporeSyncJobRepository sporeSyncJobRepository,
+        LocalDestinationPathSandbox destinationPathSandbox)
     {
         _sporeSyncJobRepository = sporeSyncJobRepository;
+        _destinationPathSandbox = destinationPathSandbox;
     }
 
     public Task<IReadOnlyCollection<SporeSyncJob>> GetConfiguredJobsAsync(
@@ -28,6 +33,19 @@ public sealed class SporeSyncJobService : ISporeSyncJobService
         UpsertSporeSyncJob job,
         CancellationToken cancellationToken = default)
     {
-        return _sporeSyncJobRepository.UpsertAsync(job, cancellationToken);
+        var sandboxedJob = new UpsertSporeSyncJob
+        {
+            Id = job.Id,
+            ConnectionProfileId = job.ConnectionProfileId,
+            Name = job.Name,
+            SourcePath = job.SourcePath,
+            DestinationPath = _destinationPathSandbox.RequireContainedPath(
+                job.DestinationPath,
+                nameof(job.DestinationPath)),
+            PollingIntervalSeconds = job.PollingIntervalSeconds,
+            IsEnabled = job.IsEnabled
+        };
+
+        return _sporeSyncJobRepository.UpsertAsync(sandboxedJob, cancellationToken);
     }
 }

@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using SporeSync.Business.Interface;
+using SporeSync.Business.Security;
 using SporeSync.Business.Service;
 using SporeSync.Business.Sftp;
 using SporeSync.Business.Worker;
@@ -23,6 +24,7 @@ public static class ServiceExtension
         services.AddScoped<IDownloadQueueItemService, DownloadQueueItemService>();
         services.AddScoped<IDownloadQueueItemFileDeleteService, DownloadQueueItemFileDeleteService>();
         services.AddScoped<ISystemPropertyService, SystemPropertyService>();
+        services.AddSingleton<LocalDestinationPathSandbox>();
         services.AddScoped<ISftpClientFactory, SftpClientFactory>();
         services.AddScoped<RealSftpDirectoryScanner>();
         services.AddScoped<SftpFileDownloader>();

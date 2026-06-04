@@ -60,9 +60,17 @@ public sealed class SporeSyncJobsController : ControllerBase
         UpsertSporeSyncJobRequest request,
         CancellationToken cancellationToken)
     {
-        var job = await _sporeSyncJobService.UpsertAsync(
-            ToUpsertModel(null, request),
-            cancellationToken);
+        SporeSyncJob job;
+        try
+        {
+            job = await _sporeSyncJobService.UpsertAsync(
+                ToUpsertModel(null, request),
+                cancellationToken);
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
 
         return CreatedAtAction(nameof(GetById), new { id = job.Id }, ToResponse(job));
     }
@@ -73,9 +81,17 @@ public sealed class SporeSyncJobsController : ControllerBase
         UpsertSporeSyncJobRequest request,
         CancellationToken cancellationToken)
     {
-        var job = await _sporeSyncJobService.UpsertAsync(
-            ToUpsertModel(id, request),
-            cancellationToken);
+        SporeSyncJob job;
+        try
+        {
+            job = await _sporeSyncJobService.UpsertAsync(
+                ToUpsertModel(id, request),
+                cancellationToken);
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
 
         return Ok(ToResponse(job));
     }

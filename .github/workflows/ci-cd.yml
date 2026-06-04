@@ -21,9 +21,9 @@ permissions:
 env:
   DOTNET_VERSION: 10.0.x
   NODE_VERSION: 24.x
-  SOLUTION_FILE: SftpSync.sln
-  WEB_PROJECT: SftpSync.Web/SftpSync.Web.csproj
-  CLIENT_APP: SftpSync.Web/ClientApp
+  SOLUTION_FILE: SporeSync.sln
+  WEB_PROJECT: SporeSync.Web/SporeSync.Web.csproj
+  CLIENT_APP: SporeSync.Web/ClientApp
   BUILD_CONFIGURATION: Release
   CONTAINER_REGISTRY: ghcr.io
 
@@ -120,7 +120,7 @@ jobs:
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: sftpsync-web
+          name: sporesync-web
           path: ./artifacts/publish
 
   docker:

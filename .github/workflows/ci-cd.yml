@@ -218,22 +218,17 @@ jobs:
         run: |
           repository="$(printf '%s' "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
           short_sha="${GITHUB_SHA::12}"
-          tags="sha-${short_sha}"
+          tag="sha-${short_sha}"
 
           if [[ "${GITHUB_REF_TYPE}" == "branch" && ("${GITHUB_REF_NAME}" == "main" || "${GITHUB_REF_NAME}" == "master") ]]; then
-            tags="${tags};latest"
+            tag="latest"
           fi
 
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             version="${GITHUB_REF_NAME#v}"
 
             if [[ "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ ]]; then
-              tags="${version};${tags}"
-
-              if [[ "${version}" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
-                tags="${BASH_REMATCH[1]}.${BASH_REMATCH[2]};${tags}"
-                tags="${BASH_REMATCH[1]};${tags}"
-              fi
+              tag="${version}"
             else
               echo "::error::Docker release tags must use semantic versioning, such as v1.2.3 or 1.2.3."
               exit 1
@@ -241,7 +236,7 @@ jobs:
           fi
 
           echo "repository=${repository}" >> "${GITHUB_OUTPUT}"
-          echo "tags=${tags}" >> "${GITHUB_OUTPUT}"
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
 
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
@@ -258,4 +253,4 @@ jobs:
           /t:PublishContainer
           -p:ContainerRegistry=${{ env.CONTAINER_REGISTRY }}
           -p:ContainerRepository=${{ steps.image.outputs.repository }}
-          -p:ContainerImageTags="${{ steps.image.outputs.tags }}"
+          -p:ContainerImageTag=${{ steps.image.outputs.tag }}

@@ -38,7 +38,8 @@ SporeSync.Infrastructure/      PostgreSQL repositories and migrations
 SporeSync.Web/                 ASP.NET Core API, SignalR hubs, SPA hosting
 SporeSync.Web/ClientApp/       React/Vite frontend
 SporeSync.Business.Tests/      .NET test project
-docs/                         Project notes and implementation docs
+docs/                         Operational documentation
+specs/                        Design specs and implementation plans
 ```
 
 The public product name is SporeSync. Internal namespaces, project paths, API routes, and configuration keys still use `SporeSync`.

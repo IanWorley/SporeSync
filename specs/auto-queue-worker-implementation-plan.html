@@ -201,7 +201,7 @@
 
       <div class="summary">
         <p><strong>Goal:</strong> Replace <code>DevelopmentSimulationService</code> with a real background sync engine that polls enabled jobs from PostgreSQL, scans SFTP for new/changed files, enqueues work into <code>download_queue_items</code> (hybrid grouping model), and downloads to the local filesystem — broadcasting run/queue updates via existing SignalR infrastructure.</p>
-        <p><strong>References:</strong> <a href="grouping-rules.md"><code>docs/grouping-rules.md</code></a>, <a href="folder-grouping-implementation-plan.html">folder grouping plan</a>, <code>ISftpDirectoryScanner</code> in <code>SporeSync.Business/Scanning/</code>.</p>
+        <p><strong>References:</strong> <a href="grouping-rules.md"><code>specs/grouping-rules.md</code></a>, <a href="folder-grouping-implementation-plan.html">folder grouping plan</a>, <code>ISftpDirectoryScanner</code> in <code>SporeSync.Business/Scanning/</code>.</p>
         <p><strong>Status:</strong> <span class="status">Requirements locked — ready to implement</span></p>
       </div>
     </header>
@@ -759,8 +759,8 @@ else:
     <section>
       <h2>Related Documents</h2>
       <ul>
-        <li><a href="grouping-rules.md"><code>docs/grouping-rules.md</code></a> — authoritative grouping algorithm (scanner + worker must follow)</li>
-        <li><a href="folder-grouping-implementation-plan.html"><code>docs/folder-grouping-implementation-plan.html</code></a> — completed grouping phases 0–9</li>
+        <li><a href="grouping-rules.md"><code>specs/grouping-rules.md</code></a> — authoritative grouping algorithm (scanner + worker must follow)</li>
+        <li><a href="folder-grouping-implementation-plan.html"><code>specs/folder-grouping-implementation-plan.html</code></a> — completed grouping phases 0–9</li>
         <li><code>SporeSync.Business/Scanning/ISftpDirectoryScanner.cs</code> — scan contract + worker usage notes</li>
         <li><code>SporeSync.Web/Hubs/DashboardBroadcaster.cs</code> — SignalR events for live dashboard</li>
       </ul>

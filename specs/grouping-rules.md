@@ -6,19 +6,19 @@ Backend-driven implementation plan for first-child opaque folder grouping, recur
 
 ## Locked Design Decisions (from planning discussion)
 
-**1. First-child granularity (A)**  
+**1. First-child granularity (A)**
 Only the immediate children under the job's configured `sourcePath` appear as visible rows. Deeper nesting is never shown in the normal paged queue view.
 
-**2. Persistence model — Hybrid (recommended & accepted)**  
+**2. Persistence model — Hybrid (recommended & accepted)**
 Store both the visible top-level opaque groups **and** the individual leaf files internally. UI-facing queries (and the dashboard) only ever surface the groups with aggregated stats. This enables reliable requeue, partial progress, per-file error context, and future "expand details" capability without a painful migration.
 
-**3. Progress & counting**  
+**3. Progress & counting**
 Primary success/progress metric is bytes transferred (sum of file sizes inside groups + loose files). Integer "file counts" on runs become secondary / logical (number of visible groups + loose files at enqueue time).
 
-**4. Requeue behavior**  
+**4. Requeue behavior**
 The system must support requeuing a failed opaque folder group (and its subtree) for another full attempt. The engine can retry the group as a unit.
 
-**5. Opaque + recursive download**  
+**5. Opaque + recursive download**
 Folders are opaque in the UI. When the worker processes a folder group it must recursively walk and transfer the entire subtree, preserving relative structure under the job's `destinationPath`.
 
 ## Concrete Example
@@ -184,4 +184,4 @@ These semantics are the authoritative reference for Phases 6+ (simulation, worke
 - All rules derived strictly from the 5 locked decisions + the "first-child only" + "hybrid" + "bytes primary" + "opaque" + "full requeue" requirements.
 - This document (plus the column spec) is the single source of truth for the grouping algorithm. Future scanner contract, worker, SQL functions, and tests must follow it exactly; any deviation requires explicit user approval + plan update.
 
-(This is the complete proposed content for the new `docs/grouping-rules.md`.)
+(This is the complete proposed content for the new `specs/grouping-rules.md`.)

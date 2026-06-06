@@ -9,7 +9,7 @@ SporeSync is an ASP.NET Core application with a React/Vite single-page app for m
 - SignalR dashboard updates
 - PostgreSQL persistence with FluentMigrator migrations
 - Real SFTP sync worker: scheduled job polling, incremental scan/enqueue, serial download to local filesystem
-- Backend-driven first-child opaque folder grouping: large directories appear as a small number of logical rows in the dashboard with subtree aggregates (see docs/folder-grouping-implementation-plan.html and docs/grouping-rules.md)
+- Backend-driven first-child opaque folder grouping: large directories appear as a small number of logical rows in the dashboard with subtree aggregates (see specs/folder-grouping-implementation-plan.html and specs/grouping-rules.md)
 - Scalar/OpenAPI API documentation
 - Optional Testcontainers-backed PostgreSQL development profile
 
@@ -59,6 +59,12 @@ dotnet run --project SporeSync.Web/SporeSync.Web.csproj --launch-profile "SporeS
 ```
 
 This requires Docker to be running.
+
+### Docker Compose deployment
+
+For a production-style container deployment with PostgreSQL, persistent
+downloads, and first-boot encryption key storage, see
+[`docs/docker-compose-deployment.md`](docs/docker-compose-deployment.md).
 
 ### Frontend-only development
 
@@ -151,7 +157,8 @@ SporeSync.Infrastructure/      PostgreSQL repositories and migrations
 SporeSync.Web/                 ASP.NET Core API, SignalR hubs, SPA hosting
 SporeSync.Web/ClientApp/       React/Vite frontend
 SporeSync.Business.Tests/      .NET test project
-docs/                         Project notes and implementation docs
+docs/                         Operational documentation
+specs/                        Design specs and implementation plans
 ```
 
 ## Development Notes

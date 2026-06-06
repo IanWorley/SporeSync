@@ -19,8 +19,8 @@ namespace SporeSync.Business.Scanning;
 /// </para>
 /// <para>
 /// <strong>References (do not deviate):</strong>
-/// - 5 Locked Design Decisions + full plan in docs/folder-grouping-implementation-plan.html (Phase 9 note: this contract + grouping-rules.md are the authoritative spec for any future real SFTP worker implementation)
-/// - 5 Locked Design Decisions in docs/folder-grouping-implementation-plan.html:216-239
+/// - 5 Locked Design Decisions + full plan in specs/folder-grouping-implementation-plan.html (Phase 9 note: this contract + grouping-rules.md are the authoritative spec for any future real SFTP worker implementation)
+/// - 5 Locked Design Decisions in specs/folder-grouping-implementation-plan.html:216-239
 ///   (first-child granularity only; Hybrid persistence; bytes primary for progress/counts;
 ///    full requeue support; opaque + recursive download).
 /// - Recommended Persistence Model — Hybrid (plan.html:281-290).
@@ -35,7 +35,7 @@ namespace SporeSync.Business.Scanning;
 ///    group rows: group_remote_path=NULL, remote_path ends with '/';
 ///    indexes on (sync_run_id, is_group) and (job_id, group_remote_path);
 ///    comments explain dual-use aggregates on group rows with bytes primary).
-/// - Authoritative grouping algorithm: (future) docs/grouping-rules.md (single source of truth;
+/// - Authoritative grouping algorithm: (future) specs/grouping-rules.md (single source of truth;
 ///   key excerpts provided by sibling A: first-child granularity only on normalized sourcePath;
 ///   Hybrid creation of visible group row (is_group=true, group_remote_path=NULL, remote_path ends /,
 ///   child_count=total leaves, file_size_bytes=subtree sum) + ALL descendant leaf rows

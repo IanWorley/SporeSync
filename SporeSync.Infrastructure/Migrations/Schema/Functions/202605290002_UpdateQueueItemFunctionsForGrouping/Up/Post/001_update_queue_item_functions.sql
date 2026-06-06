@@ -7,7 +7,7 @@
 -- - Recommended Persistence Model — Hybrid (plan.html:281-290).
 -- - Phase 2 exact requirements (plan.html:323-332).
 -- - Phase 1 completion marker + locked column spec (plan.html:319).
--- - Authoritative grouping algorithm: docs/grouping-rules.md (visible rows definition at 55-59 + 137, Search Behavior 136-139, Invariants esp. #4 at 170 "Default paged queue queries never return any row where group_remote_path IS NOT NULL", How group_remote_path Links 155-158, Requeue 129-134, Byte-Size 123-127).
+-- - Authoritative grouping algorithm: specs/grouping-rules.md (visible rows definition at 55-59 + 137, Search Behavior 136-139, Invariants esp. #4 at 170 "Default paged queue queries never return any row where group_remote_path IS NOT NULL", How group_remote_path Links 155-158, Requeue 129-134, Byte-Size 123-127).
 -- - Phase 1 columns (202605290001_AddQueueItemGrouping_up.sql:30-33 + indexes + comments).
 -- - Subagent proposal (ID 33cce51a...) after 30+ file:line Reads/Globs/Greps of functions, call sites, seeds, etc.
 --

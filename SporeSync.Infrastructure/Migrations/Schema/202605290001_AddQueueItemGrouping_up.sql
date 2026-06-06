@@ -1,7 +1,7 @@
 -- Phase 1 — Schema & Migration (per folder-grouping-implementation-plan.html:304-317 and M1)
 -- Adds grouping columns to core.download_queue_items for hybrid persistence model (locked decision #2).
--- See also: docs/grouping-rules.md (full authoritative algorithm, child_count semantics, trailing-/ convention, invariants),
---           docs/folder-grouping-implementation-plan.html (Phase 0 completion marker at ~302 with locked column spec,
+-- See also: specs/grouping-rules.md (full authoritative algorithm, child_count semantics, trailing-/ convention, invariants),
+--           specs/folder-grouping-implementation-plan.html (Phase 0 completion marker at ~302 with locked column spec,
 --           Locked Design Decisions 216-239, Recommended Persistence Model 281-290, Execution Prompt),
 --           SporeSync.Business/Scanning/ISftpDirectoryScanner.cs:29-34 and :124-128 (verbatim column + index spec + child_count=total-leaves).
 --

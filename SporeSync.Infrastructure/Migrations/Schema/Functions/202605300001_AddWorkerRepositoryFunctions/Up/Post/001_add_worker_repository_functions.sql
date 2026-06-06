@@ -1,4 +1,4 @@
--- Auto-queue worker repository functions (see docs/auto-queue-worker-implementation-plan.html Phase 1).
+-- Auto-queue worker repository functions (see specs/auto-queue-worker-implementation-plan.html Phase 1).
 
 CREATE FUNCTION core.get_due_sftp_sync_jobs()
 RETURNS TABLE (

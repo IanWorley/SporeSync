@@ -63,6 +63,9 @@ jobs:
       - name: Validate changelog generator
         run: bash -n scripts/update-changelog.sh
 
+      - name: Validate release notes generator
+        run: bash -n scripts/extract-release-notes.sh
+
       - name: Restore frontend
         working-directory: ${{ env.CLIENT_APP }}
         run: npm ci
@@ -254,3 +257,64 @@ jobs:
           -p:ContainerRegistry=${{ env.CONTAINER_REGISTRY }}
           -p:ContainerRepository=${{ steps.image.outputs.repository }}
           -p:ContainerImageTag=${{ steps.image.outputs.tag }}
+
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs:
+      - build
+      - docker
+    if: github.ref_type == 'tag'
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download web artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: sporesync-web
+          path: artifacts/publish
+
+      - name: Package web artifact
+        run: tar -czf sporesync-web-${GITHUB_REF_NAME}.tar.gz -C artifacts/publish .
+
+      - name: Extract release notes
+        run: scripts/extract-release-notes.sh --tag "${GITHUB_REF_NAME}" --output release-notes.md
+
+      - name: Upload release notes artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-notes-${{ github.ref_name }}
+          path: release-notes.md
+
+      - name: Create release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          release_flags=()
+          if [[ "${GITHUB_REF_NAME#v}" == *-* ]]; then
+            release_flags+=(--prerelease)
+          fi
+
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release edit "${GITHUB_REF_NAME}" \
+              --title "${GITHUB_REF_NAME}" \
+              --notes-file release-notes.md \
+              "${release_flags[@]}"
+            gh release upload "${GITHUB_REF_NAME}" \
+              "sporesync-web-${GITHUB_REF_NAME}.tar.gz" \
+              --clobber
+          else
+            gh release create "${GITHUB_REF_NAME}" \
+              "sporesync-web-${GITHUB_REF_NAME}.tar.gz" \
+              --title "${GITHUB_REF_NAME}" \
+              --notes-file release-notes.md \
+              --verify-tag \
+              "${release_flags[@]}"
+          fi

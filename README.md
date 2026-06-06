@@ -181,5 +181,6 @@ npm run build --prefix SporeSync.Web/ClientApp
 
 ## CI/CD
 
-GitHub Actions restores .NET and Node dependencies, validates the changelog generator, runs frontend lint/tests/build, builds the solution, runs .NET tests with coverage collection, publishes a web artifact, updates `CHANGELOG.md` from git history after successful main/master builds, and can publish a container image to GitHub Container Registry on tags.
+GitHub Actions restores .NET and Node dependencies, validates the changelog and release notes generators, runs frontend lint/tests/build, builds the solution, runs .NET tests with coverage collection, publishes a web artifact, updates `CHANGELOG.md` from git history after successful main/master builds, and publishes a container image to GitHub Container Registry on tags.
+Tag builds also create a GitHub Release, attach the packaged web artifact, and upload a `release-notes-<tag>` artifact generated from the matching `CHANGELOG.md` section or, if that section is missing, from commits since the previous tag.
 Run the CI/CD workflow manually with `changelog_version` before tagging to create a release changelog section.

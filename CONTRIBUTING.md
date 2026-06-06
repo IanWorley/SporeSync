@@ -79,7 +79,7 @@ git commit -m "docs: update changelog for 0.1.0"
 git tag v0.1.0
 ```
 
-The CI/CD workflow refreshes `CHANGELOG.md` automatically after successful pushes to `main`/`master`. It can also be run manually with `changelog_version` and `changelog_date` inputs to create a release section before tagging.
+The CI/CD workflow refreshes `CHANGELOG.md` automatically after successful pushes to `main`/`master`. It can also be run manually with `changelog_version` and `changelog_date` inputs to create a release section before tagging. Tag builds create a GitHub Release, attach the packaged web artifact, and upload a `release-notes-<tag>` artifact generated from the matching changelog section or, if that section is missing, from commits since the previous tag.
 
 ## Pull Requests
 

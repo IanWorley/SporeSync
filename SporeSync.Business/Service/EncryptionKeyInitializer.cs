@@ -107,8 +107,12 @@ public sealed class EncryptionKeyInitializer : IEncryptionKeyInitializer
             var directory = Path.GetDirectoryName(keyPath);
             if (!string.IsNullOrWhiteSpace(directory))
             {
+                var directoryAlreadyExists = Directory.Exists(directory);
                 Directory.CreateDirectory(directory);
-                SetOwnerOnlyDirectoryMode(directory);
+                if (!directoryAlreadyExists)
+                {
+                    SetOwnerOnlyDirectoryMode(directory);
+                }
             }
 
             var key = RandomNumberGenerator.GetBytes(KeyLength);

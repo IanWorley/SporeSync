@@ -4,6 +4,8 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <ClientAppDirectory>ClientApp/</ClientAppDirectory>
+    <ClientAppDirectoryFullPath>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)/$(ClientAppDirectory)'))</ClientAppDirectoryFullPath>
+    <SpaDistDirectory>$(MSBuildProjectDirectory)/wwwroot/</SpaDistDirectory>
     <SpaRoot>$(ClientAppDirectory)</SpaRoot>
     <SpaProxyServerUrl>http://localhost:5173</SpaProxyServerUrl>
     <SpaProxyLaunchCommand>npm run dev</SpaProxyLaunchCommand>
@@ -28,10 +30,10 @@
   </ItemGroup>
 
   <Target Name="BuildClientApp" BeforeTargets="ComputeFilesToPublish">
-    <Exec WorkingDirectory="$(ClientAppDirectory)" Command="npm ci" />
-    <Exec WorkingDirectory="$(ClientAppDirectory)" Command="npm run build" />
+    <Exec WorkingDirectory="$(ClientAppDirectoryFullPath)" Command="npm ci" />
+    <Exec WorkingDirectory="$(ClientAppDirectoryFullPath)" Command="npm run build -- --outDir &quot;$(SpaDistDirectory)&quot;" />
     <ItemGroup>
-      <DistFiles Include="wwwroot/**" />
+      <DistFiles Include="$(SpaDistDirectory)**" />
       <ResolvedFileToPublish Include="@(DistFiles->'%(FullPath)')" Exclude="@(ResolvedFileToPublish)">
         <RelativePath>wwwroot\%(RecursiveDir)%(Filename)%(Extension)</RelativePath>
         <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>

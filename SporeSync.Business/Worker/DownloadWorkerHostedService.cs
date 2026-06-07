@@ -121,10 +121,39 @@ public sealed class DownloadWorkerHostedService : BackgroundService
         ISyncDashboardNotifier notifier,
         CancellationToken cancellationToken)
     {
+        var progress = new Progress<long>(bytes =>
+        {
+            // Best-effort progress update; do not block download thread
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    var partial = await queueRepository.UpdateProgressAsync(new UpdateDownloadQueueItemProgress
+                    {
+                        Id = item.Id,
+                        Status = "downloading",
+                        BytesDownloaded = bytes,
+                        CurrentBytesPerSecond = null,
+                        ErrorMessage = null
+                    }, cancellationToken);
+                    await notifier.NotifyQueueItemUpdatedAsync(partial, cancellationToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    // ignore
+                }
+                catch
+                {
+                    // best effort; ignore transient progress reporting errors
+                }
+            }, cancellationToken);
+        });
+
         var result = await downloader.DownloadAsync(
             job.ConnectionProfileId,
             item.RemotePath,
             item.DestinationPath,
+            progress,
             cancellationToken);
 
         return await queueRepository.UpdateProgressAsync(new UpdateDownloadQueueItemProgress
@@ -162,10 +191,36 @@ public sealed class DownloadWorkerHostedService : BackgroundService
                 continue;
             }
 
+            var leafProgress = new Progress<long>(bytes =>
+            {
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        var partial = await queueRepository.UpdateProgressAsync(new UpdateDownloadQueueItemProgress
+                        {
+                            Id = leaf.Id,
+                            Status = "downloading",
+                            BytesDownloaded = bytes,
+                            CurrentBytesPerSecond = null,
+                            ErrorMessage = null
+                        }, cancellationToken);
+                        await notifier.NotifyQueueItemUpdatedAsync(partial, cancellationToken);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                    }
+                    catch
+                    {
+                    }
+                }, cancellationToken);
+            });
+
             var leafResult = await downloader.DownloadAsync(
                 job.ConnectionProfileId,
                 leaf.RemotePath,
                 leaf.DestinationPath,
+                leafProgress,
                 cancellationToken);
 
             var updatedLeaf = await queueRepository.UpdateProgressAsync(new UpdateDownloadQueueItemProgress

@@ -25,6 +25,7 @@ public sealed class SftpFileDownloader
         Guid connectionProfileId,
         string remotePath,
         string localPath,
+        IProgress<long>? progress = null,
         CancellationToken cancellationToken = default)
     {
         try
@@ -61,7 +62,25 @@ public sealed class SftpFileDownloader
         {
             await using var remoteStream = client.OpenRead(remotePath);
             await using var localStream = File.Create(tempPath);
-            await remoteStream.CopyToAsync(localStream, cancellationToken);
+            const int bufferSize = 81920;
+            var buffer = new byte[bufferSize];
+            long totalRead = 0;
+            int bytesRead;
+            var lastReportSw = Stopwatch.StartNew();
+            while ((bytesRead = await remoteStream.ReadAsync(buffer.AsMemory(0, bufferSize), cancellationToken)) > 0)
+            {
+                await localStream.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken);
+                totalRead += bytesRead;
+                if (progress is not null && lastReportSw.ElapsedMilliseconds >= 150)
+                {
+                    progress.Report(totalRead);
+                    lastReportSw.Restart();
+                }
+            }
+            if (progress is not null)
+            {
+                progress.Report(totalRead);
+            }
             localStream.Flush(true);
         }
         catch (Exception ex)

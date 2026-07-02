@@ -12,20 +12,25 @@ namespace SporeSync.Business.Worker;
 
 public sealed class DownloadWorkerHostedService : BackgroundService
 {
+    internal const string AwaitingRemoteStabilityReason = "awaiting_remote_stability";
+
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly SporeSyncOptions _options;
     private readonly SporeSyncMetrics _metrics;
+    private readonly DownloadRetryPolicy _retryPolicy;
     private readonly ILogger<DownloadWorkerHostedService> _logger;
 
     public DownloadWorkerHostedService(
         IServiceScopeFactory scopeFactory,
         IOptions<SporeSyncOptions> options,
         SporeSyncMetrics metrics,
+        DownloadRetryPolicy retryPolicy,
         ILogger<DownloadWorkerHostedService> logger)
     {
         _scopeFactory = scopeFactory;
         _options = options.Value;
         _metrics = metrics;
+        _retryPolicy = retryPolicy;
         _logger = logger;
     }
 
@@ -65,7 +70,7 @@ public sealed class DownloadWorkerHostedService : BackgroundService
         var queueRepository = scope.ServiceProvider.GetRequiredService<IDownloadQueueItemRepository>();
         var runRepository = scope.ServiceProvider.GetRequiredService<ISporeSyncRunRepository>();
         var jobRepository = scope.ServiceProvider.GetRequiredService<ISporeSyncJobRepository>();
-        var downloader = scope.ServiceProvider.GetRequiredService<SftpFileDownloader>();
+        var downloader = scope.ServiceProvider.GetRequiredService<ISftpFileDownloader>();
         var notifier = scope.ServiceProvider.GetRequiredService<ISyncDashboardNotifier>();
 
         var item = await queueRepository.ClaimNextAsync(cancellationToken);
@@ -121,7 +126,7 @@ public sealed class DownloadWorkerHostedService : BackgroundService
         DownloadQueueItem item,
         SporeSyncJob job,
         IDownloadQueueItemRepository queueRepository,
-        SftpFileDownloader downloader,
+        ISftpFileDownloader downloader,
         ISyncDashboardNotifier notifier,
         CancellationToken cancellationToken)
     {
@@ -160,21 +165,42 @@ public sealed class DownloadWorkerHostedService : BackgroundService
 
         RecordDownloadResult(job.Id, item.RemotePath, result);
 
-        return await progress.CompleteAsync(token => queueRepository.UpdateProgressAsync(new UpdateDownloadQueueItemProgress
+        if (result.Success)
         {
-            Id = item.Id,
-            Status = result.Success ? "completed" : "failed",
-            BytesDownloaded = result.BytesDownloaded,
-            CurrentBytesPerSecond = result.BytesPerSecond,
-            ErrorMessage = result.ErrorMessage
-        }, token));
+            return await progress.CompleteAsync(token => queueRepository.UpdateProgressAsync(new UpdateDownloadQueueItemProgress
+            {
+                Id = item.Id,
+                Status = "completed",
+                BytesDownloaded = result.BytesDownloaded,
+                CurrentBytesPerSecond = result.BytesPerSecond
+            }, token));
+        }
+
+        if (result.Deferred)
+        {
+            // The remote file is still inside the stability window; check again later
+            // without consuming retry budget.
+            return await progress.CompleteAsync(token => queueRepository.DeferAsync(
+                item.Id,
+                DateTimeOffset.UtcNow + _retryPolicy.StabilityRecheckDelay,
+                AwaitingRemoteStabilityReason,
+                bytesDownloaded: null,
+                token));
+        }
+
+        return await progress.CompleteAsync(token => RecordFailureAsync(
+            queueRepository,
+            item,
+            result.ErrorMessage,
+            bytesDownloaded: null,
+            token));
     }
 
     private async Task<DownloadQueueItem> ProcessGroupAsync(
         DownloadQueueItem groupItem,
         SporeSyncJob job,
         IDownloadQueueItemRepository queueRepository,
-        SftpFileDownloader downloader,
+        ISftpFileDownloader downloader,
         ISyncDashboardNotifier notifier,
         CancellationToken cancellationToken)
     {
@@ -186,6 +212,7 @@ public sealed class DownloadWorkerHostedService : BackgroundService
         long groupBytesDownloaded = 0;
         decimal? latestRate = null;
         var groupFailed = false;
+        var groupDeferred = false;
 
         foreach (var leaf in leaves)
         {
@@ -243,33 +270,74 @@ public sealed class DownloadWorkerHostedService : BackgroundService
 
             RecordDownloadResult(job.Id, leaf.RemotePath, leafResult);
 
-            await leafProgress.CompleteAsync(token => queueRepository.UpdateProgressAsync(new UpdateDownloadQueueItemProgress
-            {
-                Id = leaf.Id,
-                Status = leafResult.Success ? "completed" : "failed",
-                BytesDownloaded = leafResult.BytesDownloaded,
-                CurrentBytesPerSecond = leafResult.BytesPerSecond,
-                ErrorMessage = leafResult.ErrorMessage
-            }, token));
-
             if (leafResult.Success)
             {
+                await leafProgress.CompleteAsync(token => queueRepository.UpdateProgressAsync(new UpdateDownloadQueueItemProgress
+                {
+                    Id = leaf.Id,
+                    Status = "completed",
+                    BytesDownloaded = leafResult.BytesDownloaded,
+                    CurrentBytesPerSecond = leafResult.BytesPerSecond
+                }, token));
+
                 groupBytesDownloaded += leafResult.BytesDownloaded;
                 latestRate = leafResult.BytesPerSecond;
             }
+            else if (leafResult.Deferred)
+            {
+                await leafProgress.CompleteAsync(token => queueRepository.UpdateProgressAsync(new UpdateDownloadQueueItemProgress
+                {
+                    Id = leaf.Id,
+                    Status = "queued",
+                    BytesDownloaded = leaf.BytesDownloaded,
+                    HandledReason = AwaitingRemoteStabilityReason
+                }, token));
+
+                groupDeferred = true;
+            }
             else
             {
+                await leafProgress.CompleteAsync(token => queueRepository.UpdateProgressAsync(new UpdateDownloadQueueItemProgress
+                {
+                    Id = leaf.Id,
+                    Status = "failed",
+                    BytesDownloaded = leaf.BytesDownloaded,
+                    ErrorMessage = leafResult.ErrorMessage
+                }, token));
+
                 groupFailed = true;
             }
+        }
+
+        if (groupFailed)
+        {
+            // The group carries the retry budget for its subtree: failed leaves are retried on the
+            // group's next claim (only non-completed leaves are re-attempted) until the budget is
+            // exhausted, at which point the group is dead-lettered as terminal 'failed'.
+            return await RecordFailureAsync(
+                queueRepository,
+                groupItem,
+                "One or more files in the group failed to download.",
+                groupBytesDownloaded,
+                cancellationToken);
+        }
+
+        if (groupDeferred)
+        {
+            return await queueRepository.DeferAsync(
+                groupItem.Id,
+                DateTimeOffset.UtcNow + _retryPolicy.StabilityRecheckDelay,
+                AwaitingRemoteStabilityReason,
+                groupBytesDownloaded,
+                cancellationToken);
         }
 
         return await queueRepository.UpdateProgressAsync(new UpdateDownloadQueueItemProgress
         {
             Id = groupItem.Id,
-            Status = groupFailed ? "failed" : "completed",
+            Status = "completed",
             BytesDownloaded = groupBytesDownloaded,
-            CurrentBytesPerSecond = latestRate,
-            ErrorMessage = groupFailed ? "One or more files in the group failed to download." : null
+            CurrentBytesPerSecond = latestRate
         }, cancellationToken);
     }
 
@@ -284,6 +352,14 @@ public sealed class DownloadWorkerHostedService : BackgroundService
                 jobId,
                 result.BytesDownloaded,
                 result.BytesPerSecond);
+        }
+        else if (result.Deferred)
+        {
+            _logger.LogInformation(
+                "Download deferred for {RemotePath} in job {JobId}: {Reason}",
+                remotePath,
+                jobId,
+                result.ErrorMessage);
         }
         else
         {
@@ -362,5 +438,44 @@ public sealed class DownloadWorkerHostedService : BackgroundService
                 // Best-effort progress reporting must not fail or strand the download.
             }
         }
+    }
+
+    private async Task<DownloadQueueItem> RecordFailureAsync(
+        IDownloadQueueItemRepository queueRepository,
+        DownloadQueueItem item,
+        string? errorMessage,
+        long? bytesDownloaded,
+        CancellationToken cancellationToken)
+    {
+        var nextAttemptAt = DateTimeOffset.UtcNow + _retryPolicy.GetRetryDelay(item.RetryCount);
+        var updated = await queueRepository.RecordFailureAsync(
+            item.Id,
+            errorMessage,
+            _retryPolicy.MaxRetries,
+            nextAttemptAt,
+            bytesDownloaded,
+            cancellationToken);
+
+        if (string.Equals(updated.Status, "failed", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogWarning(
+                "Queue item {QueueItemId} ({RemotePath}) dead-lettered after {RetryCount} failed attempts: {Error}",
+                updated.Id,
+                updated.RemotePath,
+                updated.RetryCount,
+                errorMessage);
+        }
+        else
+        {
+            _logger.LogInformation(
+                "Queue item {QueueItemId} ({RemotePath}) failed attempt {RetryCount}; retry scheduled for {NextAttemptAt}: {Error}",
+                updated.Id,
+                updated.RemotePath,
+                updated.RetryCount,
+                nextAttemptAt,
+                errorMessage);
+        }
+
+        return updated;
     }
 }

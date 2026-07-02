@@ -60,7 +60,8 @@ public sealed class SftpSyncEndToEndTests :
         services.AddScoped<IDownloadQueueItemRepository, DownloadQueueItemRepository>();
         services.AddScoped<ISftpClientFactory, SftpClientFactory>();
         services.AddScoped<RealSftpDirectoryScanner>();
-        services.AddScoped<SftpFileDownloader>();
+        services.AddScoped<ISftpFileDownloader, SftpFileDownloader>();
+        services.AddSingleton<DownloadRetryPolicy>();
         services.AddScoped<IChangeDetector, ChangeDetector>();
         services.AddScoped<ISyncRunOrchestrator, SyncRunOrchestrator>();
         services.AddSingleton<DownloadWorkerHostedService>();

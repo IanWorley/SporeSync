@@ -19,6 +19,32 @@ public sealed class DownloadQueueItemRepository : IDownloadQueueItemRepository
     private const string OpUpdateQueueItemProgress = "UpdateQueueItemProgress";
     private const string OpMarkRemoteDeletedItems = "MarkRemoteDeletedItems";
     private const string OpRequeueFailedItems = "RequeueFailedItems";
+    private const string OpRecordQueueItemFailure = "RecordQueueItemFailure";
+    private const string OpDeferQueueItem = "DeferQueueItem";
+    private const string OpRetryQueueItem = "RetryQueueItem";
+
+    private const string QueueItemColumns = """
+        id,
+        job_id,
+        sync_run_id,
+        remote_path,
+        destination_path,
+        file_size_bytes,
+        remote_modified_at,
+        status,
+        bytes_downloaded,
+        current_bytes_per_second,
+        retry_count,
+        handled_reason,
+        error_message,
+        queued_at,
+        started_at,
+        completed_at,
+        updated_at,
+        is_group,
+        group_remote_path,
+        child_count
+        """;
 
     private static readonly HashSet<string> AllowedStatuses = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -509,5 +535,100 @@ public sealed class DownloadQueueItemRepository : IDownloadQueueItemRepository
         command.Parameters.AddWithValue("sync_run_id", syncRunId);
 
         return await DbCommandLogger.ExecuteScalarAsync<int>(_logger, command, OpRequeueFailedItems, cancellationToken);
+    }
+
+    public async Task<DownloadQueueItem> RecordFailureAsync(
+        Guid id,
+        string? errorMessage,
+        int maxRetries,
+        DateTimeOffset nextAttemptAt,
+        long? bytesDownloaded = null,
+        CancellationToken cancellationToken = default)
+    {
+        const string sql = $"""
+            SELECT {QueueItemColumns}
+            FROM core.record_download_queue_item_failure(
+                @id,
+                @error_message,
+                @max_retries,
+                @next_attempt_at,
+                @bytes_downloaded);
+            """;
+
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.AddWithValue("id", id);
+        command.Parameters.AddWithValue("error_message", (object?)errorMessage ?? DBNull.Value);
+        command.Parameters.AddWithValue("max_retries", maxRetries);
+        command.Parameters.AddWithValue("next_attempt_at", nextAttemptAt);
+        command.Parameters.AddWithValue("bytes_downloaded", (object?)bytesDownloaded ?? DBNull.Value);
+
+        return await DbCommandLogger.ExecuteReaderAsync(_logger, command, OpRecordQueueItemFailure,
+            async reader =>
+            {
+                if (!await reader.ReadAsync(cancellationToken))
+                {
+                    throw new InvalidOperationException($"Download queue item '{id}' was not found when recording a failure.");
+                }
+                return ReadItem(reader);
+            }, cancellationToken);
+    }
+
+    public async Task<DownloadQueueItem> DeferAsync(
+        Guid id,
+        DateTimeOffset nextAttemptAt,
+        string reason,
+        long? bytesDownloaded = null,
+        CancellationToken cancellationToken = default)
+    {
+        const string sql = $"""
+            SELECT {QueueItemColumns}
+            FROM core.defer_download_queue_item(
+                @id,
+                @next_attempt_at,
+                @reason,
+                @bytes_downloaded);
+            """;
+
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.AddWithValue("id", id);
+        command.Parameters.AddWithValue("next_attempt_at", nextAttemptAt);
+        command.Parameters.AddWithValue("reason", reason);
+        command.Parameters.AddWithValue("bytes_downloaded", (object?)bytesDownloaded ?? DBNull.Value);
+
+        return await DbCommandLogger.ExecuteReaderAsync(_logger, command, OpDeferQueueItem,
+            async reader =>
+            {
+                if (!await reader.ReadAsync(cancellationToken))
+                {
+                    throw new InvalidOperationException($"Download queue item '{id}' was not found when deferring.");
+                }
+                return ReadItem(reader);
+            }, cancellationToken);
+    }
+
+    public async Task<DownloadQueueItem?> RetryAsync(
+        Guid id,
+        CancellationToken cancellationToken = default)
+    {
+        const string sql = $"""
+            SELECT {QueueItemColumns}
+            FROM core.retry_download_queue_item(@id);
+            """;
+
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.AddWithValue("id", id);
+
+        return await DbCommandLogger.ExecuteReaderAsync(_logger, command, OpRetryQueueItem,
+            async reader =>
+            {
+                if (!await reader.ReadAsync(cancellationToken))
+                {
+                    return null;
+                }
+                return ReadItem(reader);
+            }, cancellationToken);
     }
 }

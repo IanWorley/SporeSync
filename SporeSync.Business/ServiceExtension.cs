@@ -36,7 +36,8 @@ public static class ServiceExtension
         services.AddScoped<ISftpClientFactory, SftpClientFactory>();
         services.AddScoped<ISshHostKeyScanner, SshHostKeyScanner>();
         services.AddScoped<RealSftpDirectoryScanner>();
-        services.AddScoped<SftpFileDownloader>();
+        services.AddScoped<ISftpFileDownloader, SftpFileDownloader>();
+        services.AddSingleton<DownloadRetryPolicy>();
         services.AddScoped<IChangeDetector, ChangeDetector>();
         services.AddScoped<ISyncRunOrchestrator, SyncRunOrchestrator>();
         services.AddScoped<ISyncJobRunService, SyncJobRunService>();

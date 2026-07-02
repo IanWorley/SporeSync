@@ -10,6 +10,7 @@ import {
   FileWarning,
   Folder,
   Loader2,
+  RotateCcw,
   Search,
   Trash2,
   Wifi,
@@ -155,6 +156,32 @@ export function DashboardPage() {
       return api.queueItems(effectiveRunId, queueQueryParams);
     },
     enabled: Boolean(effectiveRunId),
+  });
+  const queryClient = useQueryClient();
+  const retryMutation = useMutation({
+    mutationFn: (item: DownloadQueueItem) => {
+      if (!item.syncRunId) {
+        throw new Error("Queue item is not associated with a run.");
+      }
+
+      return api.retryQueueItem(item.syncRunId, item.id);
+    },
+    onSuccess: (item) => {
+      upsertQueueItemInPagedCaches(queryClient, item);
+      pushToast({
+        id: Date.now(),
+        tone: "success",
+        message: `${displayName(item)} requeued for download`,
+      });
+    },
+    onError: (error) => {
+      pushToast({
+        id: Date.now(),
+        tone: "error",
+        message:
+          error instanceof Error ? error.message : "Retry request failed",
+      });
+    },
   });
   const deleteFileMutation = useMutation({
     mutationFn: ({
@@ -439,7 +466,9 @@ export function DashboardPage() {
       <ItemDetails
         item={selectedItem}
         isDeleting={deleteFileMutation.isPending}
+        isRetrying={retryMutation.isPending}
         onDelete={deleteSelectedFile}
+        onRetry={(item) => retryMutation.mutate(item)}
         onClose={() => setSelectedItemId(undefined)}
       />
       <ToastStack toasts={toasts} />
@@ -702,6 +731,13 @@ function QueueTable({
               </td>
               <td className="px-4 py-3">
                 <StatusBadge status={item.status} />
+                {item.retryCount > 0 && (
+                  <p className="mt-1 text-[10px] text-muted-foreground">
+                    {isFailedStatus(item.status)
+                      ? `failed after ${item.retryCount} attempts`
+                      : `retries: ${item.retryCount}`}
+                  </p>
+                )}
               </td>
               <td className="px-4 py-3">
                 {formatRate(item.currentBytesPerSecond)}
@@ -769,12 +805,16 @@ function SortableHeader({
 function ItemDetails({
   item,
   isDeleting,
+  isRetrying,
   onDelete,
+  onRetry,
   onClose,
 }: {
   item?: DownloadQueueItem;
   isDeleting: boolean;
+  isRetrying: boolean;
   onDelete: (item: DownloadQueueItem, target: "local" | "remote") => void;
+  onRetry: (item: DownloadQueueItem) => void;
   onClose: () => void;
 }) {
   if (!item) {
@@ -803,6 +843,16 @@ function ItemDetails({
         <Button onClick={onClose}>Close</Button>
       </div>
       <dl className="grid gap-4 overflow-auto p-4 text-sm">
+        {isFailedStatus(item.status) && (
+          <Button
+            className="justify-start border-emerald-500/40 text-emerald-600 hover:bg-emerald-500/10 dark:text-emerald-400"
+            disabled={isRetrying}
+            onClick={() => onRetry(item)}
+          >
+            <RotateCcw size={16} />
+            Retry Download
+          </Button>
+        )}
         <div className="grid gap-2 sm:grid-cols-2">
           <Button
             className="justify-start border-red-500/40 text-red-600 hover:bg-red-500/10 dark:text-red-400"
@@ -927,6 +977,10 @@ function formatEta(item: DownloadQueueItem) {
   if (seconds < 60) return `${seconds}s`;
   if (seconds < 3600) return `${Math.ceil(seconds / 60)}m`;
   return `${Math.ceil(seconds / 3600)}h`;
+}
+
+function isFailedStatus(status: string) {
+  return status.toLowerCase() === "failed";
 }
 
 function displayName(item: DownloadQueueItem) {

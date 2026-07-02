@@ -14,4 +14,23 @@ public interface IDownloadQueueItemService
         Guid runId,
         string groupRemotePath,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Manually requeues a dead-lettered ('failed') queue item with a fresh retry budget.
+    /// </summary>
+    Task<RetryQueueItemResult> RetryAsync(
+        Guid runId,
+        Guid queueItemId,
+        CancellationToken cancellationToken = default);
 }
+
+public enum RetryQueueItemStatus
+{
+    NotFound,
+    NotRetryable,
+    Retried
+}
+
+public sealed record RetryQueueItemResult(
+    RetryQueueItemStatus Status,
+    DownloadQueueItem? Item);

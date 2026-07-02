@@ -4,6 +4,7 @@ using Microsoft.Extensions.Options;
 using Renci.SshNet;
 using SporeSync.Business.Interface;
 using SporeSync.Domain.Interface;
+using SporeSync.Domain.Model;
 
 namespace SporeSync.Business.Sftp;
 
@@ -72,6 +73,31 @@ public sealed class SftpClientFactory : ISftpClientFactory
             OperationTimeout = TimeSpan.FromSeconds(_options.SftpOperationTimeoutSeconds)
         };
 
+        var pinnedFingerprint = profile.HostKeyFingerprintSha256;
+        string? presentedFingerprint = null;
+        string? mismatchFingerprint = null;
+
+        client.HostKeyReceived += (_, e) =>
+        {
+            presentedFingerprint = SshHostKeyFingerprint.Normalize(e.FingerPrintSHA256);
+
+            if (string.IsNullOrWhiteSpace(pinnedFingerprint))
+            {
+                // Trust-on-first-use: accept and pin after the connection succeeds.
+                e.CanTrust = true;
+                return;
+            }
+
+            if (SshHostKeyFingerprint.Matches(pinnedFingerprint, presentedFingerprint))
+            {
+                e.CanTrust = true;
+                return;
+            }
+
+            mismatchFingerprint = presentedFingerprint;
+            e.CanTrust = false;
+        };
+
         try
         {
             await Task.Run(client.Connect, cancellationToken);
@@ -79,11 +105,75 @@ public sealed class SftpClientFactory : ISftpClientFactory
         catch (Exception ex)
         {
             client.Dispose();
+
+            if (mismatchFingerprint is not null)
+            {
+                var mismatch = new SshHostKeyMismatchException(
+                    profile.Host,
+                    profile.Port,
+                    pinnedFingerprint!,
+                    mismatchFingerprint);
+                _logger.LogError(
+                    mismatch,
+                    "Rejected SFTP host {Host}:{Port}: host key fingerprint {ActualFingerprint} does not match pinned fingerprint {ExpectedFingerprint}",
+                    profile.Host,
+                    profile.Port,
+                    mismatchFingerprint,
+                    pinnedFingerprint);
+                throw mismatch;
+            }
+
             _logger.LogError(ex, "Failed to connect to SFTP host {Host}:{Port}", profile.Host, profile.Port);
             throw;
         }
 
+        if (string.IsNullOrWhiteSpace(pinnedFingerprint) && presentedFingerprint is not null)
+        {
+            await PinHostKeyOnFirstUseAsync(profile, presentedFingerprint, cancellationToken);
+        }
+
         return new ConnectedSftpClient(client);
+    }
+
+    private async Task PinHostKeyOnFirstUseAsync(
+        SftpConnectionProfile profile,
+        string fingerprint,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _profileRepository.UpsertAsync(
+                new SftpConnectionProfile
+                {
+                    Id = profile.Id,
+                    Name = profile.Name,
+                    Host = profile.Host,
+                    Port = profile.Port,
+                    Username = profile.Username,
+                    EncryptedPassword = profile.EncryptedPassword,
+                    EncryptedPrivateKey = profile.EncryptedPrivateKey,
+                    EncryptedPrivateKeyPassphrase = profile.EncryptedPrivateKeyPassphrase,
+                    HostKeyFingerprintSha256 = fingerprint,
+                    IsDefault = profile.IsDefault
+                },
+                cancellationToken);
+
+            _logger.LogWarning(
+                "Pinned SSH host key fingerprint {Fingerprint} for SFTP host {Host}:{Port} on first use (profile '{ProfileName}'). Future connections will be rejected if the host key changes.",
+                fingerprint,
+                profile.Host,
+                profile.Port,
+                profile.Name);
+        }
+        catch (Exception ex)
+        {
+            // The connection itself succeeded; failing to persist the pin should not fail the sync run.
+            _logger.LogError(
+                ex,
+                "Failed to persist first-use host key fingerprint {Fingerprint} for SFTP profile '{ProfileName}'",
+                fingerprint,
+                profile.Name);
+        }
     }
 
     private sealed class ConnectedSftpClient : IConnectedSftpClient

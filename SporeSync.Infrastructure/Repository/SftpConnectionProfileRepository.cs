@@ -37,6 +37,7 @@ public sealed class SftpConnectionProfileRepository : ISftpConnectionProfileRepo
                    encrypted_password,
                    encrypted_private_key,
                    encrypted_private_key_passphrase,
+                   host_key_fingerprint_sha256,
                    is_default
             FROM core.get_sftp_connection_profiles();
             """;
@@ -69,6 +70,7 @@ public sealed class SftpConnectionProfileRepository : ISftpConnectionProfileRepo
                    encrypted_password,
                    encrypted_private_key,
                    encrypted_private_key_passphrase,
+                   host_key_fingerprint_sha256,
                    is_default
             FROM core.get_sftp_connection_profile(@id);
             """;
@@ -101,6 +103,7 @@ public sealed class SftpConnectionProfileRepository : ISftpConnectionProfileRepo
                    encrypted_password,
                    encrypted_private_key,
                    encrypted_private_key_passphrase,
+                   host_key_fingerprint_sha256,
                    is_default
             FROM core.upsert_sftp_connection_profile(
                 @id,
@@ -111,6 +114,7 @@ public sealed class SftpConnectionProfileRepository : ISftpConnectionProfileRepo
                 @encrypted_password,
                 @encrypted_private_key,
                 @encrypted_private_key_passphrase,
+                @host_key_fingerprint_sha256,
                 @is_default);
             """;
 
@@ -126,6 +130,9 @@ public sealed class SftpConnectionProfileRepository : ISftpConnectionProfileRepo
         command.Parameters.AddWithValue(
             "encrypted_private_key_passphrase",
             (object?)profile.EncryptedPrivateKeyPassphrase ?? DBNull.Value);
+        command.Parameters.AddWithValue(
+            "host_key_fingerprint_sha256",
+            (object?)profile.HostKeyFingerprintSha256 ?? DBNull.Value);
         command.Parameters.AddWithValue("is_default", profile.IsDefault);
 
         return await DbCommandLogger.ExecuteReaderAsync(_logger, command, OpUpsertProfile,
@@ -164,7 +171,8 @@ public sealed class SftpConnectionProfileRepository : ISftpConnectionProfileRepo
             EncryptedPassword = reader.IsDBNull(5) ? null : reader.GetString(5),
             EncryptedPrivateKey = reader.IsDBNull(6) ? null : reader.GetString(6),
             EncryptedPrivateKeyPassphrase = reader.IsDBNull(7) ? null : reader.GetString(7),
-            IsDefault = reader.GetBoolean(8)
+            HostKeyFingerprintSha256 = reader.IsDBNull(8) ? null : reader.GetString(8),
+            IsDefault = reader.GetBoolean(9)
         };
     }
 }

@@ -1,4 +1,5 @@
 using SporeSync.Business.Interface;
+using SporeSync.Business.Sftp;
 using SporeSync.Domain.Interface;
 using SporeSync.Domain.Model;
 
@@ -60,10 +61,27 @@ public sealed class SftpConnectionProfileService : ISftpConnectionProfileService
             EncryptedPassword = encryptedPassword,
             EncryptedPrivateKey = encryptedPrivateKey,
             EncryptedPrivateKeyPassphrase = encryptedPrivateKeyPassphrase,
+            HostKeyFingerprintSha256 = ResolveHostKeyFingerprint(
+                profile.HostKeyFingerprintSha256,
+                existingProfile?.HostKeyFingerprintSha256),
             IsDefault = profile.IsDefault
         };
 
         return await _repository.UpsertAsync(protectedProfile, cancellationToken);
+    }
+
+    private static string? ResolveHostKeyFingerprint(string? requested, string? existing)
+    {
+        // Null preserves the stored pin; an explicit blank clears it (re-enabling
+        // trust-on-first-use); any other value replaces the pin after normalization.
+        if (requested is null)
+        {
+            return existing;
+        }
+
+        return string.IsNullOrWhiteSpace(requested)
+            ? null
+            : SshHostKeyFingerprint.Normalize(requested);
     }
 
     private string? ProtectOptional(string? value)

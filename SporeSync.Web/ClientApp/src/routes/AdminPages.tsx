@@ -4,12 +4,14 @@ import {
   Check,
   CircleSlash,
   ExternalLink,
+  Fingerprint,
   KeyRound,
   Pencil,
   Plus,
   Save,
   Server,
   Settings2,
+  ShieldCheck,
   X,
 } from "lucide-react";
 import type { ReactNode } from "react";
@@ -25,6 +27,7 @@ import type {
 import { Button } from "../components/Button";
 import { SectionHeader } from "../components/SectionHeader";
 import { formatLocalDateTime } from "../lib/format";
+import { extractErrorMessage } from "../lib/problem";
 
 type PanelMode = "list" | "create" | "edit";
 
@@ -665,10 +668,19 @@ function ProfileForm({
   const [password, setPassword] = useState("");
   const [privateKey, setPrivateKey] = useState("");
   const [privateKeyPassphrase, setPrivateKeyPassphrase] = useState("");
+  const [hostKeyFingerprint, setHostKeyFingerprint] = useState(
+    profile?.hostKeyFingerprintSha256 ?? "",
+  );
   const [isDefault, setIsDefault] = useState(profile?.isDefault ?? true);
   const hasExistingSecret = Boolean(
     profile?.hasPassword || profile?.hasPrivateKey,
   );
+  const scanMutation = useMutation({
+    mutationFn: () => api.scanHostKey(host.trim(), port),
+    onSuccess: (result) => {
+      setHostKeyFingerprint(result.fingerprintSha256);
+    },
+  });
   const validation = useMemo(() => {
     if (!name.trim()) return "Name is required.";
     if (!host.trim()) return "Host is required.";
@@ -695,6 +707,9 @@ function ProfileForm({
             privateKeyPassphrase: privateKeyPassphrase.trim()
               ? privateKeyPassphrase
               : null,
+            // The form always knows the current pin, so submit it verbatim;
+            // an empty value clears the pin and re-enables trust-on-first-use.
+            hostKeyFingerprintSha256: hostKeyFingerprint.trim(),
             isDefault,
           });
         }
@@ -767,6 +782,45 @@ function ProfileForm({
             onChange={(event) => setPrivateKeyPassphrase(event.target.value)}
           />
         </Field>
+        <div className="md:col-span-2">
+          <Field label="Pinned host key fingerprint (SHA-256)">
+            <div className="flex gap-2">
+              <input
+                className={`${inputClass} font-mono text-xs`}
+                placeholder="SHA256:…  (blank = trust and pin on first connection)"
+                value={hostKeyFingerprint}
+                onChange={(event) => setHostKeyFingerprint(event.target.value)}
+              />
+              <Button
+                type="button"
+                disabled={!host.trim() || scanMutation.isPending}
+                title="Fetch the host key fingerprint from the server"
+                onClick={() => scanMutation.mutate()}
+              >
+                <Fingerprint size={15} />
+                {scanMutation.isPending ? "Scanning…" : "Fetch"}
+              </Button>
+            </div>
+          </Field>
+          {scanMutation.data && (
+            <p className="mt-2 text-xs text-emerald-600 dark:text-emerald-300">
+              Server presented a {scanMutation.data.hostKeyAlgorithm} key (
+              {scanMutation.data.keyLength} bit). Verify this fingerprint
+              against a trusted source before saving.
+            </p>
+          )}
+          {scanMutation.error && (
+            <p className="mt-2 text-xs text-red-600 dark:text-red-300">
+              {extractErrorMessage(scanMutation.error)}
+            </p>
+          )}
+          <p className="mt-2 text-xs text-muted-foreground">
+            Connections are rejected when the server key does not match the
+            pinned fingerprint. Leave blank to pin automatically on first
+            connection; clear the field if the server host key legitimately
+            changed.
+          </p>
+        </div>
         <label className="flex items-center gap-2 pt-6 text-sm">
           <input
             checked={isDefault}
@@ -841,7 +895,7 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 }
 
 function ErrorMessage({ error }: { error: unknown }) {
-  const message = error instanceof Error ? error.message : "Request failed.";
+  const message = extractErrorMessage(error);
   return (
     <p className="flex items-center gap-2 text-sm text-red-600 dark:text-red-300">
       <AlertCircle size={15} />
@@ -856,6 +910,7 @@ function SecretIndicators({ profile }: { profile: SftpConnectionProfile }) {
     { label: "Key", enabled: profile.hasPrivateKey },
     { label: "Passphrase", enabled: profile.hasPrivateKeyPassphrase },
   ];
+  const hostKeyPinned = Boolean(profile.hostKeyFingerprintSha256);
   return (
     <div className="flex flex-wrap gap-1">
       {items.map((item) => (
@@ -867,6 +922,21 @@ function SecretIndicators({ profile }: { profile: SftpConnectionProfile }) {
           {item.label}
         </span>
       ))}
+      <span
+        title={
+          hostKeyPinned
+            ? `Pinned host key: ${profile.hostKeyFingerprintSha256}`
+            : "Host key not pinned yet; it will be pinned on first connection."
+        }
+        className={
+          hostKeyPinned
+            ? "inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-600 dark:text-emerald-300"
+            : "inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-xs text-amber-600 dark:text-amber-300"
+        }
+      >
+        {hostKeyPinned ? <ShieldCheck size={12} /> : <CircleSlash size={12} />}
+        Host key
+      </span>
     </div>
   );
 }

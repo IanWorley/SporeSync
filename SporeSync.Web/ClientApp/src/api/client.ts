@@ -2,6 +2,7 @@ import type {
   AuthSession,
   DeleteQueueItemFileResponse,
   DownloadQueueItem,
+  HostKeyScanResult,
   PagedResponse,
   SftpConnectionProfile,
   SporeSyncJob,
@@ -136,6 +137,14 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(request),
     }),
+  scanHostKey: (host: string, port: number) =>
+    fetchJson<HostKeyScanResult>(
+      "/api/sftp-connection-profiles/host-key-scan",
+      {
+        method: "POST",
+        body: JSON.stringify({ host, port }),
+      },
+    ),
   runJob: (id: string) =>
     fetchJson<SporeSyncRun>(`/api/sftp-sync-jobs/${id}/run`, {
       method: "POST",

@@ -24,4 +24,7 @@ public sealed record UpsertSftpConnectionProfileRequest(
 
     string? PrivateKeyPassphrase,
 
+    [param: MaxLength(100)]
+    string? HostKeyFingerprintSha256 = null,
+
     bool IsDefault = true);

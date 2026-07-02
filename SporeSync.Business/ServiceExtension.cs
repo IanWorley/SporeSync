@@ -34,6 +34,7 @@ public static class ServiceExtension
         services.AddScoped<ISystemPropertyService, SystemPropertyService>();
         services.AddSingleton<LocalDestinationPathSandbox>();
         services.AddScoped<ISftpClientFactory, SftpClientFactory>();
+        services.AddScoped<ISshHostKeyScanner, SshHostKeyScanner>();
         services.AddScoped<RealSftpDirectoryScanner>();
         services.AddScoped<SftpFileDownloader>();
         services.AddScoped<IChangeDetector, ChangeDetector>();

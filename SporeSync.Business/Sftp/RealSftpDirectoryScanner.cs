@@ -1,5 +1,5 @@
+using Renci.SshNet.Sftp;
 using SporeSync.Business.Scanning;
-using SporeSync.Business.Sftp;
 
 namespace SporeSync.Business.Sftp;
 
@@ -24,17 +24,17 @@ public sealed class RealSftpDirectoryScanner
         var normalizedSource = NormalizeDirectoryPath(sourcePath);
         var normalizedDestination = NormalizeDirectoryPath(destinationPath);
 
-        if (IsFilePath(sourcePath, client))
+        var source = await client.GetAsync(sourcePath, cancellationToken);
+        if (!source.IsDirectory)
         {
-            var attributes = client.GetAttributes(sourcePath);
             var entry = new ScannedRemoteEntry(
                 sourcePath,
                 destinationPath,
                 IsGroup: false,
-                FileSizeBytes: attributes.Size,
+                FileSizeBytes: source.Length,
                 ChildCount: 0,
                 GroupRemotePath: null,
-                RemoteModifiedAt: ToModifiedAt(attributes));
+                RemoteModifiedAt: ToModifiedAt(source.LastWriteTimeUtc));
             return new FirstLevelScanResult(
                 VisibleEntries: new[] { entry },
                 InternalLeafEntries: Array.Empty<ScannedRemoteEntry>(),
@@ -49,18 +49,23 @@ public sealed class RealSftpDirectoryScanner
         var groupCount = 0;
         var looseCount = 0;
 
-        foreach (var child in ListImmediateChildren(client, normalizedSource).OrderBy(c => c.Name, StringComparer.Ordinal))
+        var children = await ListChildrenAsync(client, normalizedSource, cancellationToken);
+        foreach (var child in children.OrderBy(c => c.Name, StringComparer.Ordinal))
         {
             var childRemote = normalizedSource + child.Name + (child.IsDirectory ? "/" : string.Empty);
             var childDest = normalizedDestination + child.Name + (child.IsDirectory ? "/" : string.Empty);
 
             if (child.IsDirectory)
             {
-                var subtreeLeaves = CollectLeavesUnder(
+                var subtreeLeaves = new List<ScannedRemoteEntry>();
+                await WalkDirectoryAsync(
                     client,
                     childRemote,
                     normalizedSource,
-                    normalizedDestination);
+                    normalizedDestination,
+                    childRemote,
+                    subtreeLeaves,
+                    cancellationToken);
                 var subtreeBytes = subtreeLeaves.Sum(leaf => leaf.FileSizeBytes);
                 var maxMtime = subtreeLeaves.Count > 0
                     ? subtreeLeaves.Max(leaf => leaf.RemoteModifiedAt)
@@ -84,11 +89,11 @@ public sealed class RealSftpDirectoryScanner
                     childRemote,
                     childDest,
                     IsGroup: false,
-                    FileSizeBytes: child.Size,
+                    FileSizeBytes: child.Length,
                     ChildCount: 0,
                     GroupRemotePath: null,
-                    RemoteModifiedAt: child.ModifiedAt));
-                totalBytes += child.Size;
+                    RemoteModifiedAt: ToModifiedAt(child.LastWriteTimeUtc)));
+                totalBytes += child.Length;
                 looseCount++;
             }
         }
@@ -101,57 +106,36 @@ public sealed class RealSftpDirectoryScanner
             VisibleLooseFileCount: looseCount);
     }
 
-    private static bool IsFilePath(string sourcePath, Renci.SshNet.SftpClient client)
-    {
-        var attributes = client.GetAttributes(sourcePath);
-        return !attributes.IsDirectory;
-    }
-
-    private static IEnumerable<(string Name, bool IsDirectory, long Size, DateTimeOffset? ModifiedAt)> ListImmediateChildren(
+    private static async Task<List<ISftpFile>> ListChildrenAsync(
         Renci.SshNet.SftpClient client,
-        string normalizedDirectory)
+        string directoryPath,
+        CancellationToken cancellationToken)
     {
-        foreach (var entry in client.ListDirectory(normalizedDirectory))
+        var children = new List<ISftpFile>();
+        await foreach (var entry in client.ListDirectoryAsync(directoryPath, cancellationToken))
         {
             if (entry.Name is "." or "..")
             {
                 continue;
             }
 
-            yield return (
-                entry.Name,
-                entry.IsDirectory,
-                entry.Attributes.Size,
-                ToModifiedAt(entry.Attributes));
+            children.Add(entry);
         }
+
+        return children;
     }
 
-    private static List<ScannedRemoteEntry> CollectLeavesUnder(
-        Renci.SshNet.SftpClient client,
-        string groupRemotePath,
-        string normalizedSource,
-        string normalizedDestination)
-    {
-        var collected = new List<ScannedRemoteEntry>();
-        WalkDirectory(client, groupRemotePath, normalizedSource, normalizedDestination, groupRemotePath, collected);
-        return collected;
-    }
-
-    private static void WalkDirectory(
+    private static async Task WalkDirectoryAsync(
         Renci.SshNet.SftpClient client,
         string currentRemotePath,
         string normalizedSource,
         string normalizedDestination,
         string groupRemotePath,
-        List<ScannedRemoteEntry> collected)
+        List<ScannedRemoteEntry> collected,
+        CancellationToken cancellationToken)
     {
-        foreach (var entry in client.ListDirectory(currentRemotePath))
+        foreach (var entry in await ListChildrenAsync(client, currentRemotePath, cancellationToken))
         {
-            if (entry.Name is "." or "..")
-            {
-                continue;
-            }
-
             var remotePath = currentRemotePath.EndsWith('/')
                 ? currentRemotePath + entry.Name
                 : currentRemotePath + "/" + entry.Name;
@@ -159,7 +143,14 @@ public sealed class RealSftpDirectoryScanner
             if (entry.IsDirectory)
             {
                 var nextRemote = remotePath + "/";
-                WalkDirectory(client, nextRemote, normalizedSource, normalizedDestination, groupRemotePath, collected);
+                await WalkDirectoryAsync(
+                    client,
+                    nextRemote,
+                    normalizedSource,
+                    normalizedDestination,
+                    groupRemotePath,
+                    collected,
+                    cancellationToken);
                 continue;
             }
 
@@ -168,22 +159,21 @@ public sealed class RealSftpDirectoryScanner
                 remotePath,
                 normalizedDestination + relative,
                 IsGroup: false,
-                FileSizeBytes: entry.Attributes.Size,
+                FileSizeBytes: entry.Length,
                 ChildCount: 0,
                 GroupRemotePath: groupRemotePath,
-                RemoteModifiedAt: ToModifiedAt(entry.Attributes)));
+                RemoteModifiedAt: ToModifiedAt(entry.LastWriteTimeUtc)));
         }
     }
 
-    private static DateTimeOffset? ToModifiedAt(Renci.SshNet.Sftp.SftpFileAttributes attributes)
+    private static DateTimeOffset? ToModifiedAt(DateTime lastWriteTimeUtc)
     {
-        var utc = attributes.LastWriteTimeUtc;
-        if (utc == DateTime.MinValue)
+        if (lastWriteTimeUtc == DateTime.MinValue)
         {
             return null;
         }
 
-        return new DateTimeOffset(DateTime.SpecifyKind(utc, DateTimeKind.Utc));
+        return new DateTimeOffset(DateTime.SpecifyKind(lastWriteTimeUtc, DateTimeKind.Utc));
     }
 
     private static string NormalizeDirectoryPath(string path)

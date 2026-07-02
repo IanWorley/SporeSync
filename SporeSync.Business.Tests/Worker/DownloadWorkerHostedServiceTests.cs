@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Renci.SshNet;
 using SporeSync.Business;
 using SporeSync.Business.Interface;
 using SporeSync.Business.Observability;
@@ -15,6 +16,7 @@ public sealed class DownloadWorkerHostedServiceTests
 {
     private static readonly Guid JobId = Guid.NewGuid();
     private static readonly Guid RunId = Guid.NewGuid();
+    private static readonly Guid ProfileId = Guid.NewGuid();
 
     [Fact]
     public async Task ProcessNextItem_SuccessfulDownload_MarksItemCompleted()
@@ -79,7 +81,11 @@ public sealed class DownloadWorkerHostedServiceTests
     public async Task ProcessNextItem_GroupWithFailedLeaf_MarksLeafFailedAndRecordsGroupFailure()
     {
         var group = CreateItem("/remote/reports/", isGroup: true, childCount: 2);
-        var completedLeaf = CreateItem("/remote/reports/done.txt", groupRemotePath: "/remote/reports/", status: "completed", bytesDownloaded: 100);
+        var completedLeaf = CreateItem(
+            "/remote/reports/done.txt",
+            groupRemotePath: "/remote/reports/",
+            status: "completed",
+            bytesDownloaded: 100);
         var failingLeaf = CreateItem("/remote/reports/bad.txt", groupRemotePath: "/remote/reports/");
         var queueRepository = new FakeQueueRepository(group)
         {
@@ -131,7 +137,11 @@ public sealed class DownloadWorkerHostedServiceTests
     public async Task ProcessNextItem_GroupRetry_SkipsCompletedLeaves()
     {
         var group = CreateItem("/remote/reports/", isGroup: true, childCount: 2, retryCount: 1);
-        var completedLeaf = CreateItem("/remote/reports/done.txt", groupRemotePath: "/remote/reports/", status: "completed", bytesDownloaded: 100);
+        var completedLeaf = CreateItem(
+            "/remote/reports/done.txt",
+            groupRemotePath: "/remote/reports/",
+            status: "completed",
+            bytesDownloaded: 100);
         var failedLeaf = CreateItem("/remote/reports/bad.txt", groupRemotePath: "/remote/reports/", status: "failed");
         var queueRepository = new FakeQueueRepository(group)
         {
@@ -151,12 +161,80 @@ public sealed class DownloadWorkerHostedServiceTests
         Assert.Equal(300, groupUpdate.BytesDownloaded);
     }
 
+    [Fact]
+    public async Task ProcessNextItem_GroupWithMixedLeaves_ReusesOneConnectionAndSkipsCompletedAndSkippedLeaves()
+    {
+        var group = CreateItem("/remote/reports/", isGroup: true, fileSizeBytes: 600, childCount: 4);
+        var completedLeaf = CreateItem(
+            "/remote/reports/a.txt",
+            groupRemotePath: group.RemotePath,
+            status: "completed",
+            fileSizeBytes: 100,
+            bytesDownloaded: 100);
+        var queuedLeaf1 = CreateItem("/remote/reports/b.txt", groupRemotePath: group.RemotePath, fileSizeBytes: 200);
+        var queuedLeaf2 = CreateItem("/remote/reports/c.txt", groupRemotePath: group.RemotePath, fileSizeBytes: 300);
+        var skippedLeaf = CreateItem(
+            "/remote/reports/gone.txt",
+            groupRemotePath: group.RemotePath,
+            status: "skipped",
+            fileSizeBytes: 50);
+        var queueRepository = new FakeQueueRepository(group)
+        {
+            Leaves = [completedLeaf, queuedLeaf1, queuedLeaf2, skippedLeaf]
+        };
+        var clientFactory = new CountingSftpClientFactory();
+        var downloader = new FakeDownloader(remotePath =>
+            remotePath == queuedLeaf1.RemotePath
+                ? SftpDownloadResult.Succeed(200, 1000)
+                : SftpDownloadResult.Succeed(300, 1000));
+        var worker = CreateWorker(queueRepository, downloader, clientFactory: clientFactory);
+
+        var processed = await worker.ProcessNextItemAsync(CancellationToken.None);
+
+        Assert.True(processed);
+        Assert.Equal(1, clientFactory.ConnectCalls);
+        Assert.True(clientFactory.LastConnection!.Disposed);
+        Assert.Equal([queuedLeaf1.RemotePath, queuedLeaf2.RemotePath], downloader.RequestedPaths);
+        Assert.Single(downloader.ConnectionsUsed.Distinct());
+
+        var groupUpdate = queueRepository.ProgressUpdates.Single(update => update.Id == group.Id && update.Status == "completed");
+        Assert.Equal(600, groupUpdate.BytesDownloaded);
+    }
+
+    [Fact]
+    public async Task ProcessNextItem_GroupConnectFailure_MarksLeavesFailedAndRecordsGroupFailure()
+    {
+        var group = CreateItem("/remote/reports/", isGroup: true, fileSizeBytes: 300, childCount: 2);
+        var leaf1 = CreateItem("/remote/reports/a.txt", groupRemotePath: group.RemotePath, fileSizeBytes: 100);
+        var leaf2 = CreateItem("/remote/reports/b.txt", groupRemotePath: group.RemotePath, fileSizeBytes: 200);
+        var queueRepository = new FakeQueueRepository(group)
+        {
+            Leaves = [leaf1, leaf2]
+        };
+        var clientFactory = new CountingSftpClientFactory { FailConnects = true };
+        var downloader = new FakeDownloader(_ => SftpDownloadResult.Succeed(100, null));
+        var worker = CreateWorker(queueRepository, downloader, clientFactory: clientFactory);
+
+        var processed = await worker.ProcessNextItemAsync(CancellationToken.None);
+
+        Assert.True(processed);
+        Assert.Equal(2, clientFactory.ConnectCalls);
+        Assert.Empty(downloader.RequestedPaths);
+        Assert.Equal("failed", queueRepository.ProgressUpdates.Single(update => update.Id == leaf1.Id).Status);
+        Assert.Equal("failed", queueRepository.ProgressUpdates.Single(update => update.Id == leaf2.Id).Status);
+
+        var failure = Assert.Single(queueRepository.FailureCalls);
+        Assert.Equal(group.Id, failure.Id);
+        Assert.Equal(0, failure.BytesDownloaded);
+    }
+
     private static DownloadWorkerHostedService CreateWorker(
         FakeQueueRepository queueRepository,
         FakeDownloader downloader,
         int maxRetries = 3,
         int baseDelaySeconds = 30,
-        int stabilityWindowSeconds = 15)
+        int stabilityWindowSeconds = 15,
+        CountingSftpClientFactory? clientFactory = null)
     {
         var options = Options.Create(new SporeSyncOptions
         {
@@ -170,6 +248,7 @@ public sealed class DownloadWorkerHostedServiceTests
         services.AddSingleton<ISporeSyncRunRepository>(new FakeRunRepository());
         services.AddSingleton<ISporeSyncJobRepository>(new FakeJobRepository());
         services.AddSingleton<ISftpFileDownloader>(downloader);
+        services.AddSingleton<ISftpClientFactory>(clientFactory ?? new CountingSftpClientFactory());
         services.AddSingleton<ISyncDashboardNotifier>(new FakeNotifier());
         var provider = services.BuildServiceProvider();
 
@@ -188,7 +267,8 @@ public sealed class DownloadWorkerHostedServiceTests
         string? groupRemotePath = null,
         string status = "downloading",
         long bytesDownloaded = 0,
-        int retryCount = 0)
+        int retryCount = 0,
+        long fileSizeBytes = 100)
     {
         return new DownloadQueueItem
         {
@@ -197,7 +277,7 @@ public sealed class DownloadWorkerHostedServiceTests
             SyncRunId = RunId,
             RemotePath = remotePath,
             DestinationPath = "/data" + remotePath.TrimEnd('/'),
-            FileSizeBytes = 100,
+            FileSizeBytes = fileSizeBytes,
             Status = status,
             BytesDownloaded = bytesDownloaded,
             RetryCount = retryCount,
@@ -259,7 +339,7 @@ public sealed class DownloadWorkerHostedServiceTests
             CancellationToken cancellationToken = default)
         {
             ProgressUpdates.Add(update);
-            return Task.FromResult(CreateResult(update.Id, update.Status));
+            return Task.FromResult(CreateResult(update.Id, update.Status, update.BytesDownloaded));
         }
 
         public Task<DownloadQueueItem> RecordFailureAsync(
@@ -271,7 +351,7 @@ public sealed class DownloadWorkerHostedServiceTests
             CancellationToken cancellationToken = default)
         {
             FailureCalls.Add(new FailureCall(id, errorMessage, maxRetries, nextAttemptAt, bytesDownloaded));
-            return Task.FromResult(CreateResult(id, "queued"));
+            return Task.FromResult(CreateResult(id, "queued", bytesDownloaded ?? 0));
         }
 
         public Task<DownloadQueueItem> DeferAsync(
@@ -282,10 +362,10 @@ public sealed class DownloadWorkerHostedServiceTests
             CancellationToken cancellationToken = default)
         {
             DeferCalls.Add(new DeferCall(id, nextAttemptAt, reason, bytesDownloaded));
-            return Task.FromResult(CreateResult(id, "queued"));
+            return Task.FromResult(CreateResult(id, "queued", bytesDownloaded ?? 0));
         }
 
-        private static DownloadQueueItem CreateResult(Guid id, string status)
+        private static DownloadQueueItem CreateResult(Guid id, string status, long bytesDownloaded)
         {
             return new DownloadQueueItem
             {
@@ -296,7 +376,7 @@ public sealed class DownloadWorkerHostedServiceTests
                 DestinationPath = "/data/result",
                 FileSizeBytes = 100,
                 Status = status,
-                BytesDownloaded = 0,
+                BytesDownloaded = bytesDownloaded,
                 RetryCount = 0,
                 QueuedAt = DateTimeOffset.UtcNow,
                 UpdatedAt = DateTimeOffset.UtcNow,
@@ -343,6 +423,8 @@ public sealed class DownloadWorkerHostedServiceTests
 
         public List<string> RequestedPaths { get; } = [];
 
+        public List<IConnectedSftpClient> ConnectionsUsed { get; } = [];
+
         public Task<SftpDownloadResult> DownloadAsync(
             Guid connectionProfileId,
             string remotePath,
@@ -359,6 +441,55 @@ public sealed class DownloadWorkerHostedServiceTests
         {
             RequestedPaths.Add(remotePath);
             return Task.FromResult(_resultFactory(remotePath));
+        }
+
+        public Task<SftpDownloadResult> DownloadAsync(
+            IConnectedSftpClient connection,
+            string remotePath,
+            string localPath,
+            IProgress<long>? progress = null,
+            CancellationToken cancellationToken = default)
+        {
+            ConnectionsUsed.Add(connection);
+            return DownloadAsync(ProfileId, remotePath, localPath, progress, cancellationToken);
+        }
+    }
+
+    private sealed class CountingSftpClientFactory : ISftpClientFactory
+    {
+        public int ConnectCalls { get; private set; }
+
+        public bool FailConnects { get; init; }
+
+        public FakeConnectedSftpClient? LastConnection { get; private set; }
+
+        public Task<IConnectedSftpClient> ConnectAsync(
+            Guid connectionProfileId,
+            CancellationToken cancellationToken = default)
+        {
+            ConnectCalls++;
+            if (FailConnects)
+            {
+                throw new InvalidOperationException("SFTP host unreachable.");
+            }
+
+            LastConnection = new FakeConnectedSftpClient();
+            return Task.FromResult<IConnectedSftpClient>(LastConnection);
+        }
+    }
+
+    private sealed class FakeConnectedSftpClient : IConnectedSftpClient
+    {
+        public SftpClient Client => throw new NotSupportedException("Fake connection has no real client.");
+
+        public bool IsConnected => !Disposed;
+
+        public bool Disposed { get; private set; }
+
+        public ValueTask DisposeAsync()
+        {
+            Disposed = true;
+            return ValueTask.CompletedTask;
         }
     }
 
@@ -427,7 +558,7 @@ public sealed class DownloadWorkerHostedServiceTests
             return Task.FromResult<SporeSyncJob?>(new SporeSyncJob
             {
                 Id = id,
-                ConnectionProfileId = Guid.NewGuid(),
+                ConnectionProfileId = ProfileId,
                 Name = "job",
                 SourcePath = "/remote",
                 DestinationPath = "/data",

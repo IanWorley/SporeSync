@@ -9,4 +9,6 @@ public sealed class SyncedRemoteState
     public required long FileSizeBytes { get; init; }
 
     public required string Status { get; init; }
+
+    public int ChildCount { get; init; }
 }

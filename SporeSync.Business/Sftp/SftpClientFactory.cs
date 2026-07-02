@@ -100,7 +100,7 @@ public sealed class SftpClientFactory : ISftpClientFactory
 
         try
         {
-            await Task.Run(client.Connect, cancellationToken);
+            await client.ConnectAsync(cancellationToken);
         }
         catch (Exception ex)
         {
@@ -182,6 +182,8 @@ public sealed class SftpClientFactory : ISftpClientFactory
         }
 
         public SftpClient Client { get; }
+
+        public bool IsConnected => Client.IsConnected;
 
         public ValueTask DisposeAsync()
         {

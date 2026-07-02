@@ -71,6 +71,7 @@ public sealed class DownloadWorkerHostedService : BackgroundService
         var runRepository = scope.ServiceProvider.GetRequiredService<ISporeSyncRunRepository>();
         var jobRepository = scope.ServiceProvider.GetRequiredService<ISporeSyncJobRepository>();
         var downloader = scope.ServiceProvider.GetRequiredService<ISftpFileDownloader>();
+        var clientFactory = scope.ServiceProvider.GetRequiredService<ISftpClientFactory>();
         var notifier = scope.ServiceProvider.GetRequiredService<ISyncDashboardNotifier>();
 
         var item = await queueRepository.ClaimNextAsync(_options.DownloadLeaseSeconds, cancellationToken);
@@ -94,6 +95,7 @@ public sealed class DownloadWorkerHostedService : BackgroundService
                     job,
                     queueRepository,
                     downloader,
+                    clientFactory,
                     notifier,
                     cancellationToken);
             }
@@ -230,7 +232,7 @@ public sealed class DownloadWorkerHostedService : BackgroundService
                 "Download setup failed for {RemotePath} in job {JobId}",
                 item.RemotePath,
                 job.Id);
-            result = new SftpDownloadResult(false, 0, null, ex.Message);
+            result = SftpDownloadResult.Failure(ex.Message);
         }
 
         RecordDownloadResult(job.Id, item.RemotePath, result);
@@ -271,6 +273,7 @@ public sealed class DownloadWorkerHostedService : BackgroundService
         SporeSyncJob job,
         IDownloadQueueItemRepository queueRepository,
         ISftpFileDownloader downloader,
+        ISftpClientFactory clientFactory,
         ISyncDashboardNotifier notifier,
         CancellationToken cancellationToken)
     {
@@ -284,89 +287,108 @@ public sealed class DownloadWorkerHostedService : BackgroundService
         var groupFailed = false;
         var groupDeferred = false;
 
-        foreach (var leaf in leaves)
+        IConnectedSftpClient? connection = null;
+        try
         {
-            if (string.Equals(leaf.Status, "completed", StringComparison.OrdinalIgnoreCase))
+            foreach (var leaf in leaves)
             {
-                groupBytesDownloaded += leaf.BytesDownloaded;
-                continue;
-            }
-
-            var completedBeforeLeaf = groupBytesDownloaded;
-            var leafProgress = new FireAndForgetDownloadProgress(async (bytes, token) =>
-            {
-                await queueRepository.UpdateProgressAsync(new UpdateDownloadQueueItemProgress
+                if (string.Equals(leaf.Status, "completed", StringComparison.OrdinalIgnoreCase))
                 {
-                    Id = leaf.Id,
-                    Status = "downloading",
-                    BytesDownloaded = bytes,
-                    CurrentBytesPerSecond = null,
-                    ErrorMessage = null
-                }, token);
+                    groupBytesDownloaded += leaf.BytesDownloaded;
+                    continue;
+                }
 
-                var visibleGroupBytes = Math.Min(
-                    groupItem.FileSizeBytes,
-                    completedBeforeLeaf + Math.Min(bytes, leaf.FileSizeBytes));
-                var groupPartial = await queueRepository.UpdateProgressAsync(new UpdateDownloadQueueItemProgress
+                // Leaves marked skipped (e.g. deleted remotely) must not be downloaded
+                // and must not fail the group.
+                if (string.Equals(leaf.Status, "skipped", StringComparison.OrdinalIgnoreCase))
                 {
-                    Id = groupItem.Id,
-                    Status = "downloading",
-                    BytesDownloaded = visibleGroupBytes,
-                    CurrentBytesPerSecond = null,
-                    ErrorMessage = null
-                }, token);
-                await notifier.NotifyQueueItemUpdatedAsync(groupPartial, token);
-            }, cancellationToken);
+                    continue;
+                }
 
-            SftpDownloadResult leafResult;
-            try
-            {
-                leafResult = await downloader.DownloadAsync(
-                    job.ConnectionProfileId,
-                    leaf.RemotePath,
-                    leaf.DestinationPath,
-                    leafProgress,
-                    cancellationToken);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                _logger.LogWarning(
-                    ex,
-                    "Download setup failed for {RemotePath} in job {JobId}",
-                    leaf.RemotePath,
-                    job.Id);
-                leafResult = new SftpDownloadResult(false, 0, null, ex.Message);
-            }
-
-            RecordDownloadResult(job.Id, leaf.RemotePath, leafResult);
-
-            if (leafResult.Success)
-            {
-                await leafProgress.CompleteAsync(token => queueRepository.UpdateProgressAsync(new UpdateDownloadQueueItemProgress
+                var completedBeforeLeaf = groupBytesDownloaded;
+                var leafProgress = new FireAndForgetDownloadProgress(async (bytes, token) =>
                 {
-                    Id = leaf.Id,
-                    Status = "completed",
-                    BytesDownloaded = leafResult.BytesDownloaded,
-                    CurrentBytesPerSecond = leafResult.BytesPerSecond
-                }, token));
+                    await queueRepository.UpdateProgressAsync(new UpdateDownloadQueueItemProgress
+                    {
+                        Id = leaf.Id,
+                        Status = "downloading",
+                        BytesDownloaded = bytes,
+                        CurrentBytesPerSecond = null,
+                        ErrorMessage = null
+                    }, token);
 
-                groupBytesDownloaded += leafResult.BytesDownloaded;
-                latestRate = leafResult.BytesPerSecond;
-            }
-            else if (leafResult.Deferred)
-            {
-                await leafProgress.CompleteAsync(token => queueRepository.UpdateProgressAsync(new UpdateDownloadQueueItemProgress
+                    var visibleGroupBytes = Math.Min(
+                        groupItem.FileSizeBytes,
+                        completedBeforeLeaf + Math.Min(bytes, leaf.FileSizeBytes));
+                    var groupPartial = await queueRepository.UpdateProgressAsync(new UpdateDownloadQueueItemProgress
+                    {
+                        Id = groupItem.Id,
+                        Status = "downloading",
+                        BytesDownloaded = visibleGroupBytes,
+                        CurrentBytesPerSecond = null,
+                        ErrorMessage = null
+                    }, token);
+                    await notifier.NotifyQueueItemUpdatedAsync(groupPartial, token);
+                }, cancellationToken);
+
+                SftpDownloadResult leafResult;
+                try
                 {
-                    Id = leaf.Id,
-                    Status = "queued",
-                    BytesDownloaded = leaf.BytesDownloaded,
-                    HandledReason = AwaitingRemoteStabilityReason
-                }, token));
+                    if (connection is not null && !connection.IsConnected)
+                    {
+                        await connection.DisposeAsync();
+                        connection = null;
+                    }
 
-                groupDeferred = true;
-            }
-            else
-            {
+                    connection ??= await clientFactory.ConnectAsync(job.ConnectionProfileId, cancellationToken);
+                    leafResult = await downloader.DownloadAsync(
+                        connection,
+                        leaf.RemotePath,
+                        leaf.DestinationPath,
+                        leafProgress,
+                        cancellationToken);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    _logger.LogWarning(
+                        ex,
+                        "Download setup failed for grouped leaf {RemotePath} in job {JobId}",
+                        leaf.RemotePath,
+                        job.Id);
+                    leafResult = SftpDownloadResult.Failure(ex.Message);
+                }
+
+                RecordDownloadResult(job.Id, leaf.RemotePath, leafResult);
+
+                if (leafResult.Success)
+                {
+                    await leafProgress.CompleteAsync(token => queueRepository.UpdateProgressAsync(new UpdateDownloadQueueItemProgress
+                    {
+                        Id = leaf.Id,
+                        Status = "completed",
+                        BytesDownloaded = leafResult.BytesDownloaded,
+                        CurrentBytesPerSecond = leafResult.BytesPerSecond
+                    }, token));
+
+                    groupBytesDownloaded += leafResult.BytesDownloaded;
+                    latestRate = leafResult.BytesPerSecond;
+                    continue;
+                }
+
+                if (leafResult.Deferred)
+                {
+                    await leafProgress.CompleteAsync(token => queueRepository.UpdateProgressAsync(new UpdateDownloadQueueItemProgress
+                    {
+                        Id = leaf.Id,
+                        Status = "queued",
+                        BytesDownloaded = leaf.BytesDownloaded,
+                        HandledReason = AwaitingRemoteStabilityReason
+                    }, token));
+
+                    groupDeferred = true;
+                    continue;
+                }
+
                 await leafProgress.CompleteAsync(token => queueRepository.UpdateProgressAsync(new UpdateDownloadQueueItemProgress
                 {
                     Id = leaf.Id,
@@ -376,6 +398,18 @@ public sealed class DownloadWorkerHostedService : BackgroundService
                 }, token));
 
                 groupFailed = true;
+                if (connection is not null)
+                {
+                    await connection.DisposeAsync();
+                    connection = null;
+                }
+            }
+        }
+        finally
+        {
+            if (connection is not null)
+            {
+                await connection.DisposeAsync();
             }
         }
 

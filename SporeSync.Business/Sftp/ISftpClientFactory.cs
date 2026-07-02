@@ -12,4 +12,6 @@ public interface ISftpClientFactory
 public interface IConnectedSftpClient : IAsyncDisposable
 {
     SftpClient Client { get; }
+
+    bool IsConnected { get; }
 }

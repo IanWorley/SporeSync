@@ -121,34 +121,148 @@ public sealed class ChangeDetectorTests
     }
 
     [Fact]
-    public void DetectChanges_UnchangedGroupWithMissingLocalLeaf_IsReEnqueuedWithLeaves()
+    public void DetectChanges_UnchangedGroupWithMissingLocalLeaf_ReEnqueuesOnlyMissingLeaf()
     {
         var modifiedAt = DateTimeOffset.Parse("2026-05-28T12:00:00Z");
         var detector = new ChangeDetector();
         var group = new ScannedRemoteEntry("/remote/reports/", "/data/reports/", true, 300, 2, null, modifiedAt);
-        var leaf1 = new ScannedRemoteEntry("/remote/reports/a.txt", CreateExistingTempFile(), false, 100, 0, "/remote/reports/", modifiedAt);
-        var leaf2 = new ScannedRemoteEntry("/remote/reports/b.txt", CreateMissingTempPath(), false, 200, 0, "/remote/reports/", modifiedAt);
+        var presentLeaf = new ScannedRemoteEntry("/remote/reports/a.txt", CreateExistingTempFile(), false, 100, 0, "/remote/reports/", modifiedAt);
+        var missingLeaf = new ScannedRemoteEntry("/remote/reports/b.txt", CreateMissingTempPath(), false, 200, 0, "/remote/reports/", modifiedAt);
         var scan = new FirstLevelScanResult(
             new[] { group },
-            new[] { leaf1, leaf2 },
+            new[] { presentLeaf, missingLeaf },
+            300,
+            1,
+            0);
+        var synced = CreateCompletedGroupState(modifiedAt, presentLeaf, missingLeaf);
+
+        var result = detector.DetectChanges(scan, synced);
+
+        Assert.Equal(
+            new[] { missingLeaf.RemotePath, group.RemotePath },
+            result.EntriesToEnqueue.Select(entry => entry.RemotePath));
+        var carried = Assert.Single(result.EntriesToCarryForward);
+        Assert.Equal(presentLeaf.RemotePath, carried.RemotePath);
+        Assert.Equal(1, result.EnqueuedVisibleCount);
+    }
+
+    [Fact]
+    public void DetectChanges_GroupWithOneChangedLeaf_EnqueuesOnlyChangedLeafAndCarriesRestForward()
+    {
+        var modifiedAt = DateTimeOffset.Parse("2026-05-28T12:00:00Z");
+        var detector = new ChangeDetector();
+        var unchangedLeaf = new ScannedRemoteEntry("/remote/reports/a.txt", CreateExistingTempFile(), false, 100, 0, "/remote/reports/", modifiedAt);
+        var changedLeaf = new ScannedRemoteEntry("/remote/reports/b.txt", CreateExistingTempFile(), false, 250, 0, "/remote/reports/", modifiedAt.AddHours(1));
+        var group = new ScannedRemoteEntry("/remote/reports/", "/data/reports/", true, 350, 2, null, modifiedAt.AddHours(1));
+        var scan = new FirstLevelScanResult(
+            new[] { group },
+            new[] { unchangedLeaf, changedLeaf },
+            350,
+            1,
+            0);
+        var synced = new Dictionary<string, SyncedRemoteState>(StringComparer.Ordinal)
+        {
+            ["/remote/reports/"] = CompletedState("/remote/reports/", modifiedAt, 300, childCount: 2),
+            [unchangedLeaf.RemotePath] = CompletedState(unchangedLeaf.RemotePath, modifiedAt, 100),
+            [changedLeaf.RemotePath] = CompletedState(changedLeaf.RemotePath, modifiedAt, 200)
+        };
+
+        var result = detector.DetectChanges(scan, synced);
+
+        Assert.Equal(
+            new[] { changedLeaf.RemotePath, group.RemotePath },
+            result.EntriesToEnqueue.Select(entry => entry.RemotePath));
+        var carried = Assert.Single(result.EntriesToCarryForward);
+        Assert.Equal(unchangedLeaf.RemotePath, carried.RemotePath);
+        Assert.Equal(1, result.EnqueuedVisibleCount);
+        Assert.Equal(350, result.EnqueuedTotalBytes);
+    }
+
+    [Fact]
+    public void DetectChanges_CompensatingLeafChanges_AreDetectedDespiteIdenticalGroupFingerprint()
+    {
+        // One leaf grows by the same amount another shrinks, and neither mtime exceeds the
+        // previous group maximum: the lossy group-level fingerprint (byte sum + max mtime)
+        // is unchanged, but leaf-level diffing must still catch both changed files.
+        var modifiedAt = DateTimeOffset.Parse("2026-05-28T12:00:00Z");
+        var detector = new ChangeDetector();
+        var grownLeaf = new ScannedRemoteEntry("/remote/reports/a.txt", CreateExistingTempFile(), false, 200, 0, "/remote/reports/", modifiedAt);
+        var shrunkLeaf = new ScannedRemoteEntry("/remote/reports/b.txt", CreateExistingTempFile(), false, 100, 0, "/remote/reports/", modifiedAt);
+        var group = new ScannedRemoteEntry("/remote/reports/", "/data/reports/", true, 300, 2, null, modifiedAt);
+        var scan = new FirstLevelScanResult(
+            new[] { group },
+            new[] { grownLeaf, shrunkLeaf },
             300,
             1,
             0);
         var synced = new Dictionary<string, SyncedRemoteState>(StringComparer.Ordinal)
         {
-            ["/remote/reports/"] = new SyncedRemoteState
-            {
-                RemotePath = "/remote/reports/",
-                RemoteModifiedAt = modifiedAt,
-                FileSizeBytes = 300,
-                Status = "completed"
-            }
+            ["/remote/reports/"] = CompletedState("/remote/reports/", modifiedAt, 300, childCount: 2),
+            [grownLeaf.RemotePath] = CompletedState(grownLeaf.RemotePath, modifiedAt, 100),
+            [shrunkLeaf.RemotePath] = CompletedState(shrunkLeaf.RemotePath, modifiedAt, 200)
         };
 
         var result = detector.DetectChanges(scan, synced);
 
-        Assert.Equal(3, result.EntriesToEnqueue.Count);
-        Assert.Equal(1, result.EnqueuedVisibleCount);
+        Assert.Equal(
+            new[] { grownLeaf.RemotePath, shrunkLeaf.RemotePath, group.RemotePath },
+            result.EntriesToEnqueue.Select(entry => entry.RemotePath));
+        Assert.Empty(result.EntriesToCarryForward);
+    }
+
+    [Fact]
+    public void DetectChanges_GroupWithRemoteDeletedLeaf_RefreshesGroupAndCarriesRemainingLeaves()
+    {
+        var modifiedAt = DateTimeOffset.Parse("2026-05-28T12:00:00Z");
+        var detector = new ChangeDetector();
+        var remainingLeaf = new ScannedRemoteEntry("/remote/reports/a.txt", CreateExistingTempFile(), false, 100, 0, "/remote/reports/", modifiedAt);
+        var group = new ScannedRemoteEntry("/remote/reports/", "/data/reports/", true, 100, 1, null, modifiedAt);
+        var scan = new FirstLevelScanResult(
+            new[] { group },
+            new[] { remainingLeaf },
+            100,
+            1,
+            0);
+        var synced = new Dictionary<string, SyncedRemoteState>(StringComparer.Ordinal)
+        {
+            ["/remote/reports/"] = CompletedState("/remote/reports/", modifiedAt, 300, childCount: 2),
+            [remainingLeaf.RemotePath] = CompletedState(remainingLeaf.RemotePath, modifiedAt, 100),
+            ["/remote/reports/deleted.txt"] = CompletedState("/remote/reports/deleted.txt", modifiedAt, 200)
+        };
+
+        var result = detector.DetectChanges(scan, synced);
+
+        var enqueued = Assert.Single(result.EntriesToEnqueue);
+        Assert.Equal(group.RemotePath, enqueued.RemotePath);
+        var carried = Assert.Single(result.EntriesToCarryForward);
+        Assert.Equal(remainingLeaf.RemotePath, carried.RemotePath);
+        Assert.Equal(new[] { "/remote/reports/deleted.txt" }, result.RemoteDeletedPaths);
+    }
+
+    [Fact]
+    public void DetectChanges_FullyUnchangedGroup_IsSkipped()
+    {
+        var modifiedAt = DateTimeOffset.Parse("2026-05-28T12:00:00Z");
+        var detector = new ChangeDetector();
+        var leaf = new ScannedRemoteEntry("/remote/reports/a.txt", CreateExistingTempFile(), false, 100, 0, "/remote/reports/", modifiedAt);
+        var group = new ScannedRemoteEntry("/remote/reports/", "/data/reports/", true, 100, 1, null, modifiedAt);
+        var scan = new FirstLevelScanResult(
+            new[] { group },
+            new[] { leaf },
+            100,
+            1,
+            0);
+        var synced = new Dictionary<string, SyncedRemoteState>(StringComparer.Ordinal)
+        {
+            ["/remote/reports/"] = CompletedState("/remote/reports/", modifiedAt, 100, childCount: 1),
+            [leaf.RemotePath] = CompletedState(leaf.RemotePath, modifiedAt, 100)
+        };
+
+        var result = detector.DetectChanges(scan, synced);
+
+        Assert.Empty(result.EntriesToEnqueue);
+        Assert.Empty(result.EntriesToCarryForward);
+        Assert.Equal(0, result.EnqueuedVisibleCount);
     }
 
     [Fact]
@@ -261,8 +375,48 @@ public sealed class ChangeDetectorTests
         var result = detector.DetectChanges(scan, new Dictionary<string, SyncedRemoteState>());
 
         Assert.Equal(3, result.EntriesToEnqueue.Count);
+        // The group row must be enqueued after its leaves so the worker can never claim
+        // the group before its leaf rows exist.
+        Assert.Equal(group.RemotePath, result.EntriesToEnqueue[^1].RemotePath);
         Assert.Equal(1, result.EnqueuedVisibleCount);
         Assert.Equal(300, result.EnqueuedTotalBytes);
+    }
+
+    private static Dictionary<string, SyncedRemoteState> CreateCompletedGroupState(
+        DateTimeOffset modifiedAt,
+        params ScannedRemoteEntry[] leaves)
+    {
+        var synced = new Dictionary<string, SyncedRemoteState>(StringComparer.Ordinal)
+        {
+            ["/remote/reports/"] = CompletedState(
+                "/remote/reports/",
+                modifiedAt,
+                leaves.Sum(leaf => leaf.FileSizeBytes),
+                childCount: leaves.Length)
+        };
+
+        foreach (var leaf in leaves)
+        {
+            synced[leaf.RemotePath] = CompletedState(leaf.RemotePath, modifiedAt, leaf.FileSizeBytes);
+        }
+
+        return synced;
+    }
+
+    private static SyncedRemoteState CompletedState(
+        string remotePath,
+        DateTimeOffset? modifiedAt,
+        long fileSizeBytes,
+        int childCount = 0)
+    {
+        return new SyncedRemoteState
+        {
+            RemotePath = remotePath,
+            RemoteModifiedAt = modifiedAt,
+            FileSizeBytes = fileSizeBytes,
+            Status = "completed",
+            ChildCount = childCount
+        };
     }
 
     private static FirstLevelScanResult CreateScan(params ScannedRemoteEntry[] visible)

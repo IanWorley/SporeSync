@@ -13,11 +13,25 @@ public interface ISftpFileDownloader
         string localPath,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Opens a dedicated connection for the profile, downloads a single file, and disconnects.
+    /// </summary>
     Task<SftpDownloadResult> DownloadAsync(
         Guid connectionProfileId,
         string remotePath,
         string localPath,
         IProgress<long>? progress,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Downloads a single file over an already-open connection owned by the caller.
+    /// Used to reuse one SFTP connection across many files (e.g. all leaves of a group).
+    /// </summary>
+    Task<SftpDownloadResult> DownloadAsync(
+        IConnectedSftpClient connection,
+        string remotePath,
+        string localPath,
+        IProgress<long>? progress = null,
         CancellationToken cancellationToken = default);
 }
 
@@ -54,18 +68,9 @@ public sealed class SftpFileDownloader : ISftpFileDownloader
         IProgress<long>? progress,
         CancellationToken cancellationToken = default)
     {
-        try
+        if (!TrySandboxLocalPath(remotePath, ref localPath, out var sandboxFailure))
         {
-            localPath = _destinationPathSandbox.RequireContainedPath(localPath, nameof(localPath));
-        }
-        catch (ArgumentException ex)
-        {
-            _logger.LogWarning(
-                ex,
-                "Refusing to download {RemotePath} to unsafe local path {LocalPath}",
-                remotePath,
-                localPath);
-            return SftpDownloadResult.Failure(ex.Message);
+            return sandboxFailure;
         }
 
         await using var connected = await _clientFactory.ConnectAsync(connectionProfileId, cancellationToken);
@@ -78,10 +83,54 @@ public sealed class SftpFileDownloader : ISftpFileDownloader
             cancellationToken);
     }
 
+    public async Task<SftpDownloadResult> DownloadAsync(
+        IConnectedSftpClient connection,
+        string remotePath,
+        string localPath,
+        IProgress<long>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TrySandboxLocalPath(remotePath, ref localPath, out var sandboxFailure))
+        {
+            return sandboxFailure;
+        }
+
+        return await DownloadWithReaderAsync(
+            new SftpClientRemoteFileReader(connection.Client),
+            remotePath,
+            localPath,
+            progress,
+            cancellationToken);
+    }
+
+    private bool TrySandboxLocalPath(
+        string remotePath,
+        ref string localPath,
+        out SftpDownloadResult failure)
+    {
+        try
+        {
+            localPath = _destinationPathSandbox.RequireContainedPath(localPath, nameof(localPath));
+            failure = null!;
+            return true;
+        }
+        catch (ArgumentException ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Refusing to download {RemotePath} to unsafe local path {LocalPath}",
+                remotePath,
+                localPath);
+            failure = SftpDownloadResult.Failure(ex.Message);
+            return false;
+        }
+    }
+
     /// <summary>
     /// Core download pipeline (stability window, .part resume by offset, post-transfer size
     /// verification). Public so tests can exercise it with a fake reader; production callers
-    /// go through <see cref="DownloadAsync"/> which applies the destination sandbox and connects.
+    /// go through <see cref="DownloadAsync(Guid, string, string, IProgress{long}?, CancellationToken)"/>
+    /// which applies the destination sandbox and connects.
     /// </summary>
     public async Task<SftpDownloadResult> DownloadWithReaderAsync(
         ISftpRemoteFileReader remote,

@@ -69,7 +69,7 @@ public sealed class SporeSyncJobsController : ControllerBase
         }
         catch (ArgumentException ex)
         {
-            return BadRequest(new { message = ex.Message });
+            return InvalidJobRequest(ex);
         }
 
         return CreatedAtAction(nameof(GetById), new { id = job.Id }, ToResponse(job));
@@ -90,7 +90,7 @@ public sealed class SporeSyncJobsController : ControllerBase
         }
         catch (ArgumentException ex)
         {
-            return BadRequest(new { message = ex.Message });
+            return InvalidJobRequest(ex);
         }
 
         return Ok(ToResponse(job));
@@ -105,10 +105,39 @@ public sealed class SporeSyncJobsController : ControllerBase
         return result.Error switch
         {
             SyncJobRunError.NotFound => NotFound(),
-            SyncJobRunError.Disabled => BadRequest(new { message = "Job is disabled." }),
-            SyncJobRunError.ActiveRunExists => Conflict(new { message = "Job already has an active run." }),
+            SyncJobRunError.Disabled => Problem(
+                statusCode: StatusCodes.Status400BadRequest,
+                title: "Job is disabled.",
+                detail: "Enable the job before running it."),
+            SyncJobRunError.ActiveRunExists => Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "Run already active.",
+                detail: "Job already has an active run."),
             _ => Accepted(SyncDashboardNotifier.ToRunResponse(result.Run!))
         };
+    }
+
+    [HttpDelete("{id:guid}")]
+    public async Task<IActionResult> Delete(
+        Guid id,
+        CancellationToken cancellationToken)
+    {
+        var status = await _sporeSyncJobService.DeleteAsync(id, cancellationToken);
+        return status switch
+        {
+            DeleteSporeSyncJobStatus.NotFound => NotFound(),
+            DeleteSporeSyncJobStatus.ActiveRunExists => Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "Run already active.",
+                detail: "Cancel the job's active run before deleting it."),
+            _ => NoContent()
+        };
+    }
+
+    private ActionResult InvalidJobRequest(ArgumentException exception)
+    {
+        ModelState.AddModelError(exception.ParamName ?? string.Empty, exception.Message);
+        return ValidationProblem(ModelState);
     }
 
     private static UpsertSporeSyncJob ToUpsertModel(Guid? id, UpsertSporeSyncJobRequest request)

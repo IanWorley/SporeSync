@@ -8,13 +8,16 @@ namespace SporeSync.Business.Service;
 public sealed class SporeSyncJobService : ISporeSyncJobService
 {
     private readonly ISporeSyncJobRepository _sporeSyncJobRepository;
+    private readonly ISporeSyncRunRepository _sporeSyncRunRepository;
     private readonly LocalDestinationPathSandbox _destinationPathSandbox;
 
     public SporeSyncJobService(
         ISporeSyncJobRepository sporeSyncJobRepository,
+        ISporeSyncRunRepository sporeSyncRunRepository,
         LocalDestinationPathSandbox destinationPathSandbox)
     {
         _sporeSyncJobRepository = sporeSyncJobRepository;
+        _sporeSyncRunRepository = sporeSyncRunRepository;
         _destinationPathSandbox = destinationPathSandbox;
     }
 
@@ -47,5 +50,24 @@ public sealed class SporeSyncJobService : ISporeSyncJobService
         };
 
         return _sporeSyncJobRepository.UpsertAsync(sandboxedJob, cancellationToken);
+    }
+
+    public async Task<DeleteSporeSyncJobStatus> DeleteAsync(
+        Guid id,
+        CancellationToken cancellationToken = default)
+    {
+        var job = await _sporeSyncJobRepository.GetByIdAsync(id, cancellationToken);
+        if (job is null)
+        {
+            return DeleteSporeSyncJobStatus.NotFound;
+        }
+
+        if (await _sporeSyncRunRepository.HasActiveRunAsync(id, cancellationToken))
+        {
+            return DeleteSporeSyncJobStatus.ActiveRunExists;
+        }
+
+        var deleted = await _sporeSyncJobRepository.DeleteAsync(id, cancellationToken);
+        return deleted ? DeleteSporeSyncJobStatus.Deleted : DeleteSporeSyncJobStatus.NotFound;
     }
 }

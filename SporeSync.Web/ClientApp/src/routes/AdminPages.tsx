@@ -2,16 +2,20 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertCircle,
   Check,
+  CheckCircle2,
   CircleSlash,
   ExternalLink,
   Fingerprint,
   KeyRound,
   Pencil,
+  Play,
+  PlugZap,
   Plus,
   Save,
   Server,
   Settings2,
   ShieldCheck,
+  Trash2,
   X,
 } from "lucide-react";
 import type { ReactNode } from "react";
@@ -30,6 +34,7 @@ import { formatLocalDateTime } from "../lib/format";
 import { extractErrorMessage } from "../lib/problem";
 
 type PanelMode = "list" | "create" | "edit";
+type Notice = { tone: "success" | "error"; message: string };
 
 export function JobsPage() {
   const queryClient = useQueryClient();
@@ -40,6 +45,7 @@ export function JobsPage() {
   });
   const [mode, setMode] = useState<PanelMode>("list");
   const [editingJob, setEditingJob] = useState<SporeSyncJob | undefined>();
+  const [notice, setNotice] = useState<Notice | undefined>();
 
   const mutation = useMutation({
     mutationFn: ({
@@ -55,6 +61,46 @@ export function JobsPage() {
       setEditingJob(undefined);
     },
   });
+
+  const runNowMutation = useMutation({
+    mutationFn: (job: SporeSyncJob) => api.runJob(job.id),
+    onSuccess: (run) => {
+      setNotice({
+        tone: "success",
+        message: `Run started for ${run.jobName}.`,
+      });
+    },
+    onError: (error, job) => {
+      setNotice({
+        tone: "error",
+        message: `Could not start ${job.name}: ${errorMessage(error)}`,
+      });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (job: SporeSyncJob) => api.deleteJob(job.id),
+    onSuccess: async (_, job) => {
+      setNotice({ tone: "success", message: `Deleted ${job.name}.` });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.jobs });
+    },
+    onError: (error, job) => {
+      setNotice({
+        tone: "error",
+        message: `Could not delete ${job.name}: ${errorMessage(error)}`,
+      });
+    },
+  });
+
+  const deleteJob = (job: SporeSyncJob) => {
+    if (
+      window.confirm(
+        `Delete job "${job.name}"?\n\nIts run history and queue items will also be removed.`,
+      )
+    ) {
+      deleteMutation.mutate(job);
+    }
+  };
 
   const openEdit = (job: SporeSyncJob) => {
     setEditingJob(job);
@@ -79,6 +125,8 @@ export function JobsPage() {
         }
       />
 
+      {notice && <NoticeBanner notice={notice} />}
+
       {mode !== "list" && (
         <JobForm
           job={editingJob}
@@ -96,7 +144,7 @@ export function JobsPage() {
       )}
 
       <section className="overflow-hidden rounded-lg border border-border bg-panel">
-        <div className="grid grid-cols-[minmax(0,1fr)_120px_90px] border-b border-border bg-muted px-4 py-3 text-xs font-semibold uppercase text-muted-foreground">
+        <div className="grid grid-cols-[minmax(0,1fr)_120px_150px] border-b border-border bg-muted px-4 py-3 text-xs font-semibold uppercase text-muted-foreground">
           <span>Job</span>
           <span>Interval</span>
           <span className="text-right">Actions</span>
@@ -106,7 +154,7 @@ export function JobsPage() {
           {jobsQuery.data?.map((job) => (
             <div
               key={job.id}
-              className="grid grid-cols-[minmax(0,1fr)_120px_90px] items-center gap-3 px-4 py-3"
+              className="grid grid-cols-[minmax(0,1fr)_120px_150px] items-center gap-3 px-4 py-3"
             >
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
@@ -120,12 +168,27 @@ export function JobsPage() {
               <span className="text-sm text-muted-foreground">
                 {job.pollingIntervalSeconds}s
               </span>
-              <div className="flex justify-end">
+              <div className="flex justify-end gap-2">
+                <Button
+                  title={`Run ${job.name} now`}
+                  disabled={!job.isEnabled || runNowMutation.isPending}
+                  onClick={() => runNowMutation.mutate(job)}
+                >
+                  <Play size={15} />
+                </Button>
                 <Button
                   title={`Edit ${job.name}`}
                   onClick={() => openEdit(job)}
                 >
                   <Pencil size={15} />
+                </Button>
+                <Button
+                  title={`Delete ${job.name}`}
+                  className="border-red-500/40 text-red-600 hover:bg-red-500/10 dark:text-red-400"
+                  disabled={deleteMutation.isPending}
+                  onClick={() => deleteJob(job)}
+                >
+                  <Trash2 size={15} />
                 </Button>
               </div>
             </div>
@@ -152,6 +215,10 @@ export function ProfilesPage() {
   const [editingProfile, setEditingProfile] = useState<
     SftpConnectionProfile | undefined
   >();
+  const [notice, setNotice] = useState<Notice | undefined>();
+  const [testResults, setTestResults] = useState<
+    Record<string, { success: boolean; message: string }>
+  >({});
 
   const mutation = useMutation({
     mutationFn: ({
@@ -167,6 +234,48 @@ export function ProfilesPage() {
       setEditingProfile(undefined);
     },
   });
+
+  const testMutation = useMutation({
+    mutationFn: (profile: SftpConnectionProfile) => api.testProfile(profile.id),
+    onSuccess: (result, profile) => {
+      setTestResults((results) => ({
+        ...results,
+        [profile.id]: {
+          success: result.success,
+          message: result.success
+            ? `Connection succeeded in ${result.durationMs} ms.`
+            : (result.message ?? "Connection failed."),
+        },
+      }));
+    },
+    onError: (error, profile) => {
+      setTestResults((results) => ({
+        ...results,
+        [profile.id]: { success: false, message: errorMessage(error) },
+      }));
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (profile: SftpConnectionProfile) =>
+      api.deleteProfile(profile.id),
+    onSuccess: async (_, profile) => {
+      setNotice({ tone: "success", message: `Deleted ${profile.name}.` });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.profiles });
+    },
+    onError: (error, profile) => {
+      setNotice({
+        tone: "error",
+        message: `Could not delete ${profile.name}: ${errorMessage(error)}`,
+      });
+    },
+  });
+
+  const deleteProfile = (profile: SftpConnectionProfile) => {
+    if (window.confirm(`Delete profile "${profile.name}"?`)) {
+      deleteMutation.mutate(profile);
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -186,6 +295,8 @@ export function ProfilesPage() {
         }
       />
 
+      {notice && <NoticeBanner notice={notice} />}
+
       {mode !== "list" && (
         <ProfileForm
           profile={editingProfile}
@@ -202,45 +313,88 @@ export function ProfilesPage() {
       )}
 
       <section className="overflow-hidden rounded-lg border border-border bg-panel">
-        <div className="grid grid-cols-[minmax(0,1fr)_170px_90px] border-b border-border bg-muted px-4 py-3 text-xs font-semibold uppercase text-muted-foreground">
+        <div className="grid grid-cols-[minmax(0,1fr)_170px_150px] border-b border-border bg-muted px-4 py-3 text-xs font-semibold uppercase text-muted-foreground">
           <span>Profile</span>
           <span>Secrets</span>
           <span className="text-right">Actions</span>
         </div>
         <div className="divide-y divide-border">
           {profilesQuery.isLoading && <SkeletonRows />}
-          {profilesQuery.data?.map((profile) => (
-            <div
-              key={profile.id}
-              className="grid grid-cols-[minmax(0,1fr)_170px_90px] items-center gap-3 px-4 py-3"
-            >
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <p className="truncate text-sm font-medium">{profile.name}</p>
-                  {profile.isDefault && (
-                    <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium">
-                      Default
-                    </span>
-                  )}
+          {profilesQuery.data?.map((profile) => {
+            const testResult = testResults[profile.id];
+            const isTesting =
+              testMutation.isPending &&
+              testMutation.variables?.id === profile.id;
+            return (
+              <div key={profile.id} className="px-4 py-3">
+                <div className="grid grid-cols-[minmax(0,1fr)_170px_150px] items-center gap-3">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="truncate text-sm font-medium">
+                        {profile.name}
+                      </p>
+                      {profile.isDefault && (
+                        <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium">
+                          Default
+                        </span>
+                      )}
+                    </div>
+                    <p className="mt-1 truncate text-xs text-muted-foreground">
+                      {profile.username}@{profile.host}:{profile.port}
+                    </p>
+                  </div>
+                  <SecretIndicators profile={profile} />
+                  <div className="flex justify-end gap-2">
+                    <Button
+                      title={`Test connection for ${profile.name}`}
+                      disabled={isTesting}
+                      onClick={() => testMutation.mutate(profile)}
+                    >
+                      <PlugZap size={15} />
+                    </Button>
+                    <Button
+                      title={`Edit ${profile.name}`}
+                      onClick={() => {
+                        setEditingProfile(profile);
+                        setMode("edit");
+                      }}
+                    >
+                      <Pencil size={15} />
+                    </Button>
+                    <Button
+                      title={`Delete ${profile.name}`}
+                      className="border-red-500/40 text-red-600 hover:bg-red-500/10 dark:text-red-400"
+                      disabled={deleteMutation.isPending}
+                      onClick={() => deleteProfile(profile)}
+                    >
+                      <Trash2 size={15} />
+                    </Button>
+                  </div>
                 </div>
-                <p className="mt-1 truncate text-xs text-muted-foreground">
-                  {profile.username}@{profile.host}:{profile.port}
-                </p>
+                {isTesting && (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Testing connection...
+                  </p>
+                )}
+                {!isTesting && testResult && (
+                  <p
+                    className={
+                      testResult.success
+                        ? "mt-2 flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400"
+                        : "mt-2 flex items-center gap-1.5 text-xs text-red-600 dark:text-red-400"
+                    }
+                  >
+                    {testResult.success ? (
+                      <CheckCircle2 size={13} />
+                    ) : (
+                      <AlertCircle size={13} />
+                    )}
+                    {testResult.message}
+                  </p>
+                )}
               </div>
-              <SecretIndicators profile={profile} />
-              <div className="flex justify-end">
-                <Button
-                  title={`Edit ${profile.name}`}
-                  onClick={() => {
-                    setEditingProfile(profile);
-                    setMode("edit");
-                  }}
-                >
-                  <Pencil size={15} />
-                </Button>
-              </div>
-            </div>
-          ))}
+            );
+          })}
           {profilesQuery.data?.length === 0 && (
             <EmptyState
               title="No profiles configured"
@@ -895,12 +1049,34 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 }
 
 function ErrorMessage({ error }: { error: unknown }) {
-  const message = extractErrorMessage(error);
   return (
     <p className="flex items-center gap-2 text-sm text-red-600 dark:text-red-300">
       <AlertCircle size={15} />
-      {message}
+      {extractErrorMessage(error)}
     </p>
+  );
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "Request failed.";
+}
+
+function NoticeBanner({ notice }: { notice: Notice }) {
+  return (
+    <div
+      className={
+        notice.tone === "success"
+          ? "flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-4 py-2.5 text-sm text-emerald-700 dark:text-emerald-300"
+          : "flex items-center gap-2 rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-2.5 text-sm text-red-700 dark:text-red-300"
+      }
+    >
+      {notice.tone === "success" ? (
+        <CheckCircle2 size={15} />
+      ) : (
+        <AlertCircle size={15} />
+      )}
+      {notice.message}
+    </div>
   );
 }
 

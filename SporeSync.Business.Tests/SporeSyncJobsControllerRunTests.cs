@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using SporeSync.Business.Interface;
 using SporeSync.Domain.Model;
@@ -20,7 +21,9 @@ public sealed class SporeSyncJobsControllerRunTests
 
         var result = await controller.RunNow(Guid.NewGuid(), CancellationToken.None);
 
-        Assert.IsType<ConflictObjectResult>(result.Result);
+        var objectResult = Assert.IsType<ObjectResult>(result.Result);
+        var problem = Assert.IsType<ProblemDetails>(objectResult.Value);
+        Assert.Equal(StatusCodes.Status409Conflict, problem.Status);
     }
 
     private sealed class FakeSporeSyncJobService : ISporeSyncJobService
@@ -32,6 +35,9 @@ public sealed class SporeSyncJobsControllerRunTests
             => Task.FromResult<SporeSyncJob?>(null);
 
         public Task<SporeSyncJob> UpsertAsync(UpsertSporeSyncJob job, CancellationToken cancellationToken = default)
+            => throw new NotImplementedException();
+
+        public Task<DeleteSporeSyncJobStatus> DeleteAsync(Guid id, CancellationToken cancellationToken = default)
             => throw new NotImplementedException();
     }
 

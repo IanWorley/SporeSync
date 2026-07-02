@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using SporeSync.Business.Interface;
 using SporeSync.Business.Service;
 using SporeSync.Domain.Interface;
@@ -12,7 +13,7 @@ public sealed class SftpConnectionProfileServiceTests
     {
         var repository = new RecordingSftpConnectionProfileRepository();
         var secretProtector = new RecordingSecretProtector();
-        var service = new SftpConnectionProfileService(repository, secretProtector);
+        var service = CreateService(repository, secretProtector);
 
         var profile = new UpsertSftpConnectionProfile
         {
@@ -21,7 +22,7 @@ public sealed class SftpConnectionProfileServiceTests
             Username = "sync-user"
         };
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+        var exception = await Assert.ThrowsAsync<ValidationException>(
             () => service.UpsertAsync(profile));
 
         Assert.Equal("An SFTP password or private key is required.", exception.Message);
@@ -34,7 +35,7 @@ public sealed class SftpConnectionProfileServiceTests
     {
         var repository = new RecordingSftpConnectionProfileRepository();
         var secretProtector = new RecordingSecretProtector();
-        var service = new SftpConnectionProfileService(repository, secretProtector);
+        var service = CreateService(repository, secretProtector);
         var id = Guid.NewGuid();
 
         var result = await service.UpsertAsync(
@@ -70,7 +71,7 @@ public sealed class SftpConnectionProfileServiceTests
     {
         var repository = new RecordingSftpConnectionProfileRepository();
         var secretProtector = new RecordingSecretProtector();
-        var service = new SftpConnectionProfileService(repository, secretProtector);
+        var service = CreateService(repository, secretProtector);
 
         await service.UpsertAsync(
             new UpsertSftpConnectionProfile
@@ -110,7 +111,7 @@ public sealed class SftpConnectionProfileServiceTests
             }
         };
         var secretProtector = new RecordingSecretProtector();
-        var service = new SftpConnectionProfileService(repository, secretProtector);
+        var service = CreateService(repository, secretProtector);
 
         await service.UpsertAsync(
             new UpsertSftpConnectionProfile
@@ -249,7 +250,7 @@ public sealed class SftpConnectionProfileServiceTests
     public async Task ReadMethods_DelegateToRepository()
     {
         var repository = new RecordingSftpConnectionProfileRepository();
-        var service = new SftpConnectionProfileService(repository, new RecordingSecretProtector());
+        var service = CreateService(repository, new RecordingSecretProtector());
         var profileId = Guid.NewGuid();
         var cancellationToken = new CancellationTokenSource().Token;
 
@@ -260,6 +261,68 @@ public sealed class SftpConnectionProfileServiceTests
         Assert.Same(repository.ProfileById, profile);
         Assert.Equal(profileId, repository.LastRequestedId);
         Assert.Equal(cancellationToken, repository.LastCancellationToken);
+    }
+
+    [Fact]
+    public async Task DeleteAsync_ReturnsInUse_WhenJobsReferenceProfile()
+    {
+        var repository = new RecordingSftpConnectionProfileRepository();
+        var jobRepository = new CountingSporeSyncJobRepository { JobCountForProfile = 2 };
+        var service = new SftpConnectionProfileService(repository, jobRepository, new RecordingSecretProtector());
+
+        var status = await service.DeleteAsync(Guid.NewGuid());
+
+        Assert.Equal(DeleteSftpConnectionProfileStatus.InUse, status);
+        Assert.Null(repository.DeletedId);
+    }
+
+    [Fact]
+    public async Task DeleteAsync_DeletesProfile_WhenUnused()
+    {
+        var repository = new RecordingSftpConnectionProfileRepository();
+        var service = CreateService(repository, new RecordingSecretProtector());
+        var profileId = Guid.NewGuid();
+
+        var status = await service.DeleteAsync(profileId);
+
+        Assert.Equal(DeleteSftpConnectionProfileStatus.Deleted, status);
+        Assert.Equal(profileId, repository.DeletedId);
+    }
+
+    private static SftpConnectionProfileService CreateService(
+        RecordingSftpConnectionProfileRepository repository,
+        ISecretProtector secretProtector)
+    {
+        return new SftpConnectionProfileService(
+            repository,
+            new CountingSporeSyncJobRepository(),
+            secretProtector);
+    }
+
+    private sealed class CountingSporeSyncJobRepository : ISporeSyncJobRepository
+    {
+        public int JobCountForProfile { get; init; }
+
+        public Task<int> CountByConnectionProfileAsync(Guid connectionProfileId, CancellationToken cancellationToken = default)
+            => Task.FromResult(JobCountForProfile);
+
+        public Task<IReadOnlyCollection<SporeSyncJob>> GetAllAsync(CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<SporeSyncJob?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<SporeSyncJob> UpsertAsync(UpsertSporeSyncJob job, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<IReadOnlyCollection<SporeSyncJob>> GetDueJobsAsync(CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task MarkPolledAsync(Guid id, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
     }
 
     private sealed class RecordingSecretProtector : ISecretProtector
@@ -345,6 +408,14 @@ public sealed class SftpConnectionProfileServiceTests
         public Task<bool> HasAnyEncryptedSecretsAsync(CancellationToken cancellationToken = default)
         {
             return Task.FromResult(false);
+        }
+
+        public Guid? DeletedId { get; private set; }
+
+        public Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default)
+        {
+            DeletedId = id;
+            return Task.FromResult(true);
         }
     }
 }

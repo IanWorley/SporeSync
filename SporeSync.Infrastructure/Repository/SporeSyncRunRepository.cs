@@ -21,6 +21,8 @@ public sealed class SporeSyncRunRepository : ISporeSyncRunRepository
     private const string OpRenewRunLease = "RenewRunLease";
     private const string OpPruneHistory = "PruneHistory";
     private const string OpReapOrphanedRuns = "ReapOrphanedRuns";
+    private const string OpRetryFailedItems = "RetryFailedItems";
+    private const string OpCancelRun = "CancelRun";
 
     private static readonly HashSet<string> AllowedStatuses = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -385,6 +387,56 @@ public sealed class SporeSyncRunRepository : ISporeSyncRunRepository
                 }
                 return runs;
             }, cancellationToken);
+    }
+
+    public async Task<SporeSyncRun?> CancelAsync(
+        Guid runId,
+        CancellationToken cancellationToken = default)
+    {
+        const string sql = """
+            SELECT r.id,
+                   r.job_id,
+                   r.job_name,
+                   r.status,
+                   r.started_at,
+                   r.completed_at,
+                   r.total_file_count,
+                   r.completed_file_count,
+                   r.skipped_file_count,
+                   r.failed_file_count,
+                   r.total_bytes,
+                   r.downloaded_bytes,
+                   r.current_bytes_per_second,
+                   r.error_message
+            FROM core.cancel_sftp_sync_run(@run_id) r;
+            """;
+
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.AddWithValue("run_id", runId);
+
+        return await DbCommandLogger.ExecuteReaderAsync(_logger, command, OpCancelRun,
+            async reader =>
+            {
+                if (!await reader.ReadAsync(cancellationToken))
+                {
+                    return null;
+                }
+                return ReadRun(reader);
+            }, cancellationToken);
+    }
+
+    public async Task<int> RetryFailedItemsAsync(
+        Guid runId,
+        CancellationToken cancellationToken = default)
+    {
+        const string sql = "SELECT core.retry_failed_download_queue_items(@run_id);";
+
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.AddWithValue("run_id", runId);
+
+        return await DbCommandLogger.ExecuteScalarAsync<int>(_logger, command, OpRetryFailedItems, cancellationToken);
     }
 
     private static void AddQueryParameters(

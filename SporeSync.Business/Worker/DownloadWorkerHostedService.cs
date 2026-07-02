@@ -128,6 +128,12 @@ public sealed class DownloadWorkerHostedService : BackgroundService
         var run = await runRepository.RecalculateAggregatesAsync(item.SyncRunId.Value, cancellationToken);
         await notifier.NotifyRunUpdatedAsync(run, cancellationToken);
 
+        // A run cancelled while this item was downloading stays cancelled.
+        if (string.Equals(run.Status, "cancelled", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
         if (!await runRepository.HasPendingDownloadsAsync(item.SyncRunId.Value, cancellationToken))
         {
             run = await runRepository.UpdateStatusAsync(new UpdateSporeSyncRunStatus

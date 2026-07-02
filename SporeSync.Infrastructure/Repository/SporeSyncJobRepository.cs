@@ -14,6 +14,8 @@ public sealed class SporeSyncJobRepository : ISporeSyncJobRepository
     private const string OpUpsertJob = "UpsertJob";
     private const string OpGetDueJobs = "GetDueJobs";
     private const string OpMarkJobPolled = "MarkJobPolled";
+    private const string OpDeleteJob = "DeleteJob";
+    private const string OpCountJobsForProfile = "CountJobsForProfile";
 
     private readonly NpgsqlDataSource _dataSource;
     private readonly ILogger<SporeSyncJobRepository> _logger;
@@ -183,6 +185,30 @@ public sealed class SporeSyncJobRepository : ISporeSyncJobRepository
                 }
                 return true;
             }, cancellationToken);
+    }
+
+    public async Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        const string sql = "SELECT core.delete_sftp_sync_job(@id);";
+
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.AddWithValue("id", id);
+
+        return await DbCommandLogger.ExecuteScalarAsync<bool>(_logger, command, OpDeleteJob, cancellationToken);
+    }
+
+    public async Task<int> CountByConnectionProfileAsync(
+        Guid connectionProfileId,
+        CancellationToken cancellationToken = default)
+    {
+        const string sql = "SELECT core.count_sftp_sync_jobs_for_connection_profile(@profile_id);";
+
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.AddWithValue("profile_id", connectionProfileId);
+
+        return await DbCommandLogger.ExecuteScalarAsync<int>(_logger, command, OpCountJobsForProfile, cancellationToken);
     }
 
     private static SporeSyncJob ReadSporeSyncJob(NpgsqlDataReader reader)

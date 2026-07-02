@@ -100,6 +100,7 @@ builder.Services.AddRateLimiter(options =>
 });
 
 builder.Services.AddControllers().AddJsonOptions(options => options.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase);
+builder.Services.AddProblemDetails();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddOpenApi();
 builder.Services.AddSignalR();
@@ -133,6 +134,11 @@ if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi("/openapi/{documentName}.json");
     app.MapScalarApiReference(options => options.WithTitle("SporeSync API"));
+}
+else
+{
+    // Unhandled exceptions surface as RFC 7807 ProblemDetails responses.
+    app.UseExceptionHandler();
 }
 
 if (forwardedHeaderSettings.Enabled)

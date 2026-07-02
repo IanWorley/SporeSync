@@ -18,4 +18,9 @@ public interface ISftpConnectionProfileRepository
         CancellationToken cancellationToken = default);
 
     Task<bool> HasAnyEncryptedSecretsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Deletes a connection profile. Returns false when the profile does not exist.
+    /// </summary>
+    Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default);
 }

@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using Microsoft.AspNetCore.Mvc;
 using SporeSync.Business.Interface;
 using SporeSync.Business.Sftp;
@@ -12,13 +13,16 @@ public sealed class SftpConnectionProfilesController : ControllerBase
 {
     private readonly ISftpConnectionProfileService _profileService;
     private readonly ISshHostKeyScanner _hostKeyScanner;
+    private readonly ISftpConnectionTestService _connectionTestService;
 
     public SftpConnectionProfilesController(
         ISftpConnectionProfileService profileService,
-        ISshHostKeyScanner hostKeyScanner)
+        ISshHostKeyScanner hostKeyScanner,
+        ISftpConnectionTestService connectionTestService)
     {
         _profileService = profileService;
         _hostKeyScanner = hostKeyScanner;
+        _connectionTestService = connectionTestService;
     }
 
     [HttpGet]
@@ -60,6 +64,10 @@ public sealed class SftpConnectionProfilesController : ControllerBase
         {
             return ValidationProblem(ex.Message);
         }
+        catch (ValidationException ex)
+        {
+            return InvalidProfileRequest(ex);
+        }
 
         return CreatedAtAction(nameof(GetById), new { id = profile.Id }, ToResponse(profile));
     }
@@ -78,6 +86,10 @@ public sealed class SftpConnectionProfilesController : ControllerBase
         catch (FormatException ex)
         {
             return ValidationProblem(ex.Message);
+        }
+        catch (ValidationException ex)
+        {
+            return InvalidProfileRequest(ex);
         }
 
         return Ok(ToResponse(profile));
@@ -112,6 +124,46 @@ public sealed class SftpConnectionProfilesController : ControllerBase
                 detail: ex.Message,
                 statusCode: StatusCodes.Status502BadGateway);
         }
+    }
+
+    [HttpDelete("{id:guid}")]
+    public async Task<IActionResult> Delete(
+        Guid id,
+        CancellationToken cancellationToken)
+    {
+        var status = await _profileService.DeleteAsync(id, cancellationToken);
+        return status switch
+        {
+            DeleteSftpConnectionProfileStatus.NotFound => NotFound(),
+            DeleteSftpConnectionProfileStatus.InUse => Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "Profile in use.",
+                detail: "One or more sync jobs use this connection profile. Delete or reassign them first."),
+            _ => NoContent()
+        };
+    }
+
+    [HttpPost("{id:guid}/test")]
+    public async Task<ActionResult<SftpConnectionTestResponse>> Test(
+        Guid id,
+        CancellationToken cancellationToken)
+    {
+        var result = await _connectionTestService.TestAsync(id, cancellationToken);
+        if (!result.ProfileFound)
+        {
+            return NotFound();
+        }
+
+        return Ok(new SftpConnectionTestResponse(
+            result.Success,
+            result.Success ? "Connection succeeded." : result.ErrorMessage,
+            result.DurationMs));
+    }
+
+    private ActionResult InvalidProfileRequest(ValidationException exception)
+    {
+        ModelState.AddModelError(string.Empty, exception.Message);
+        return ValidationProblem(ModelState);
     }
 
     private static UpsertSftpConnectionProfile ToUpsertModel(

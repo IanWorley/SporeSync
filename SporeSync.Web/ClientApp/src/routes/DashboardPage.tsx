@@ -4,6 +4,7 @@ import { useNavigate, useParams, useRouterState } from "@tanstack/react-router";
 import {
   ArrowDown,
   ArrowUp,
+  Ban,
   CheckCircle2,
   ChevronsLeft,
   ChevronsRight,
@@ -38,6 +39,7 @@ import {
 } from "../lib/format";
 
 const activeStatuses = ["Running", "Pending"];
+const activeRunStatuses = ["queued", "scanning", "downloading"];
 const queueStatuses = [
   "Queued",
   "Downloading",
@@ -56,6 +58,7 @@ type Toast = { id: number; tone: "success" | "error"; message: string };
 type SortDirection = "asc" | "desc";
 
 export function DashboardPage() {
+  const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { location } = useRouterState();
   const params = useParams({ strict: false }) as { runId?: string };
@@ -216,6 +219,45 @@ export function DashboardPage() {
     },
   });
 
+  const cancelRunMutation = useMutation({
+    mutationFn: (runId: string) => api.cancelRun(runId),
+    onSuccess: async (run) => {
+      pushToast({
+        id: Date.now(),
+        tone: "success",
+        message: `${run.jobName} cancelled`,
+      });
+      await queryClient.invalidateQueries({ queryKey: ["runs"] });
+    },
+    onError: (error) => {
+      pushToast({
+        id: Date.now(),
+        tone: "error",
+        message:
+          error instanceof Error ? error.message : "Cancel request failed",
+      });
+    },
+  });
+  const retryFailedMutation = useMutation({
+    mutationFn: (runId: string) => api.retryRunFailed(runId),
+    onSuccess: async (result) => {
+      pushToast({
+        id: Date.now(),
+        tone: "success",
+        message: `Requeued ${result.retriedCount} failed item${result.retriedCount === 1 ? "" : "s"}`,
+      });
+      await queryClient.invalidateQueries({ queryKey: ["runs"] });
+    },
+    onError: (error) => {
+      pushToast({
+        id: Date.now(),
+        tone: "error",
+        message:
+          error instanceof Error ? error.message : "Retry request failed",
+      });
+    },
+  });
+
   const selectedItem = queueQuery.data?.items.find(
     (item) => item.id === selectedItemId,
   );
@@ -359,7 +401,17 @@ export function DashboardPage() {
         </section>
 
         <div className="space-y-4">
-          <RunSummary run={effectiveRun} />
+          <RunSummary
+            run={effectiveRun}
+            isCancelling={cancelRunMutation.isPending}
+            isRetrying={retryFailedMutation.isPending}
+            onCancel={(run) => {
+              if (window.confirm(`Cancel the active run for ${run.jobName}?`)) {
+                cancelRunMutation.mutate(run.id);
+              }
+            }}
+            onRetryFailed={(run) => retryFailedMutation.mutate(run.id)}
+          />
 
           <section className="overflow-hidden rounded-lg border border-border bg-panel">
             <div className="grid gap-3 border-b border-border p-4 lg:grid-cols-[minmax(180px,1fr)_auto]">
@@ -582,7 +634,19 @@ function ConnectionIndicator({ state }: { state: SignalRState }) {
   );
 }
 
-function RunSummary({ run }: { run?: SporeSyncRun }) {
+function RunSummary({
+  run,
+  isCancelling,
+  isRetrying,
+  onCancel,
+  onRetryFailed,
+}: {
+  run?: SporeSyncRun;
+  isCancelling: boolean;
+  isRetrying: boolean;
+  onCancel: (run: SporeSyncRun) => void;
+  onRetryFailed: (run: SporeSyncRun) => void;
+}) {
   if (!run) {
     return (
       <section className="rounded-lg border border-border bg-panel p-4 text-sm text-muted-foreground">
@@ -591,22 +655,50 @@ function RunSummary({ run }: { run?: SporeSyncRun }) {
     );
   }
 
+  const isActive = activeRunStatuses.includes(run.status.toLowerCase());
+  const canRetry = run.failedFileCount > 0;
+
   return (
-    <section className="grid gap-3 rounded-lg border border-border bg-panel p-4 sm:grid-cols-2 xl:grid-cols-4">
-      <Metric label="Status" value={<StatusBadge status={run.status} />} />
-      <Metric
-        label="Files"
-        value={`${run.completedFileCount}/${run.totalFileCount}`}
-      />
-      <Metric
-        label="Progress"
-        value={`${formatBytes(run.downloadedBytes)} / ${formatBytes(run.totalBytes)}`}
-      />
-      <Metric label="Rate" value={formatRate(run.currentBytesPerSecond)} />
-      <Metric label="Started" value={formatLocalDateTime(run.startedAt)} />
-      <Metric label="Completed" value={formatLocalDateTime(run.completedAt)} />
-      <Metric label="Skipped" value={String(run.skippedFileCount)} />
-      <Metric label="Failed" value={String(run.failedFileCount)} />
+    <section className="rounded-lg border border-border bg-panel p-4">
+      {(isActive || canRetry) && (
+        <div className="mb-4 flex flex-wrap gap-2">
+          {isActive && (
+            <Button
+              className="border-red-500/40 text-red-600 hover:bg-red-500/10 dark:text-red-400"
+              disabled={isCancelling}
+              onClick={() => onCancel(run)}
+            >
+              <Ban size={16} />
+              Cancel Run
+            </Button>
+          )}
+          {canRetry && (
+            <Button disabled={isRetrying} onClick={() => onRetryFailed(run)}>
+              <RotateCcw size={16} />
+              Retry Failed ({run.failedFileCount})
+            </Button>
+          )}
+        </div>
+      )}
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <Metric label="Status" value={<StatusBadge status={run.status} />} />
+        <Metric
+          label="Files"
+          value={`${run.completedFileCount}/${run.totalFileCount}`}
+        />
+        <Metric
+          label="Progress"
+          value={`${formatBytes(run.downloadedBytes)} / ${formatBytes(run.totalBytes)}`}
+        />
+        <Metric label="Rate" value={formatRate(run.currentBytesPerSecond)} />
+        <Metric label="Started" value={formatLocalDateTime(run.startedAt)} />
+        <Metric
+          label="Completed"
+          value={formatLocalDateTime(run.completedAt)}
+        />
+        <Metric label="Skipped" value={String(run.skippedFileCount)} />
+        <Metric label="Failed" value={String(run.failedFileCount)} />
+      </div>
     </section>
   );
 }

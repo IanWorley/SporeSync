@@ -9,3 +9,4 @@ SporeSync.Web/ClientApp/node_modules/
 SporeSync.Web/ClientApp/dist/
 SporeSync.Web/wwwroot/
 .idea/
+.agent-downloads/

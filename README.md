@@ -61,6 +61,22 @@ dotnet run --project SporeSync.Web/SporeSync.Web.csproj --launch-profile "SporeS
 
 This requires Docker to be running.
 
+### Automated feature testing (agent mode)
+
+For browser-driven feature testing (Chrome MCP, Playwright, or manual QA on a
+throwaway environment), use the agent profile, which starts Testcontainers
+PostgreSQL plus a pre-seeded Testcontainers SFTP server, listens on HTTP only,
+and does not auto-launch a browser:
+
+```bash
+scripts/agent-dev.sh
+```
+
+The app is ready when `http://localhost:5040/healthz/ready` returns 200; the
+UI is served through Vite at `http://localhost:5173`. SFTP credentials and the
+mapped port are printed in the startup log. See [`AGENTS.md`](AGENTS.md) for
+the full feature-testing workflow.
+
 ### Docker Compose deployment
 
 For a production-style container deployment with PostgreSQL, persistent

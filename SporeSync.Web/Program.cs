@@ -44,6 +44,7 @@ if (args.Length > 0 && string.Equals(args[0], "healthcheck", StringComparison.Or
 var builder = WebApplication.CreateBuilder(args);
 
 var testcontainerDatabase = await TestcontainerDatabase.StartIfEnabledAsync(builder.Configuration);
+var testcontainerSftp = await TestcontainerSftp.StartIfEnabledAsync(builder.Configuration);
 
 var forwardedHeaderSettings =
     builder.Configuration.GetSection(ForwardedHeaderSettings.SectionName).Get<ForwardedHeaderSettings>()
@@ -169,12 +170,25 @@ if (authOptions.Enabled)
 
 app.MapFallbackToFile("index.html");
 
+if (testcontainerSftp is not null)
+{
+    app.Services.GetRequiredService<ILogger<Program>>().LogInformation(
+        "Development SFTP server ready: {ConnectionDetails}. Seeded sample files under {RemotePath}.",
+        testcontainerSftp.DescribeConnection(),
+        testcontainerSftp.RemotePath);
+}
+
 try
 {
     await app.RunAsync();
 }
 finally
 {
+    if (testcontainerSftp is not null)
+    {
+        await testcontainerSftp.DisposeAsync();
+    }
+
     if (testcontainerDatabase is not null)
     {
         await testcontainerDatabase.DisposeAsync();

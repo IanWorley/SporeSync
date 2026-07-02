@@ -1,31 +1,32 @@
 using System.Reflection;
 using System.Text;
+using FluentMigrator;
 
 namespace SporeSync.Infrastructure.Migrations;
 
 internal static class EmbeddedSqlScripts
 {
-    internal static string ReadEmbeddedScript(Assembly assembly, string resourceName)
+    internal static string? ReadEmbeddedScript(Assembly assembly, string? resourceName)
     {
-        return TryReadEmbeddedScript(assembly, resourceName)
-            ?? throw new InvalidOperationException($"Embedded migration script '{resourceName}' was not found.");
-    }
-
-    internal static string? TryReadEmbeddedScript(Assembly assembly, string resourceName)
-    {
-        using var stream = assembly.GetManifestResourceStream(resourceName);
-        if (stream is null)
+        if (string.IsNullOrWhiteSpace(resourceName))
         {
             return null;
         }
 
+        using var stream = assembly.GetManifestResourceStream(resourceName)
+            ?? throw new InvalidOperationException($"Embedded migration script '{resourceName}' was not found.");
         using var reader = new StreamReader(stream);
 
         return reader.ReadToEnd();
     }
 
-    internal static IReadOnlyList<string> ReadEmbeddedScriptsByPrefix(Assembly assembly, string resourcePrefix)
+    internal static IReadOnlyList<string> ReadEmbeddedScriptsByPrefix(Assembly assembly, string? resourcePrefix)
     {
+        if (string.IsNullOrWhiteSpace(resourcePrefix))
+        {
+            return Array.Empty<string>();
+        }
+
         var trimmedPrefix = resourcePrefix.Trim();
         var prefixes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -38,13 +39,10 @@ internal static class EmbeddedSqlScripts
             .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
             .Select(name => ReadEmbeddedScript(assembly, name))
             .Where(script => !string.IsNullOrWhiteSpace(script))
+            .Select(script => script!)
             .ToArray();
     }
 
-    /// <summary>
-    /// MSBuild mangles resource folder segments that start with a digit by prefixing them with '_'
-    /// (e.g. Functions/202605280001_Foo becomes Functions._202605280001_Foo), so match both spellings.
-    /// </summary>
     private static string NormalizeResourcePrefix(string resourcePrefix)
     {
         var builder = new StringBuilder(resourcePrefix.Length + 4);
@@ -64,5 +62,23 @@ internal static class EmbeddedSqlScripts
         }
 
         return builder.ToString();
+    }
+
+    internal static void ExecuteSqlScript(Migration migration, string? script)
+    {
+        if (string.IsNullOrWhiteSpace(script))
+        {
+            return;
+        }
+
+        migration.Execute.Sql(script);
+    }
+
+    internal static void ExecuteSqlScripts(Migration migration, IEnumerable<string> scripts)
+    {
+        foreach (var script in scripts)
+        {
+            ExecuteSqlScript(migration, script);
+        }
     }
 }

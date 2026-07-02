@@ -18,6 +18,7 @@ public sealed class SporeSyncRunRepository : ISporeSyncRunRepository
     private const string OpJobHasActiveRun = "JobHasActiveRun";
     private const string OpRecalculateAggregates = "RecalculateAggregates";
     private const string OpRunHasPendingDownloads = "RunHasPendingDownloads";
+    private const string OpPruneHistory = "PruneHistory";
 
     private static readonly HashSet<string> AllowedStatuses = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -300,6 +301,31 @@ public sealed class SporeSyncRunRepository : ISporeSyncRunRepository
         command.Parameters.AddWithValue("run_id", runId);
 
         return await DbCommandLogger.ExecuteScalarAsync<bool>(_logger, command, OpRunHasPendingDownloads, cancellationToken);
+    }
+
+    public async Task<SyncHistoryPruneResult> PruneHistoryAsync(
+        DateTimeOffset cutoff,
+        CancellationToken cancellationToken = default)
+    {
+        const string sql = """
+            SELECT p.pruned_run_count,
+                   p.pruned_queue_item_count
+            FROM core.prune_sftp_sync_history(@cutoff) p;
+            """;
+
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.AddWithValue("cutoff", cutoff);
+
+        return await DbCommandLogger.ExecuteReaderAsync(_logger, command, OpPruneHistory,
+            async reader =>
+            {
+                if (!await reader.ReadAsync(cancellationToken))
+                {
+                    throw new InvalidOperationException("Sync history prune did not return a row.");
+                }
+                return new SyncHistoryPruneResult(reader.GetInt32(0), reader.GetInt32(1));
+            }, cancellationToken);
     }
 
     private static void AddQueryParameters(

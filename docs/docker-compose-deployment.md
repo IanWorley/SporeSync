@@ -39,11 +39,25 @@ Create `compose.yml` on the deployment host:
 
 ```yaml
 services:
+  init-volumes:
+    # The published image runs as the non-root `app` user (UID $APP_UID).
+    # Named volumes and bind mounts are created root-owned by Docker, so this
+    # one-shot service fixes ownership before the web container starts.
+    image: ghcr.io/OWNER/REPOSITORY:VERSION
+    user: root
+    entrypoint: ["/bin/sh", "-c", "chown -R $APP_UID /var/lib/sporesync/secrets /downloads"]
+    volumes:
+      - sporesync-secrets:/var/lib/sporesync/secrets
+      - ./downloads:/downloads
+    restart: "no"
+
   web:
     image: ghcr.io/OWNER/REPOSITORY:VERSION
     depends_on:
       postgres:
         condition: service_healthy
+      init-volumes:
+        condition: service_completed_successfully
     ports:
       - "8080:8080"
     environment:
@@ -57,9 +71,19 @@ services:
       SporeSync__DownloadPollIntervalMs: 1000
       SporeSync__SftpConnectionTimeoutSeconds: 30
       SporeSync__SftpOperationTimeoutSeconds: 300
+      SporeSync__RunHistoryRetentionDays: 30
+      SporeSync__RetentionSweepIntervalHours: 6
     volumes:
       - sporesync-secrets:/var/lib/sporesync/secrets
       - ./downloads:/downloads
+    healthcheck:
+      # The ASP.NET Core base image ships neither curl nor wget, so the app
+      # exposes an in-process probe mode that calls /healthz/ready.
+      test: ["CMD", "dotnet", "/app/SporeSync.Web.dll", "healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     restart: unless-stopped
 
   postgres:
@@ -83,7 +107,7 @@ volumes:
 ```
 
 Change both database password values to the same strong password before starting
-the stack. If you built the image locally, replace the `web.image` value with
+the stack. If you built the image locally, replace both `image` values with
 `sporesync-web:local`.
 
 Set `Auth__PasswordHash` to a hash generated with
@@ -91,6 +115,41 @@ Set `Auth__PasswordHash` to a hash generated with
 the container refuses to start without an admin credential. See
 [`authentication.md`](authentication.md) for the full authentication
 configuration, including how to disable login on a trusted network.
+
+## Health checks
+
+The web container exposes two health endpoints:
+
+- `/healthz/live` reports liveness (the process is up and serving requests).
+- `/healthz/ready` reports readiness and includes a database connectivity
+  check.
+
+The Compose `healthcheck` above uses `dotnet /app/SporeSync.Web.dll healthcheck`,
+an in-process probe that requests `/healthz/ready` and exits non-zero on
+failure. It exists because the ASP.NET Core base images do not include curl or
+wget. Orchestrators (or a reverse proxy) can also poll the endpoints directly.
+
+## Non-root user and volume permissions
+
+The published container runs as the non-root `app` user. Docker creates named
+volumes and bind-mount directories owned by root, which would prevent the app
+from writing the encryption key or downloads. The `init-volumes` one-shot
+service in the sample Compose file chowns both mounts to the app user before
+the web container starts. If you manage permissions yourself instead, make sure
+the directories behind `sporesync-secrets` and `./downloads` are writable by
+the container's `$APP_UID` (1654 by default).
+
+## History retention
+
+Sync run history and stale queue rows are pruned automatically so the runs and
+queue tables do not grow without bound:
+
+- `SporeSync__RunHistoryRetentionDays` (default `30`): terminal runs
+  (completed/failed/cancelled) older than this many days are deleted. Per-file
+  sync state is preserved, so pruning never causes unchanged files to be
+  re-downloaded. Set to `0` to disable pruning.
+- `SporeSync__RetentionSweepIntervalHours` (default `6`): how often the
+  background sweep runs.
 
 ## Start the stack
 

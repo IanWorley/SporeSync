@@ -25,4 +25,8 @@ public interface ISporeSyncRunRepository
         CancellationToken cancellationToken = default);
 
     Task<bool> HasPendingDownloadsAsync(Guid runId, CancellationToken cancellationToken = default);
+
+    Task<SyncHistoryPruneResult> PruneHistoryAsync(
+        DateTimeOffset cutoff,
+        CancellationToken cancellationToken = default);
 }

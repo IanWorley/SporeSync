@@ -13,6 +13,7 @@ using SporeSync.Infrastructure.Logging;
 using SporeSync.Web;
 using SporeSync.Web.Auth;
 using SporeSync.Web.Controllers;
+using SporeSync.Web.Health;
 using SporeSync.Web.Hubs;
 using SporeSync.Web.Security;
 
@@ -33,6 +34,11 @@ if (args is ["hash-password", ..])
 
     Console.WriteLine(PasswordHasher.Hash(password));
     return 0;
+}
+
+if (args.Length > 0 && string.Equals(args[0], "healthcheck", StringComparison.OrdinalIgnoreCase))
+{
+    return await HealthProbe.RunAsync(args.Length > 1 ? args[1] : null);
 }
 
 var builder = WebApplication.CreateBuilder(args);
@@ -102,6 +108,9 @@ builder.Services.AddSingleton<ISyncDashboardNotifier, SyncDashboardNotifier>();
 builder.Services.RegisterBusinessLogic(builder.Configuration);
 builder.Services.RegisterInfrastructure(builder.Configuration);
 
+builder.Services.AddHealthChecks()
+    .AddCheck<DatabaseHealthCheck>("database", tags: ["ready"]);
+
 var app = builder.Build();
 
 using (var scope = app.Services.CreateScope())
@@ -140,6 +149,14 @@ app.UseRateLimiter();
 
 var controllers = app.MapControllers();
 var dashboardHub = app.MapHub<DashboardHub>("/hubs/dashboard");
+app.MapHealthChecks("/healthz/live", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+{
+    Predicate = _ => false
+});
+app.MapHealthChecks("/healthz/ready", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+{
+    Predicate = registration => registration.Tags.Contains("ready")
+});
 
 if (authOptions.Enabled)
 {

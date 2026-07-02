@@ -3,6 +3,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using SporeSync.Business.Interface;
+using SporeSync.Business.Observability;
 using SporeSync.Business.Sftp;
 using SporeSync.Domain.Interface;
 using SporeSync.Domain.Model;
@@ -13,15 +14,18 @@ public sealed class DownloadWorkerHostedService : BackgroundService
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly SporeSyncOptions _options;
+    private readonly SporeSyncMetrics _metrics;
     private readonly ILogger<DownloadWorkerHostedService> _logger;
 
     public DownloadWorkerHostedService(
         IServiceScopeFactory scopeFactory,
         IOptions<SporeSyncOptions> options,
+        SporeSyncMetrics metrics,
         ILogger<DownloadWorkerHostedService> logger)
     {
         _scopeFactory = scopeFactory;
         _options = options.Value;
+        _metrics = metrics;
         _logger = logger;
     }
 
@@ -113,7 +117,7 @@ public sealed class DownloadWorkerHostedService : BackgroundService
         return true;
     }
 
-    private static async Task<DownloadQueueItem> ProcessSingleFileAsync(
+    private async Task<DownloadQueueItem> ProcessSingleFileAsync(
         DownloadQueueItem item,
         SporeSyncJob job,
         IDownloadQueueItemRepository queueRepository,
@@ -141,6 +145,8 @@ public sealed class DownloadWorkerHostedService : BackgroundService
             progress,
             cancellationToken);
 
+        RecordDownloadResult(job.Id, item.RemotePath, result);
+
         return await progress.CompleteAsync(token => queueRepository.UpdateProgressAsync(new UpdateDownloadQueueItemProgress
         {
             Id = item.Id,
@@ -151,7 +157,7 @@ public sealed class DownloadWorkerHostedService : BackgroundService
         }, token));
     }
 
-    private static async Task<DownloadQueueItem> ProcessGroupAsync(
+    private async Task<DownloadQueueItem> ProcessGroupAsync(
         DownloadQueueItem groupItem,
         SporeSyncJob job,
         IDownloadQueueItemRepository queueRepository,
@@ -209,6 +215,8 @@ public sealed class DownloadWorkerHostedService : BackgroundService
                 leafProgress,
                 cancellationToken);
 
+            RecordDownloadResult(job.Id, leaf.RemotePath, leafResult);
+
             await leafProgress.CompleteAsync(token => queueRepository.UpdateProgressAsync(new UpdateDownloadQueueItemProgress
             {
                 Id = leaf.Id,
@@ -237,6 +245,29 @@ public sealed class DownloadWorkerHostedService : BackgroundService
             CurrentBytesPerSecond = latestRate,
             ErrorMessage = groupFailed ? "One or more files in the group failed to download." : null
         }, cancellationToken);
+    }
+
+    private void RecordDownloadResult(Guid jobId, string remotePath, SftpDownloadResult result)
+    {
+        if (result.Success)
+        {
+            _metrics.RecordDownloadCompleted(result.BytesDownloaded);
+            _logger.LogInformation(
+                "Downloaded {RemotePath} for job {JobId}: {BytesDownloaded} bytes at {BytesPerSecond} B/s",
+                remotePath,
+                jobId,
+                result.BytesDownloaded,
+                result.BytesPerSecond);
+        }
+        else
+        {
+            _metrics.RecordDownloadFailed();
+            _logger.LogWarning(
+                "Download failed for {RemotePath} in job {JobId}: {ErrorMessage}",
+                remotePath,
+                jobId,
+                result.ErrorMessage);
+        }
     }
 
     private sealed class FireAndForgetDownloadProgress : IProgress<long>

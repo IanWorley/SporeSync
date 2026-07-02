@@ -73,35 +73,52 @@ public sealed class DownloadWorkerHostedService : BackgroundService
         var downloader = scope.ServiceProvider.GetRequiredService<ISftpFileDownloader>();
         var notifier = scope.ServiceProvider.GetRequiredService<ISyncDashboardNotifier>();
 
-        var item = await queueRepository.ClaimNextAsync(cancellationToken);
+        var item = await queueRepository.ClaimNextAsync(_options.DownloadLeaseSeconds, cancellationToken);
         if (item is null || item.SyncRunId is null)
         {
             return false;
         }
 
-        var job = await jobRepository.GetByIdAsync(item.JobId, cancellationToken)
-            ?? throw new InvalidOperationException($"Job '{item.JobId}' was not found for queue item '{item.Id}'.");
-
         DownloadQueueItem updatedItem;
-        if (item.IsGroup)
+        using var renewalCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var leaseRenewalTask = RenewLeaseWhileProcessingAsync(queueRepository, item.Id, renewalCts.Token);
+        try
         {
-            updatedItem = await ProcessGroupAsync(
-                item,
-                job,
-                queueRepository,
-                downloader,
-                notifier,
-                cancellationToken);
+            var job = await jobRepository.GetByIdAsync(item.JobId, cancellationToken)
+                ?? throw new InvalidOperationException($"Job '{item.JobId}' was not found for queue item '{item.Id}'.");
+
+            if (item.IsGroup)
+            {
+                updatedItem = await ProcessGroupAsync(
+                    item,
+                    job,
+                    queueRepository,
+                    downloader,
+                    notifier,
+                    cancellationToken);
+            }
+            else
+            {
+                updatedItem = await ProcessSingleFileAsync(
+                    item,
+                    job,
+                    queueRepository,
+                    downloader,
+                    notifier,
+                    cancellationToken);
+            }
         }
-        else
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            updatedItem = await ProcessSingleFileAsync(
-                item,
-                job,
-                queueRepository,
-                downloader,
-                notifier,
-                cancellationToken);
+            // Graceful shutdown: return the claim to the queue instead of recording
+            // a bogus failure. Completed group leaves keep their progress.
+            await ReleaseClaimAsync(queueRepository, notifier, item.Id);
+            throw;
+        }
+        finally
+        {
+            renewalCts.Cancel();
+            await leaseRenewalTask;
         }
 
         await notifier.NotifyQueueItemUpdatedAsync(updatedItem, cancellationToken);
@@ -120,6 +137,59 @@ public sealed class DownloadWorkerHostedService : BackgroundService
         }
 
         return true;
+    }
+
+    private async Task RenewLeaseWhileProcessingAsync(
+        IDownloadQueueItemRepository queueRepository,
+        Guid itemId,
+        CancellationToken cancellationToken)
+    {
+        var interval = TimeSpan.FromSeconds(Math.Max(1, _options.DownloadLeaseSeconds / 3.0));
+
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                await Task.Delay(interval, cancellationToken);
+                if (!await queueRepository.RenewLeaseAsync(itemId, _options.DownloadLeaseSeconds, cancellationToken))
+                {
+                    _logger.LogWarning(
+                        "Queue item {ItemId} is no longer claimed; stopping lease renewal.",
+                        itemId);
+                    return;
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to renew lease for queue item {ItemId}.", itemId);
+            }
+        }
+    }
+
+    private async Task ReleaseClaimAsync(
+        IDownloadQueueItemRepository queueRepository,
+        ISyncDashboardNotifier notifier,
+        Guid itemId)
+    {
+        try
+        {
+            var released = await queueRepository.ReleaseAsync(itemId, CancellationToken.None);
+            if (released is not null)
+            {
+                await notifier.NotifyQueueItemUpdatedAsync(released, CancellationToken.None);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Failed to release claimed queue item {ItemId} during shutdown; the recovery sweep will requeue it.",
+                itemId);
+        }
     }
 
     private async Task<DownloadQueueItem> ProcessSingleFileAsync(

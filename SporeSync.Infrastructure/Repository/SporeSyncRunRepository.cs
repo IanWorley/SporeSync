@@ -18,7 +18,9 @@ public sealed class SporeSyncRunRepository : ISporeSyncRunRepository
     private const string OpJobHasActiveRun = "JobHasActiveRun";
     private const string OpRecalculateAggregates = "RecalculateAggregates";
     private const string OpRunHasPendingDownloads = "RunHasPendingDownloads";
+    private const string OpRenewRunLease = "RenewRunLease";
     private const string OpPruneHistory = "PruneHistory";
+    private const string OpReapOrphanedRuns = "ReapOrphanedRuns";
 
     private static readonly HashSet<string> AllowedStatuses = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -147,8 +149,9 @@ public sealed class SporeSyncRunRepository : ISporeSyncRunRepository
             }, cancellationToken);
     }
 
-    public async Task<SporeSyncRun> CreateAsync(
+    public async Task<SporeSyncRun?> CreateAsync(
         Guid jobId,
+        int leaseSeconds = 1800,
         CancellationToken cancellationToken = default)
     {
         const string sql = """
@@ -166,19 +169,20 @@ public sealed class SporeSyncRunRepository : ISporeSyncRunRepository
                    r.downloaded_bytes,
                    r.current_bytes_per_second,
                    r.error_message
-            FROM core.create_sftp_sync_run(@job_id) r;
+            FROM core.create_sftp_sync_run(@job_id, @lease_seconds) r;
             """;
 
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
         await using var command = new NpgsqlCommand(sql, connection);
         command.Parameters.AddWithValue("job_id", jobId);
+        command.Parameters.AddWithValue("lease_seconds", leaseSeconds);
 
         return await DbCommandLogger.ExecuteReaderAsync(_logger, command, OpCreateRun,
             async reader =>
             {
                 if (!await reader.ReadAsync(cancellationToken))
                 {
-                    throw new InvalidOperationException("SFTP sync run create did not return a row.");
+                    return (SporeSyncRun?)null;
                 }
                 return ReadRun(reader);
             }, cancellationToken);
@@ -213,7 +217,8 @@ public sealed class SporeSyncRunRepository : ISporeSyncRunRepository
                 @failed_file_count,
                 @downloaded_bytes,
                 @current_bytes_per_second,
-                @error_message) r;
+                @error_message,
+                @lease_seconds) r;
             """;
 
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
@@ -228,6 +233,7 @@ public sealed class SporeSyncRunRepository : ISporeSyncRunRepository
         command.Parameters.AddWithValue("downloaded_bytes", (object?)update.DownloadedBytes ?? DBNull.Value);
         command.Parameters.AddWithValue("current_bytes_per_second", (object?)update.CurrentBytesPerSecond ?? DBNull.Value);
         command.Parameters.AddWithValue("error_message", (object?)update.ErrorMessage ?? DBNull.Value);
+        command.Parameters.AddWithValue("lease_seconds", (object?)update.LeaseSeconds ?? DBNull.Value);
 
         return await DbCommandLogger.ExecuteReaderAsync(_logger, command, OpUpdateRunStatus,
             async reader =>
@@ -303,6 +309,21 @@ public sealed class SporeSyncRunRepository : ISporeSyncRunRepository
         return await DbCommandLogger.ExecuteScalarAsync<bool>(_logger, command, OpRunHasPendingDownloads, cancellationToken);
     }
 
+    public async Task<bool> RenewLeaseAsync(
+        Guid runId,
+        int leaseSeconds,
+        CancellationToken cancellationToken = default)
+    {
+        const string sql = "SELECT core.renew_sftp_sync_run_lease(@id, @lease_seconds);";
+
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.AddWithValue("id", runId);
+        command.Parameters.AddWithValue("lease_seconds", leaseSeconds);
+
+        return await DbCommandLogger.ExecuteScalarAsync<bool>(_logger, command, OpRenewRunLease, cancellationToken);
+    }
+
     public async Task<SyncHistoryPruneResult> PruneHistoryAsync(
         DateTimeOffset cutoff,
         CancellationToken cancellationToken = default)
@@ -325,6 +346,44 @@ public sealed class SporeSyncRunRepository : ISporeSyncRunRepository
                     throw new InvalidOperationException("Sync history prune did not return a row.");
                 }
                 return new SyncHistoryPruneResult(reader.GetInt32(0), reader.GetInt32(1));
+            }, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<SporeSyncRun>> ReapOrphanedAsync(
+        bool ignoreLeases,
+        CancellationToken cancellationToken = default)
+    {
+        const string sql = """
+            SELECT r.id,
+                   r.job_id,
+                   r.job_name,
+                   r.status,
+                   r.started_at,
+                   r.completed_at,
+                   r.total_file_count,
+                   r.completed_file_count,
+                   r.skipped_file_count,
+                   r.failed_file_count,
+                   r.total_bytes,
+                   r.downloaded_bytes,
+                   r.current_bytes_per_second,
+                   r.error_message
+            FROM core.reap_orphaned_sftp_sync_runs(@ignore_lease) r;
+            """;
+
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.AddWithValue("ignore_lease", ignoreLeases);
+
+        return await DbCommandLogger.ExecuteReaderAsync(_logger, command, OpReapOrphanedRuns,
+            async reader =>
+            {
+                var runs = new List<SporeSyncRun>();
+                while (await reader.ReadAsync(cancellationToken))
+                {
+                    runs.Add(ReadRun(reader));
+                }
+                return runs;
             }, cancellationToken);
     }
 

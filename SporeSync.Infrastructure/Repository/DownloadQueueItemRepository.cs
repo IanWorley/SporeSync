@@ -22,6 +22,9 @@ public sealed class DownloadQueueItemRepository : IDownloadQueueItemRepository
     private const string OpRecordQueueItemFailure = "RecordQueueItemFailure";
     private const string OpDeferQueueItem = "DeferQueueItem";
     private const string OpRetryQueueItem = "RetryQueueItem";
+    private const string OpRenewQueueItemLease = "RenewQueueItemLease";
+    private const string OpReleaseQueueItem = "ReleaseQueueItem";
+    private const string OpRequeueStaleItems = "RequeueStaleItems";
 
     private const string QueueItemColumns = """
         id,
@@ -272,45 +275,77 @@ public sealed class DownloadQueueItemRepository : IDownloadQueueItemRepository
             }, cancellationToken);
     }
 
+    private const string UpsertSql = """
+        SELECT id,
+               job_id,
+               sync_run_id,
+               remote_path,
+               destination_path,
+               file_size_bytes,
+               remote_modified_at,
+               status,
+               bytes_downloaded,
+               current_bytes_per_second,
+               retry_count,
+               handled_reason,
+               error_message,
+               queued_at,
+               started_at,
+               completed_at,
+               updated_at,
+               is_group,
+               group_remote_path,
+               child_count
+        FROM core.upsert_download_queue_item(
+            @job_id,
+            @sync_run_id,
+            @remote_path,
+            @destination_path,
+            @file_size_bytes,
+            @remote_modified_at,
+            @is_group,
+            @group_remote_path,
+            @child_count);
+        """;
+
     public async Task<DownloadQueueItem> UpsertAsync(
         UpsertDownloadQueueItem item,
         CancellationToken cancellationToken = default)
     {
-        const string sql = """
-            SELECT id,
-                   job_id,
-                   sync_run_id,
-                   remote_path,
-                   destination_path,
-                   file_size_bytes,
-                   remote_modified_at,
-                   status,
-                   bytes_downloaded,
-                   current_bytes_per_second,
-                   retry_count,
-                   handled_reason,
-                   error_message,
-                   queued_at,
-                   started_at,
-                   completed_at,
-                   updated_at,
-                   is_group,
-                   group_remote_path,
-                   child_count
-            FROM core.upsert_download_queue_item(
-                @job_id,
-                @sync_run_id,
-                @remote_path,
-                @destination_path,
-                @file_size_bytes,
-                @remote_modified_at,
-                @is_group,
-                @group_remote_path,
-                @child_count);
-            """;
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+
+        return await ExecuteUpsertAsync(connection, transaction: null, item, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<DownloadQueueItem>> UpsertManyAsync(
+        IReadOnlyCollection<UpsertDownloadQueueItem> items,
+        CancellationToken cancellationToken = default)
+    {
+        if (items.Count == 0)
+        {
+            return Array.Empty<DownloadQueueItem>();
+        }
 
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
-        await using var command = new NpgsqlCommand(sql, connection);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+
+        var results = new List<DownloadQueueItem>(items.Count);
+        foreach (var item in items)
+        {
+            results.Add(await ExecuteUpsertAsync(connection, transaction, item, cancellationToken));
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+        return results;
+    }
+
+    private async Task<DownloadQueueItem> ExecuteUpsertAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction? transaction,
+        UpsertDownloadQueueItem item,
+        CancellationToken cancellationToken)
+    {
+        await using var command = new NpgsqlCommand(UpsertSql, connection, transaction);
         command.Parameters.AddWithValue("job_id", item.JobId);
         command.Parameters.AddWithValue("sync_run_id", item.SyncRunId);
         command.Parameters.AddWithValue("remote_path", item.RemotePath);
@@ -367,7 +402,9 @@ public sealed class DownloadQueueItemRepository : IDownloadQueueItemRepository
             }, cancellationToken);
     }
 
-    public async Task<DownloadQueueItem?> ClaimNextAsync(CancellationToken cancellationToken = default)
+    public async Task<DownloadQueueItem?> ClaimNextAsync(
+        int leaseSeconds,
+        CancellationToken cancellationToken = default)
     {
         const string sql = """
             SELECT id,
@@ -390,11 +427,12 @@ public sealed class DownloadQueueItemRepository : IDownloadQueueItemRepository
                    is_group,
                    group_remote_path,
                    child_count
-            FROM core.claim_next_download_queue_item();
+            FROM core.claim_next_download_queue_item(@lease_seconds);
             """;
 
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
         await using var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.AddWithValue("lease_seconds", leaseSeconds);
 
         return await DbCommandLogger.ExecuteReaderAsync(_logger, command, OpClaimNextQueueItem,
             async reader =>
@@ -404,6 +442,108 @@ public sealed class DownloadQueueItemRepository : IDownloadQueueItemRepository
                     return null;
                 }
                 return ReadItem(reader);
+            }, cancellationToken);
+    }
+
+    public async Task<bool> RenewLeaseAsync(
+        Guid id,
+        int leaseSeconds,
+        CancellationToken cancellationToken = default)
+    {
+        const string sql = "SELECT core.renew_download_queue_item_lease(@id, @lease_seconds);";
+
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.AddWithValue("id", id);
+        command.Parameters.AddWithValue("lease_seconds", leaseSeconds);
+
+        return await DbCommandLogger.ExecuteScalarAsync<bool>(_logger, command, OpRenewQueueItemLease, cancellationToken);
+    }
+
+    public async Task<DownloadQueueItem?> ReleaseAsync(
+        Guid id,
+        CancellationToken cancellationToken = default)
+    {
+        const string sql = """
+            SELECT id,
+                   job_id,
+                   sync_run_id,
+                   remote_path,
+                   destination_path,
+                   file_size_bytes,
+                   remote_modified_at,
+                   status,
+                   bytes_downloaded,
+                   current_bytes_per_second,
+                   retry_count,
+                   handled_reason,
+                   error_message,
+                   queued_at,
+                   started_at,
+                   completed_at,
+                   updated_at,
+                   is_group,
+                   group_remote_path,
+                   child_count
+            FROM core.release_download_queue_item(@id);
+            """;
+
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.AddWithValue("id", id);
+
+        return await DbCommandLogger.ExecuteReaderAsync(_logger, command, OpReleaseQueueItem,
+            async reader =>
+            {
+                if (!await reader.ReadAsync(cancellationToken))
+                {
+                    return null;
+                }
+                return ReadItem(reader);
+            }, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<DownloadQueueItem>> RequeueStaleAsync(
+        bool ignoreLeases,
+        CancellationToken cancellationToken = default)
+    {
+        const string sql = """
+            SELECT id,
+                   job_id,
+                   sync_run_id,
+                   remote_path,
+                   destination_path,
+                   file_size_bytes,
+                   remote_modified_at,
+                   status,
+                   bytes_downloaded,
+                   current_bytes_per_second,
+                   retry_count,
+                   handled_reason,
+                   error_message,
+                   queued_at,
+                   started_at,
+                   completed_at,
+                   updated_at,
+                   is_group,
+                   group_remote_path,
+                   child_count
+            FROM core.requeue_stale_download_queue_items(@ignore_lease);
+            """;
+
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.AddWithValue("ignore_lease", ignoreLeases);
+
+        return await DbCommandLogger.ExecuteReaderAsync(_logger, command, OpRequeueStaleItems,
+            async reader =>
+            {
+                var items = new List<DownloadQueueItem>();
+                while (await reader.ReadAsync(cancellationToken))
+                {
+                    items.Add(ReadItem(reader));
+                }
+                return items;
             }, cancellationToken);
     }
 

@@ -41,6 +41,9 @@ public static class ServiceExtension
         services.AddScoped<IChangeDetector, ChangeDetector>();
         services.AddScoped<ISyncRunOrchestrator, SyncRunOrchestrator>();
         services.AddScoped<ISyncJobRunService, SyncJobRunService>();
+        // Recovery must be registered (and therefore started) before the scheduler
+        // and download worker so the startup sweep completes before new work begins.
+        services.AddHostedService<QueueRecoveryHostedService>();
         services.AddHostedService<JobSchedulerHostedService>();
         services.AddHostedService<DownloadWorkerHostedService>();
         services.AddHostedService<RetentionPruningHostedService>();

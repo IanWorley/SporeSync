@@ -230,12 +230,23 @@ public sealed class DownloadWorkerHostedServiceTests
 
         public List<DeferCall> DeferCalls { get; } = [];
 
-        public Task<DownloadQueueItem?> ClaimNextAsync(CancellationToken cancellationToken = default)
+        public Task<DownloadQueueItem?> ClaimNextAsync(int leaseSeconds, CancellationToken cancellationToken = default)
         {
             var item = _claimable;
             _claimable = null;
             return Task.FromResult(item);
         }
+
+        public Task<bool> RenewLeaseAsync(Guid id, int leaseSeconds, CancellationToken cancellationToken = default)
+            => Task.FromResult(true);
+
+        public Task<DownloadQueueItem?> ReleaseAsync(Guid id, CancellationToken cancellationToken = default)
+            => Task.FromResult<DownloadQueueItem?>(null);
+
+        public Task<IReadOnlyList<DownloadQueueItem>> RequeueStaleAsync(
+            bool ignoreLeases,
+            CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
 
         public Task<IReadOnlyList<DownloadQueueItem>> GetLeavesForGroupAsync(
             Guid runId,
@@ -301,6 +312,11 @@ public sealed class DownloadWorkerHostedServiceTests
             => throw new NotSupportedException();
 
         public Task<DownloadQueueItem> UpsertAsync(UpsertDownloadQueueItem item, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<IReadOnlyList<DownloadQueueItem>> UpsertManyAsync(
+            IReadOnlyCollection<UpsertDownloadQueueItem> items,
+            CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
         public Task<IReadOnlyDictionary<string, SyncedRemoteState>> GetSyncedStateAsync(Guid jobId, CancellationToken cancellationToken = default)
@@ -381,7 +397,10 @@ public sealed class DownloadWorkerHostedServiceTests
         public Task<SporeSyncRun?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
-        public Task<SporeSyncRun> CreateAsync(Guid jobId, CancellationToken cancellationToken = default)
+        public Task<SporeSyncRun?> CreateAsync(
+            Guid jobId,
+            int leaseSeconds = 1800,
+            CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
         public Task<bool> HasActiveRunAsync(Guid jobId, CancellationToken cancellationToken = default)
@@ -389,6 +408,14 @@ public sealed class DownloadWorkerHostedServiceTests
 
         public Task<SyncHistoryPruneResult> PruneHistoryAsync(
             DateTimeOffset cutoff,
+            CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<bool> RenewLeaseAsync(Guid runId, int leaseSeconds, CancellationToken cancellationToken = default)
+            => Task.FromResult(true);
+
+        public Task<IReadOnlyList<SporeSyncRun>> ReapOrphanedAsync(
+            bool ignoreLeases,
             CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
     }

@@ -13,10 +13,12 @@ public sealed class SporeSyncOptionsValidationTests
         {
             ["SporeSync:DestinationRootPath"] = Path.Combine(Path.GetTempPath(), "sporesync-downloads"),
             ["SporeSync:SchedulerIntervalSeconds"] = "10",
+            ["SporeSync:RunScanLeaseSeconds"] = "1800",
             ["SporeSync:RunHistoryRetentionDays"] = "30"
         });
 
         Assert.Equal(10, options.Value.SchedulerIntervalSeconds);
+        Assert.Equal(1800, options.Value.RunScanLeaseSeconds);
         Assert.Equal(30, options.Value.RunHistoryRetentionDays);
     }
 
@@ -25,6 +27,9 @@ public sealed class SporeSyncOptionsValidationTests
     [InlineData("SporeSync:DownloadPollIntervalMs", "-1")]
     [InlineData("SporeSync:SftpConnectionTimeoutSeconds", "0")]
     [InlineData("SporeSync:SftpOperationTimeoutSeconds", "-5")]
+    [InlineData("SporeSync:DownloadLeaseSeconds", "0")]
+    [InlineData("SporeSync:RunScanLeaseSeconds", "0")]
+    [InlineData("SporeSync:RecoverySweepIntervalSeconds", "0")]
     [InlineData("SporeSync:RunHistoryRetentionDays", "-1")]
     [InlineData("SporeSync:RetentionSweepIntervalHours", "0")]
     public void OutOfRangeValue_FailsValidation(string key, string value)

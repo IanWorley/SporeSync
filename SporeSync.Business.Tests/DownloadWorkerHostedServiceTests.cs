@@ -86,6 +86,8 @@ public sealed class DownloadWorkerHostedServiceTests : IDisposable
         services.AddSingleton<ISftpClientFactory>(new ThrowingSftpClientFactory(connectException));
         services.AddSingleton<LocalDestinationPathSandbox>();
         services.AddSingleton<SftpFileDownloader>();
+        services.AddSingleton<ISftpFileDownloader>(sp => sp.GetRequiredService<SftpFileDownloader>());
+        services.AddSingleton<DownloadRetryPolicy>();
         services.AddSingleton<DownloadWorkerHostedService>();
         return services.BuildServiceProvider();
     }
@@ -197,6 +199,13 @@ public sealed class DownloadWorkerHostedServiceTests : IDisposable
             throw new NotSupportedException();
         }
 
+        public Task<IReadOnlyList<DownloadQueueItem>> UpsertManyAsync(
+            IReadOnlyCollection<UpsertDownloadQueueItem> items,
+            CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
+        }
+
         public Task<IReadOnlyDictionary<string, SyncedRemoteState>> GetSyncedStateAsync(
             Guid jobId,
             CancellationToken cancellationToken = default)
@@ -204,7 +213,7 @@ public sealed class DownloadWorkerHostedServiceTests : IDisposable
             throw new NotSupportedException();
         }
 
-        public Task<DownloadQueueItem?> ClaimNextAsync(CancellationToken cancellationToken = default)
+        public Task<DownloadQueueItem?> ClaimNextAsync(int leaseSeconds, CancellationToken cancellationToken = default)
         {
             if (_claimed)
             {
@@ -213,6 +222,19 @@ public sealed class DownloadWorkerHostedServiceTests : IDisposable
 
             _claimed = true;
             return Task.FromResult<DownloadQueueItem?>(CurrentItem);
+        }
+
+        public Task<bool> RenewLeaseAsync(Guid id, int leaseSeconds, CancellationToken cancellationToken = default)
+            => Task.FromResult(CurrentItem.Id == id);
+
+        public Task<DownloadQueueItem?> ReleaseAsync(Guid id, CancellationToken cancellationToken = default)
+            => Task.FromResult<DownloadQueueItem?>(CurrentItem.Id == id ? CurrentItem : null);
+
+        public Task<IReadOnlyList<DownloadQueueItem>> RequeueStaleAsync(
+            bool ignoreLeases,
+            CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
         }
 
         public Task<DownloadQueueItem> UpdateProgressAsync(
@@ -234,6 +256,41 @@ public sealed class DownloadWorkerHostedServiceTests : IDisposable
         }
 
         public Task<int> RequeueFailedAsync(Guid jobId, Guid syncRunId, CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
+        }
+
+        public Task<DownloadQueueItem> RecordFailureAsync(
+            Guid id,
+            string? errorMessage,
+            int maxRetries,
+            DateTimeOffset nextAttemptAt,
+            long? bytesDownloaded = null,
+            CancellationToken cancellationToken = default)
+        {
+            var update = new UpdateDownloadQueueItemProgress
+            {
+                Id = id,
+                Status = "failed",
+                BytesDownloaded = bytesDownloaded ?? 0,
+                ErrorMessage = errorMessage
+            };
+            Updates.Add(update);
+            CurrentItem = ApplyUpdate(CurrentItem, update);
+            return Task.FromResult(CurrentItem);
+        }
+
+        public Task<DownloadQueueItem> DeferAsync(
+            Guid id,
+            DateTimeOffset nextAttemptAt,
+            string reason,
+            long? bytesDownloaded = null,
+            CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
+        }
+
+        public Task<DownloadQueueItem?> RetryAsync(Guid id, CancellationToken cancellationToken = default)
         {
             throw new NotSupportedException();
         }
@@ -297,7 +354,10 @@ public sealed class DownloadWorkerHostedServiceTests : IDisposable
             throw new NotSupportedException();
         }
 
-        public Task<SporeSyncRun> CreateAsync(Guid jobId, CancellationToken cancellationToken = default)
+        public Task<SporeSyncRun?> CreateAsync(
+            Guid jobId,
+            int leaseSeconds = 1800,
+            CancellationToken cancellationToken = default)
         {
             throw new NotSupportedException();
         }
@@ -323,8 +383,18 @@ public sealed class DownloadWorkerHostedServiceTests : IDisposable
         public Task<bool> HasPendingDownloadsAsync(Guid runId, CancellationToken cancellationToken = default)
             => Task.FromResult(false);
 
+        public Task<bool> RenewLeaseAsync(Guid runId, int leaseSeconds, CancellationToken cancellationToken = default)
+            => Task.FromResult(runId == _runId);
+
         public Task<SyncHistoryPruneResult> PruneHistoryAsync(
             DateTimeOffset cutoff,
+            CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
+        }
+
+        public Task<IReadOnlyList<SporeSyncRun>> ReapOrphanedAsync(
+            bool ignoreLeases,
             CancellationToken cancellationToken = default)
         {
             throw new NotSupportedException();

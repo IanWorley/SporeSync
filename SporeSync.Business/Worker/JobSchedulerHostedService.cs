@@ -88,16 +88,27 @@ public sealed class JobSchedulerHostedService : BackgroundService
 
         await jobRepository.MarkPolledAsync(job.Id, cancellationToken);
 
-        var run = await runRepository.CreateAsync(job.Id, cancellationToken);
+        // Creation is atomic: it returns null when another scheduler tick or a
+        // manual trigger created an active run for this job in the meantime.
+        var run = await runRepository.CreateAsync(job.Id, _options.RunScanLeaseSeconds, cancellationToken);
+        if (run is null)
+        {
+            return;
+        }
+
         await notifier.NotifyRunUpdatedAsync(run, cancellationToken);
-        
+
         try
         {
             await orchestrator.ScanAsync(job, run, cancellationToken);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
             _logger.LogError(ex, "Failed to scan job {JobId} run {RunId}", job.Id, run.Id);
+        }
+        catch (OperationCanceledException)
+        {
+            // Graceful shutdown mid-scan; the orchestrator already marked the run cancelled.
         }
     }
 }

@@ -252,5 +252,8 @@ public sealed class SporeSyncJobServiceTests
 
         public Task<SporeSyncRun?> CancelAsync(Guid runId, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
+
+        public Task<SporeSyncRun> AdvanceScanStatusAsync(UpdateSporeSyncRunStatus update, string expectedStatus, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
     }
 }

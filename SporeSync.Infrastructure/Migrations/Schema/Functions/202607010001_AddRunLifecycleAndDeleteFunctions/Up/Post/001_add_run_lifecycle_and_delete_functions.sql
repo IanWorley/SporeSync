@@ -70,6 +70,97 @@ BEGIN
 END;
 $$;
 
+-- Advances a run's status during a scan only when the run is still in the
+-- expected status. If the run was cancelled mid-scan, the transition is not
+-- applied and any items enqueued after the cancellation are skipped so the
+-- download worker never claims them.
+CREATE FUNCTION core.advance_sftp_sync_run_scan(
+    p_run_id uuid,
+    p_expected_status varchar(32),
+    p_status varchar(32),
+    p_total_file_count integer DEFAULT NULL,
+    p_total_bytes bigint DEFAULT NULL,
+    p_skipped_file_count integer DEFAULT NULL,
+    p_error_message text DEFAULT NULL,
+    p_lease_seconds integer DEFAULT NULL)
+RETURNS TABLE (
+    id uuid,
+    job_id uuid,
+    job_name varchar(200),
+    status varchar(32),
+    started_at timestamptz,
+    completed_at timestamptz,
+    total_file_count integer,
+    completed_file_count integer,
+    skipped_file_count integer,
+    failed_file_count integer,
+    total_bytes bigint,
+    downloaded_bytes bigint,
+    current_bytes_per_second numeric(20, 2),
+    error_message text)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    UPDATE core.sftp_sync_runs r
+    SET status = p_status,
+        completed_at = CASE
+            WHEN p_status IN ('completed', 'failed', 'cancelled') THEN now()
+            ELSE r.completed_at
+        END,
+        total_file_count = COALESCE(p_total_file_count, r.total_file_count),
+        total_bytes = COALESCE(p_total_bytes, r.total_bytes),
+        skipped_file_count = COALESCE(p_skipped_file_count, r.skipped_file_count),
+        current_bytes_per_second = NULL,
+        error_message = p_error_message,
+        lease_expires_at = CASE
+            WHEN p_status IN ('completed', 'failed', 'cancelled') THEN NULL
+            WHEN p_lease_seconds IS NOT NULL THEN now() + make_interval(secs => p_lease_seconds)
+            ELSE r.lease_expires_at
+        END
+    WHERE r.id = p_run_id
+      AND r.status = p_expected_status;
+
+    IF NOT FOUND THEN
+        UPDATE core.download_queue_items qi
+        SET status = 'skipped',
+            handled_reason = 'run_cancelled',
+            current_bytes_per_second = NULL,
+            completed_at = now(),
+            updated_at = now()
+        WHERE qi.sync_run_id = p_run_id
+          AND qi.status IN ('queued', 'comparing')
+          AND EXISTS (
+              SELECT 1
+              FROM core.sftp_sync_runs r2
+              WHERE r2.id = p_run_id
+                AND r2.status = 'cancelled');
+
+        IF FOUND THEN
+            PERFORM core.recalculate_sftp_sync_run_aggregates(p_run_id);
+        END IF;
+    END IF;
+
+    RETURN QUERY
+    SELECT r.id,
+           r.job_id,
+           j.name AS job_name,
+           r.status,
+           r.started_at,
+           r.completed_at,
+           r.total_file_count,
+           r.completed_file_count,
+           r.skipped_file_count,
+           r.failed_file_count,
+           r.total_bytes,
+           r.downloaded_bytes,
+           r.current_bytes_per_second,
+           r.error_message
+    FROM core.sftp_sync_runs r
+    INNER JOIN core.sftp_sync_jobs j ON j.id = r.job_id
+    WHERE r.id = p_run_id;
+END;
+$$;
+
 CREATE FUNCTION core.retry_failed_download_queue_items(p_run_id uuid)
 RETURNS integer
 LANGUAGE plpgsql

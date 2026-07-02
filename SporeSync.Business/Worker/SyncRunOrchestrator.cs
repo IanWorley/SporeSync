@@ -53,12 +53,18 @@ public sealed class SyncRunOrchestrator : ISyncRunOrchestrator
         SporeSyncRun run,
         CancellationToken cancellationToken = default)
     {
-        run = await UpdateRunAsync(run.Id, new UpdateSporeSyncRunStatus
+        run = await AdvanceRunAsync(new UpdateSporeSyncRunStatus
         {
             Id = run.Id,
             Status = "scanning",
             LeaseSeconds = _options.RunScanLeaseSeconds
-        }, cancellationToken);
+        }, expectedStatus: "queued", cancellationToken);
+
+        if (!string.Equals(run.Status, "scanning", StringComparison.OrdinalIgnoreCase))
+        {
+            // Cancelled (or otherwise moved on) before scanning started.
+            return run;
+        }
 
         var stopwatch = Stopwatch.StartNew();
         using var leaseRenewalCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -121,23 +127,23 @@ public sealed class SyncRunOrchestrator : ISyncRunOrchestrator
             var totalVisibleCount = changes.EnqueuedVisibleCount + remoteDeletedItems.Count;
             if (changes.EnqueuedVisibleCount == 0)
             {
-                return await UpdateRunAsync(run.Id, new UpdateSporeSyncRunStatus
+                return await AdvanceRunAsync(new UpdateSporeSyncRunStatus
                 {
                     Id = run.Id,
                     Status = "completed",
                     TotalFileCount = totalVisibleCount,
                     TotalBytes = 0,
                     SkippedFileCount = remoteDeletedItems.Count
-                }, cancellationToken);
+                }, expectedStatus: "scanning", cancellationToken);
             }
 
-            return await UpdateRunAsync(run.Id, new UpdateSporeSyncRunStatus
+            return await AdvanceRunAsync(new UpdateSporeSyncRunStatus
             {
                 Id = run.Id,
                 Status = "downloading",
                 TotalFileCount = totalVisibleCount,
                 TotalBytes = changes.EnqueuedTotalBytes
-            }, cancellationToken);
+            }, expectedStatus: "scanning", cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -147,7 +153,7 @@ public sealed class SyncRunOrchestrator : ISyncRunOrchestrator
                 "Scan cancelled for job {JobId} run {RunId}; marking the run as cancelled.",
                 job.Id,
                 run.Id);
-            await UpdateRunAsync(run.Id, new UpdateSporeSyncRunStatus
+            await UpdateRunAsync(new UpdateSporeSyncRunStatus
             {
                 Id = run.Id,
                 Status = "cancelled"
@@ -159,12 +165,12 @@ public sealed class SyncRunOrchestrator : ISyncRunOrchestrator
             stopwatch.Stop();
             _metrics.RecordScanFailed(stopwatch.Elapsed.TotalSeconds);
             _logger.LogError(ex, "Scan failed for job {JobId} run {RunId}", job.Id, run.Id);
-            return await UpdateRunAsync(run.Id, new UpdateSporeSyncRunStatus
+            return await AdvanceRunAsync(new UpdateSporeSyncRunStatus
             {
                 Id = run.Id,
                 Status = "failed",
                 ErrorMessage = ex.Message
-            }, cancellationToken);
+            }, expectedStatus: "scanning", cancellationToken);
         }
         finally
         {
@@ -224,8 +230,17 @@ public sealed class SyncRunOrchestrator : ISyncRunOrchestrator
         };
     }
 
+    private async Task<SporeSyncRun> AdvanceRunAsync(
+        UpdateSporeSyncRunStatus update,
+        string expectedStatus,
+        CancellationToken cancellationToken)
+    {
+        var run = await _runRepository.AdvanceScanStatusAsync(update, expectedStatus, cancellationToken);
+        await _notifier.NotifyRunUpdatedAsync(run, cancellationToken);
+        return run;
+    }
+
     private async Task<SporeSyncRun> UpdateRunAsync(
-        Guid runId,
         UpdateSporeSyncRunStatus update,
         CancellationToken cancellationToken)
     {

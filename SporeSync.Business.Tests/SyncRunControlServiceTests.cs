@@ -182,6 +182,9 @@ public sealed class SyncRunControlServiceTests
         public Task<bool> HasPendingDownloadsAsync(Guid runId, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
+        public Task<SporeSyncRun> AdvanceScanStatusAsync(UpdateSporeSyncRunStatus update, string expectedStatus, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
         public Task<SyncHistoryPruneResult> PruneHistoryAsync(DateTimeOffset cutoff, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
     }

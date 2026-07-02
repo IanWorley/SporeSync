@@ -23,6 +23,7 @@ public sealed class SporeSyncRunRepository : ISporeSyncRunRepository
     private const string OpReapOrphanedRuns = "ReapOrphanedRuns";
     private const string OpRetryFailedItems = "RetryFailedItems";
     private const string OpCancelRun = "CancelRun";
+    private const string OpAdvanceScanStatus = "AdvanceScanStatus";
 
     private static readonly HashSet<string> AllowedStatuses = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -386,6 +387,59 @@ public sealed class SporeSyncRunRepository : ISporeSyncRunRepository
                     runs.Add(ReadRun(reader));
                 }
                 return runs;
+            }, cancellationToken);
+    }
+
+    public async Task<SporeSyncRun> AdvanceScanStatusAsync(
+        UpdateSporeSyncRunStatus update,
+        string expectedStatus,
+        CancellationToken cancellationToken = default)
+    {
+        const string sql = """
+            SELECT r.id,
+                   r.job_id,
+                   r.job_name,
+                   r.status,
+                   r.started_at,
+                   r.completed_at,
+                   r.total_file_count,
+                   r.completed_file_count,
+                   r.skipped_file_count,
+                   r.failed_file_count,
+                   r.total_bytes,
+                   r.downloaded_bytes,
+                   r.current_bytes_per_second,
+                   r.error_message
+            FROM core.advance_sftp_sync_run_scan(
+                @id,
+                @expected_status,
+                @status,
+                @total_file_count,
+                @total_bytes,
+                @skipped_file_count,
+                @error_message,
+                @lease_seconds) r;
+            """;
+
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.AddWithValue("id", update.Id);
+        command.Parameters.AddWithValue("expected_status", expectedStatus);
+        command.Parameters.AddWithValue("status", update.Status);
+        command.Parameters.AddWithValue("total_file_count", (object?)update.TotalFileCount ?? DBNull.Value);
+        command.Parameters.AddWithValue("total_bytes", (object?)update.TotalBytes ?? DBNull.Value);
+        command.Parameters.AddWithValue("skipped_file_count", (object?)update.SkippedFileCount ?? DBNull.Value);
+        command.Parameters.AddWithValue("error_message", (object?)update.ErrorMessage ?? DBNull.Value);
+        command.Parameters.AddWithValue("lease_seconds", (object?)update.LeaseSeconds ?? DBNull.Value);
+
+        return await DbCommandLogger.ExecuteReaderAsync(_logger, command, OpAdvanceScanStatus,
+            async reader =>
+            {
+                if (!await reader.ReadAsync(cancellationToken))
+                {
+                    throw new InvalidOperationException($"SFTP sync run '{update.Id}' was not found when advancing scan status.");
+                }
+                return ReadRun(reader);
             }, cancellationToken);
     }
 

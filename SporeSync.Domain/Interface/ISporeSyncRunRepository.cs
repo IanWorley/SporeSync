@@ -62,6 +62,17 @@ public interface ISporeSyncRunRepository
     Task<int> RetryFailedItemsAsync(Guid runId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Applies a scan status transition only when the run is still in
+    /// <paramref name="expectedStatus"/>. When the run was cancelled mid-scan the
+    /// transition is skipped, any items enqueued after the cancellation are marked
+    /// skipped, and the run is returned unchanged (still cancelled).
+    /// </summary>
+    Task<SporeSyncRun> AdvanceScanStatusAsync(
+        UpdateSporeSyncRunStatus update,
+        string expectedStatus,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Cancels an active run (queued/scanning/downloading) and skips its pending
     /// queue items. Returns null when the run does not exist or is not active.
     /// </summary>

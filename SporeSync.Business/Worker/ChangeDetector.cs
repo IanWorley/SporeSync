@@ -12,10 +12,17 @@ public interface IChangeDetector
 
 public sealed record ChangeDetectionResult(
     IReadOnlyList<ScannedRemoteEntry> EntriesToEnqueue,
+    IReadOnlyList<ScannedRemoteEntry> EntriesToCarryForward,
     IReadOnlyList<string> RemoteDeletedPaths,
     int EnqueuedVisibleCount,
     long EnqueuedTotalBytes);
 
+/// <summary>
+/// Diffs a fresh scan against the last persisted state at leaf granularity.
+/// Groups are re-enqueued when any individual leaf changed (or the group's own
+/// aggregates drifted, e.g. a leaf was removed remotely), but unchanged completed
+/// leaves are carried forward into the new run instead of being re-downloaded.
+/// </summary>
 public sealed class ChangeDetector : IChangeDetector
 {
     public ChangeDetectionResult DetectChanges(
@@ -23,49 +30,69 @@ public sealed class ChangeDetector : IChangeDetector
         IReadOnlyDictionary<string, SyncedRemoteState> syncedState)
     {
         var toEnqueue = new List<ScannedRemoteEntry>();
+        var toCarryForward = new List<ScannedRemoteEntry>();
         var scannedRemotePaths = scanResult.VisibleEntries
             .Concat(scanResult.InternalLeafEntries)
             .Select(entry => entry.RemotePath)
             .ToHashSet(StringComparer.Ordinal);
         var remoteDeletedPaths = syncedState.Values
-            .Where(state => IsCompleted(state.Status) && !scannedRemotePaths.Contains(state.RemotePath))
+            .Where(state => IsRemoteDeletedCandidate(state.Status) && !scannedRemotePaths.Contains(state.RemotePath))
             .Select(state => state.RemotePath)
             .ToArray();
-        var visiblePaths = new HashSet<string>(
-            scanResult.VisibleEntries.Select(entry => entry.RemotePath),
-            StringComparer.Ordinal);
         var leavesByGroup = scanResult.InternalLeafEntries
             .Where(leaf => leaf.GroupRemotePath is not null)
             .GroupBy(leaf => leaf.GroupRemotePath, StringComparer.Ordinal)
             .ToDictionary(group => group.Key!, group => group.ToArray(), StringComparer.Ordinal);
 
+        var enqueuedVisibleCount = 0;
+        long enqueuedTotalBytes = 0;
+
         foreach (var visible in scanResult.VisibleEntries)
         {
-            if (ShouldEnqueue(visible, syncedState, leavesByGroup))
+            if (!visible.IsGroup)
             {
-                toEnqueue.Add(visible);
-                if (visible.IsGroup)
+                if (RequiresDownload(visible, syncedState))
                 {
-                    var groupLeaves = scanResult.InternalLeafEntries
-                        .Where(leaf => string.Equals(leaf.GroupRemotePath, visible.RemotePath, StringComparison.Ordinal));
-                    toEnqueue.AddRange(groupLeaves);
+                    toEnqueue.Add(visible);
+                    enqueuedVisibleCount++;
+                    enqueuedTotalBytes += visible.FileSizeBytes;
                 }
+
+                continue;
             }
+
+            var leaves = leavesByGroup.TryGetValue(visible.RemotePath, out var groupLeaves)
+                ? groupLeaves
+                : Array.Empty<ScannedRemoteEntry>();
+            var changedLeaves = leaves
+                .Where(leaf => RequiresDownload(leaf, syncedState))
+                .ToArray();
+
+            if (changedLeaves.Length == 0 && !GroupMetadataChanged(visible, syncedState))
+            {
+                continue;
+            }
+
+            // Leaves are enqueued before the group row so the download worker can
+            // never claim the group while its leaf rows are still being upserted.
+            toEnqueue.AddRange(changedLeaves);
+            toEnqueue.Add(visible);
+            toCarryForward.AddRange(leaves.Except(changedLeaves));
+            enqueuedVisibleCount++;
+            enqueuedTotalBytes += visible.FileSizeBytes;
         }
 
-        var enqueuedVisibleCount = toEnqueue.Count(entry =>
-            visiblePaths.Contains(entry.RemotePath));
-        var enqueuedTotalBytes = scanResult.VisibleEntries
-            .Where(entry => toEnqueue.Any(enqueued => enqueued.RemotePath == entry.RemotePath))
-            .Sum(entry => entry.FileSizeBytes);
-
-        return new ChangeDetectionResult(toEnqueue, remoteDeletedPaths, enqueuedVisibleCount, enqueuedTotalBytes);
+        return new ChangeDetectionResult(
+            toEnqueue,
+            toCarryForward,
+            remoteDeletedPaths,
+            enqueuedVisibleCount,
+            enqueuedTotalBytes);
     }
 
-    private static bool ShouldEnqueue(
+    private static bool RequiresDownload(
         ScannedRemoteEntry entry,
-        IReadOnlyDictionary<string, SyncedRemoteState> syncedState,
-        IReadOnlyDictionary<string, ScannedRemoteEntry[]> leavesByGroup)
+        IReadOnlyDictionary<string, SyncedRemoteState> syncedState)
     {
         if (!syncedState.TryGetValue(entry.RemotePath, out var existing))
         {
@@ -82,7 +109,7 @@ public sealed class ChangeDetector : IChangeDetector
 
         if (IsCompleted(existing.Status))
         {
-            return IsLocalDestinationMissing(entry, leavesByGroup);
+            return !File.Exists(entry.DestinationPath);
         }
 
         // Remote unchanged and not completed:
@@ -96,19 +123,29 @@ public sealed class ChangeDetector : IChangeDetector
         return string.Equals(existing.Status, "skipped", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static bool IsLocalDestinationMissing(
-        ScannedRemoteEntry entry,
-        IReadOnlyDictionary<string, ScannedRemoteEntry[]> leavesByGroup)
+    private static bool GroupMetadataChanged(
+        ScannedRemoteEntry group,
+        IReadOnlyDictionary<string, SyncedRemoteState> syncedState)
     {
-        if (!entry.IsGroup)
+        if (!syncedState.TryGetValue(group.RemotePath, out var existing))
         {
-            return !File.Exists(entry.DestinationPath);
+            return true;
         }
 
-        return leavesByGroup.TryGetValue(entry.RemotePath, out var leaves)
-            && leaves.Any(leaf => !File.Exists(leaf.DestinationPath));
+        if (!IsCompleted(existing.Status))
+        {
+            return true;
+        }
+
+        return existing.RemoteModifiedAt != group.RemoteModifiedAt
+            || existing.FileSizeBytes != group.FileSizeBytes
+            || existing.ChildCount != group.ChildCount;
     }
 
     private static bool IsCompleted(string status)
         => string.Equals(status, "completed", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsRemoteDeletedCandidate(string status)
+        => IsCompleted(status)
+            || string.Equals(status, "failed", StringComparison.OrdinalIgnoreCase);
 }

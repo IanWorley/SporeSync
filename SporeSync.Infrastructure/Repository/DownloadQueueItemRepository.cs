@@ -305,7 +305,8 @@ public sealed class DownloadQueueItemRepository : IDownloadQueueItemRepository
             @remote_modified_at,
             @is_group,
             @group_remote_path,
-            @child_count);
+            @child_count,
+            @preserve_completed);
         """;
 
     public async Task<DownloadQueueItem> UpsertAsync(
@@ -355,6 +356,7 @@ public sealed class DownloadQueueItemRepository : IDownloadQueueItemRepository
         command.Parameters.AddWithValue("is_group", item.IsGroup);
         command.Parameters.AddWithValue("group_remote_path", (object?)item.GroupRemotePath ?? DBNull.Value);
         command.Parameters.AddWithValue("child_count", item.ChildCount);
+        command.Parameters.AddWithValue("preserve_completed", item.PreserveCompletedProgress);
 
         return await DbCommandLogger.ExecuteReaderAsync(_logger, command, OpUpsertQueueItem,
             async reader =>
@@ -375,7 +377,8 @@ public sealed class DownloadQueueItemRepository : IDownloadQueueItemRepository
             SELECT remote_path,
                    remote_modified_at,
                    file_size_bytes,
-                   status
+                   status,
+                   child_count
             FROM core.get_synced_remote_state(@job_id);
             """;
 
@@ -394,7 +397,8 @@ public sealed class DownloadQueueItemRepository : IDownloadQueueItemRepository
                         RemotePath = reader.GetString(0),
                         RemoteModifiedAt = reader.IsDBNull(1) ? null : reader.GetFieldValue<DateTimeOffset>(1),
                         FileSizeBytes = reader.GetInt64(2),
-                        Status = reader.GetString(3)
+                        Status = reader.GetString(3),
+                        ChildCount = reader.GetInt32(4)
                     };
                     states[state.RemotePath] = state;
                 }

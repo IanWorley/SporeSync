@@ -19,4 +19,11 @@ public sealed class UpsertDownloadQueueItem
     public string? GroupRemotePath { get; init; }
 
     public required int ChildCount { get; init; }
+
+    /// <summary>
+    /// When true and the existing row is already completed, the upsert moves the row into the
+    /// new sync run but keeps its completed status and downloaded bytes instead of re-queueing it.
+    /// Used to carry unchanged group leaves forward so only changed files are re-downloaded.
+    /// </summary>
+    public bool PreserveCompletedProgress { get; init; }
 }

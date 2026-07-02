@@ -507,6 +507,72 @@ public sealed class RepositoryIntegrationTests : IClassFixture<RepositoryTestcon
     }
 
     [Fact]
+    public async Task DownloadQueueItemRepository_RequeueFailedAsync_RequeuesOwningGroupForFailedLeaf()
+    {
+        var profileRepository = new SftpConnectionProfileRepository(_fixture.DataSource);
+        var jobRepository = new SporeSyncJobRepository(_fixture.DataSource);
+        var runRepository = new SporeSyncRunRepository(_fixture.DataSource);
+        var queueRepository = new DownloadQueueItemRepository(_fixture.DataSource);
+
+        var profile = await profileRepository.UpsertAsync(CreateProfile());
+        var job = await jobRepository.UpsertAsync(CreateJob(profile.Id));
+        var run = await runRepository.CreateAsync(job.Id);
+        var groupRemotePath = "/incoming/reports/";
+
+        var group = await queueRepository.UpsertAsync(new UpsertDownloadQueueItem
+        {
+            JobId = job.Id,
+            SyncRunId = run.Id,
+            RemotePath = groupRemotePath,
+            DestinationPath = "/local/incoming/reports/",
+            FileSizeBytes = 100,
+            RemoteModifiedAt = DateTimeOffset.UtcNow,
+            IsGroup = true,
+            GroupRemotePath = null,
+            ChildCount = 1
+        });
+        var leaf = await queueRepository.UpsertAsync(new UpsertDownloadQueueItem
+        {
+            JobId = job.Id,
+            SyncRunId = run.Id,
+            RemotePath = "/incoming/reports/a.csv",
+            DestinationPath = "/local/incoming/reports/a.csv",
+            FileSizeBytes = 100,
+            RemoteModifiedAt = DateTimeOffset.UtcNow,
+            IsGroup = false,
+            GroupRemotePath = groupRemotePath,
+            ChildCount = 0
+        });
+
+        await queueRepository.UpdateProgressAsync(new UpdateDownloadQueueItemProgress
+        {
+            Id = group.Id,
+            Status = "completed",
+            BytesDownloaded = 100
+        });
+        await queueRepository.UpdateProgressAsync(new UpdateDownloadQueueItemProgress
+        {
+            Id = leaf.Id,
+            Status = "failed",
+            BytesDownloaded = 40,
+            ErrorMessage = "leaf failed after group aggregate update"
+        });
+
+        var requeuedCount = await queueRepository.RequeueFailedAsync(job.Id, run.Id);
+
+        Assert.Equal(2, requeuedCount);
+        var requeuedGroup = await queueRepository.GetByIdAsync(group.Id);
+        var requeuedLeaf = await queueRepository.GetByIdAsync(leaf.Id);
+        Assert.Equal("queued", requeuedGroup!.Status);
+        Assert.Equal("queued", requeuedLeaf!.Status);
+
+        var claimed = await queueRepository.ClaimNextAsync(leaseSeconds: 1800);
+        Assert.NotNull(claimed);
+        Assert.Equal(group.Id, claimed!.Id);
+        Assert.True(claimed.IsGroup);
+    }
+
+    [Fact]
     public async Task DownloadQueueItemRepository_UpdateProgress_DoesNotRegressTerminalItemToDownloading()
     {
         var profileRepository = new SftpConnectionProfileRepository(_fixture.DataSource);
@@ -741,6 +807,144 @@ public sealed class RepositoryIntegrationTests : IClassFixture<RepositoryTestcon
         Assert.Equal(0, reEnqueued.RetryCount);
         Assert.Null(reEnqueued.ErrorMessage);
         Assert.Null(reEnqueued.HandledReason);
+    }
+
+    [Fact]
+    public async Task DownloadQueueItemRepository_UpsertWithPreserveCompletedProgress_CarriesLeafIntoNewRun()
+    {
+        var profileRepository = new SftpConnectionProfileRepository(_fixture.DataSource);
+        var jobRepository = new SporeSyncJobRepository(_fixture.DataSource);
+        var runRepository = new SporeSyncRunRepository(_fixture.DataSource);
+        var queueRepository = new DownloadQueueItemRepository(_fixture.DataSource);
+
+        var profile = await profileRepository.UpsertAsync(CreateProfile());
+        var job = await jobRepository.UpsertAsync(CreateJob(profile.Id));
+        var firstRun = await runRepository.CreateAsync(job.Id);
+        var groupRemotePath = "/incoming/reports/";
+
+        UpsertDownloadQueueItem CreateLeafUpsert(Guid runId, bool preserve) => new()
+        {
+            JobId = job.Id,
+            SyncRunId = runId,
+            RemotePath = "/incoming/reports/a.csv",
+            DestinationPath = "/local/incoming/reports/a.csv",
+            FileSizeBytes = 100,
+            RemoteModifiedAt = DateTimeOffset.Parse("2026-06-01T00:00:00Z"),
+            IsGroup = false,
+            GroupRemotePath = groupRemotePath,
+            ChildCount = 0,
+            PreserveCompletedProgress = preserve
+        };
+
+        var leaf = await queueRepository.UpsertAsync(CreateLeafUpsert(firstRun.Id, preserve: false));
+        await queueRepository.UpdateProgressAsync(new UpdateDownloadQueueItemProgress
+        {
+            Id = leaf.Id,
+            Status = "completed",
+            BytesDownloaded = 100
+        });
+
+        await runRepository.UpdateStatusAsync(new UpdateSporeSyncRunStatus
+        {
+            Id = firstRun.Id,
+            Status = "completed"
+        });
+        var secondRun = await runRepository.CreateAsync(job.Id);
+
+        var carried = await queueRepository.UpsertAsync(CreateLeafUpsert(secondRun.Id, preserve: true));
+
+        Assert.Equal(leaf.Id, carried.Id);
+        Assert.Equal(secondRun.Id, carried.SyncRunId);
+        Assert.Equal("completed", carried.Status);
+        Assert.Equal(100, carried.BytesDownloaded);
+        Assert.NotNull(carried.CompletedAt);
+
+        var leavesInNewRun = await queueRepository.GetLeavesForGroupAsync(secondRun.Id, groupRemotePath);
+        Assert.Contains(leavesInNewRun, item => item.Id == leaf.Id && item.Status == "completed");
+
+        var syncedState = await queueRepository.GetSyncedStateAsync(job.Id);
+        Assert.Equal("completed", syncedState["/incoming/reports/a.csv"].Status);
+
+        // Without the preserve flag the same upsert must re-queue the row and reset progress.
+        var requeued = await queueRepository.UpsertAsync(CreateLeafUpsert(secondRun.Id, preserve: false));
+        Assert.Equal("queued", requeued.Status);
+        Assert.Equal(0, requeued.BytesDownloaded);
+        Assert.Null(requeued.CompletedAt);
+    }
+
+    [Fact]
+    public async Task DownloadQueueItemRepository_UpsertWithPreserveFlagOnNonCompletedRow_StillRequeues()
+    {
+        var profileRepository = new SftpConnectionProfileRepository(_fixture.DataSource);
+        var jobRepository = new SporeSyncJobRepository(_fixture.DataSource);
+        var runRepository = new SporeSyncRunRepository(_fixture.DataSource);
+        var queueRepository = new DownloadQueueItemRepository(_fixture.DataSource);
+
+        var profile = await profileRepository.UpsertAsync(CreateProfile());
+        var job = await jobRepository.UpsertAsync(CreateJob(profile.Id));
+        var run = await runRepository.CreateAsync(job.Id);
+
+        var upsert = new UpsertDownloadQueueItem
+        {
+            JobId = job.Id,
+            SyncRunId = run.Id,
+            RemotePath = "/incoming/reports/failed.csv",
+            DestinationPath = "/local/incoming/reports/failed.csv",
+            FileSizeBytes = 100,
+            RemoteModifiedAt = DateTimeOffset.UtcNow,
+            IsGroup = false,
+            GroupRemotePath = "/incoming/reports/",
+            ChildCount = 0,
+            PreserveCompletedProgress = true
+        };
+
+        var item = await queueRepository.UpsertAsync(upsert);
+        Assert.Equal("queued", item.Status);
+
+        await queueRepository.UpdateProgressAsync(new UpdateDownloadQueueItemProgress
+        {
+            Id = item.Id,
+            Status = "failed",
+            BytesDownloaded = 40,
+            ErrorMessage = "boom"
+        });
+
+        var requeued = await queueRepository.UpsertAsync(upsert);
+
+        Assert.Equal(item.Id, requeued.Id);
+        Assert.Equal("queued", requeued.Status);
+        Assert.Equal(0, requeued.BytesDownloaded);
+        Assert.Null(requeued.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task DownloadQueueItemRepository_GetSyncedState_ReturnsChildCount()
+    {
+        var profileRepository = new SftpConnectionProfileRepository(_fixture.DataSource);
+        var jobRepository = new SporeSyncJobRepository(_fixture.DataSource);
+        var runRepository = new SporeSyncRunRepository(_fixture.DataSource);
+        var queueRepository = new DownloadQueueItemRepository(_fixture.DataSource);
+
+        var profile = await profileRepository.UpsertAsync(CreateProfile());
+        var job = await jobRepository.UpsertAsync(CreateJob(profile.Id));
+        var run = await runRepository.CreateAsync(job.Id);
+
+        await queueRepository.UpsertAsync(new UpsertDownloadQueueItem
+        {
+            JobId = job.Id,
+            SyncRunId = run.Id,
+            RemotePath = "/incoming/reports/",
+            DestinationPath = "/local/incoming/reports/",
+            FileSizeBytes = 300,
+            RemoteModifiedAt = DateTimeOffset.UtcNow,
+            IsGroup = true,
+            GroupRemotePath = null,
+            ChildCount = 7
+        });
+
+        var syncedState = await queueRepository.GetSyncedStateAsync(job.Id);
+
+        Assert.Equal(7, syncedState["/incoming/reports/"].ChildCount);
     }
 
     private async Task<DownloadQueueItem> SeedClaimableItemAsync(

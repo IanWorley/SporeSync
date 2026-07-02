@@ -84,26 +84,20 @@ public sealed class SyncRunOrchestrator : ISyncRunOrchestrator
                 await _notifier.NotifyQueueItemUpdatedAsync(item, cancellationToken);
             }
 
-            // Single transaction so groups and their leaves become visible atomically;
-            // nothing is claimable until the run transitions to 'downloading' below.
-            var enqueuedItems = await _queueRepository.UpsertManyAsync(
-                changes.EntriesToEnqueue
-                    .Select(entry => new UpsertDownloadQueueItem
-                    {
-                        JobId = job.Id,
-                        SyncRunId = run.Id,
-                        RemotePath = entry.RemotePath,
-                        DestinationPath = entry.DestinationPath,
-                        FileSizeBytes = entry.FileSizeBytes,
-                        RemoteModifiedAt = entry.RemoteModifiedAt,
-                        IsGroup = entry.IsGroup,
-                        GroupRemotePath = entry.GroupRemotePath,
-                        ChildCount = entry.ChildCount
-                    })
+            // Unchanged completed leaves of re-enqueued groups move into the new run with
+            // their completed status intact. Upsert everything in one transaction so groups
+            // and their leaves become visible atomically; nothing is claimable until the run
+            // transitions to 'downloading' below.
+            var carryForwardCount = changes.EntriesToCarryForward.Count;
+            var upsertedItems = await _queueRepository.UpsertManyAsync(
+                changes.EntriesToCarryForward
+                    .Select(entry => ToUpsert(job.Id, run.Id, entry, preserveCompletedProgress: true))
+                    .Concat(changes.EntriesToEnqueue
+                        .Select(entry => ToUpsert(job.Id, run.Id, entry, preserveCompletedProgress: false)))
                     .ToArray(),
                 cancellationToken);
 
-            foreach (var item in enqueuedItems)
+            foreach (var item in upsertedItems.Skip(carryForwardCount))
             {
                 await _notifier.NotifyQueueItemUpdatedAsync(item, cancellationToken);
             }
@@ -207,6 +201,27 @@ public sealed class SyncRunOrchestrator : ISyncRunOrchestrator
                 _logger.LogWarning(ex, "Failed to renew scanning lease for sync run {RunId}.", runId);
             }
         }
+    }
+
+    private static UpsertDownloadQueueItem ToUpsert(
+        Guid jobId,
+        Guid runId,
+        Scanning.ScannedRemoteEntry entry,
+        bool preserveCompletedProgress)
+    {
+        return new UpsertDownloadQueueItem
+        {
+            JobId = jobId,
+            SyncRunId = runId,
+            RemotePath = entry.RemotePath,
+            DestinationPath = entry.DestinationPath,
+            FileSizeBytes = entry.FileSizeBytes,
+            RemoteModifiedAt = entry.RemoteModifiedAt,
+            IsGroup = entry.IsGroup,
+            GroupRemotePath = entry.GroupRemotePath,
+            ChildCount = entry.ChildCount,
+            PreserveCompletedProgress = preserveCompletedProgress
+        };
     }
 
     private async Task<SporeSyncRun> UpdateRunAsync(

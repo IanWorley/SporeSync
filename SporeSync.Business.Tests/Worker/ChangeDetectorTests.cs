@@ -152,8 +152,10 @@ public sealed class ChangeDetectorTests
     }
 
     [Fact]
-    public void DetectChanges_FailedEntry_IsReEnqueued()
+    public void DetectChanges_UnchangedFailedEntry_StaysDeadLettered()
     {
+        // A dead-lettered ('failed') item must not be auto-requeued while the remote file is
+        // unchanged, otherwise every scan would restart the retry loop forever.
         var detector = new ChangeDetector();
         var scan = CreateScan(
             new ScannedRemoteEntry("/remote/file.txt", "/data/file.txt", false, 100, 0, null, null));
@@ -165,6 +167,75 @@ public sealed class ChangeDetectorTests
                 RemoteModifiedAt = null,
                 FileSizeBytes = 100,
                 Status = "failed"
+            }
+        };
+
+        var result = detector.DetectChanges(scan, synced);
+
+        Assert.Empty(result.EntriesToEnqueue);
+    }
+
+    [Fact]
+    public void DetectChanges_ChangedFailedEntry_IsReEnqueued()
+    {
+        var detector = new ChangeDetector();
+        var scan = CreateScan(
+            new ScannedRemoteEntry("/remote/file.txt", "/data/file.txt", false, 250, 0, null, DateTimeOffset.UtcNow));
+        var synced = new Dictionary<string, SyncedRemoteState>(StringComparer.Ordinal)
+        {
+            ["/remote/file.txt"] = new SyncedRemoteState
+            {
+                RemotePath = "/remote/file.txt",
+                RemoteModifiedAt = DateTimeOffset.Parse("2026-01-01T00:00:00Z"),
+                FileSizeBytes = 100,
+                Status = "failed"
+            }
+        };
+
+        var result = detector.DetectChanges(scan, synced);
+
+        Assert.Single(result.EntriesToEnqueue);
+    }
+
+    [Fact]
+    public void DetectChanges_UnchangedQueuedEntry_IsNotReEnqueued()
+    {
+        // Re-upserting an in-flight/queued item would reset its progress and retry budget.
+        var modifiedAt = DateTimeOffset.Parse("2026-05-28T12:00:00Z");
+        var detector = new ChangeDetector();
+        var scan = CreateScan(
+            new ScannedRemoteEntry("/remote/file.txt", "/data/file.txt", false, 100, 0, null, modifiedAt));
+        var synced = new Dictionary<string, SyncedRemoteState>(StringComparer.Ordinal)
+        {
+            ["/remote/file.txt"] = new SyncedRemoteState
+            {
+                RemotePath = "/remote/file.txt",
+                RemoteModifiedAt = modifiedAt,
+                FileSizeBytes = 100,
+                Status = "queued"
+            }
+        };
+
+        var result = detector.DetectChanges(scan, synced);
+
+        Assert.Empty(result.EntriesToEnqueue);
+    }
+
+    [Fact]
+    public void DetectChanges_UnchangedSkippedEntry_IsReEnqueued()
+    {
+        // A previously remote-deleted (skipped) path that reappears should download again.
+        var detector = new ChangeDetector();
+        var scan = CreateScan(
+            new ScannedRemoteEntry("/remote/file.txt", "/data/file.txt", false, 100, 0, null, null));
+        var synced = new Dictionary<string, SyncedRemoteState>(StringComparer.Ordinal)
+        {
+            ["/remote/file.txt"] = new SyncedRemoteState
+            {
+                RemotePath = "/remote/file.txt",
+                RemoteModifiedAt = null,
+                FileSizeBytes = 100,
+                Status = "skipped"
             }
         };
 

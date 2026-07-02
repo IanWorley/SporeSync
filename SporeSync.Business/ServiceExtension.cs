@@ -35,7 +35,8 @@ public static class ServiceExtension
         services.AddSingleton<LocalDestinationPathSandbox>();
         services.AddScoped<ISftpClientFactory, SftpClientFactory>();
         services.AddScoped<RealSftpDirectoryScanner>();
-        services.AddScoped<SftpFileDownloader>();
+        services.AddScoped<ISftpFileDownloader, SftpFileDownloader>();
+        services.AddSingleton<DownloadRetryPolicy>();
         services.AddScoped<IChangeDetector, ChangeDetector>();
         services.AddScoped<ISyncRunOrchestrator, SyncRunOrchestrator>();
         services.AddScoped<ISyncJobRunService, SyncJobRunService>();

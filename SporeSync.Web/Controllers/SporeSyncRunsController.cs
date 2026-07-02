@@ -12,15 +12,18 @@ public sealed class SporeSyncRunsController : ControllerBase
     private readonly ISporeSyncRunService _runService;
     private readonly IDownloadQueueItemService _queueItemService;
     private readonly IDownloadQueueItemFileDeleteService _queueItemFileDeleteService;
+    private readonly ISyncDashboardNotifier _dashboardNotifier;
 
     public SporeSyncRunsController(
         ISporeSyncRunService runService,
         IDownloadQueueItemService queueItemService,
-        IDownloadQueueItemFileDeleteService queueItemFileDeleteService)
+        IDownloadQueueItemFileDeleteService queueItemFileDeleteService,
+        ISyncDashboardNotifier dashboardNotifier)
     {
         _runService = runService;
         _queueItemService = queueItemService;
         _queueItemFileDeleteService = queueItemFileDeleteService;
+        _dashboardNotifier = dashboardNotifier;
     }
 
     [HttpGet]
@@ -87,6 +90,25 @@ public sealed class SporeSyncRunsController : ControllerBase
             cancellationToken);
 
         return Ok(ToPagedResponse(result, ToQueueItemResponse));
+    }
+
+    [HttpPost("{runId:guid}/queue-items/{queueItemId:guid}/retry")]
+    public async Task<ActionResult<DownloadQueueItemResponse>> RetryQueueItem(
+        Guid runId,
+        Guid queueItemId,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _queueItemService.RetryAsync(runId, queueItemId, cancellationToken);
+        switch (result.Status)
+        {
+            case RetryQueueItemStatus.NotFound:
+                return NotFound();
+            case RetryQueueItemStatus.NotRetryable:
+                return Conflict(new { message = "Only failed queue items can be retried." });
+            default:
+                await _dashboardNotifier.NotifyQueueItemUpdatedAsync(result.Item!, cancellationToken);
+                return Ok(ToQueueItemResponse(result.Item!));
+        }
     }
 
     [HttpDelete("{runId:guid}/queue-items/{queueItemId:guid}/local")]

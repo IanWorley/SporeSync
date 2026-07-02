@@ -28,4 +28,24 @@ public sealed class DownloadQueueItemService : IDownloadQueueItemService
     {
         return _repository.GetLeavesForGroupAsync(runId, groupRemotePath, cancellationToken);
     }
+
+    public async Task<RetryQueueItemResult> RetryAsync(
+        Guid runId,
+        Guid queueItemId,
+        CancellationToken cancellationToken = default)
+    {
+        var item = await _repository.GetByIdAsync(queueItemId, cancellationToken);
+        if (item is null || item.SyncRunId != runId)
+        {
+            return new RetryQueueItemResult(RetryQueueItemStatus.NotFound, null);
+        }
+
+        var retried = await _repository.RetryAsync(queueItemId, cancellationToken);
+        if (retried is null)
+        {
+            return new RetryQueueItemResult(RetryQueueItemStatus.NotRetryable, item);
+        }
+
+        return new RetryQueueItemResult(RetryQueueItemStatus.Retried, retried);
+    }
 }

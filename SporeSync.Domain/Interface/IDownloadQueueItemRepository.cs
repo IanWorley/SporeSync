@@ -44,4 +44,36 @@ public interface IDownloadQueueItemRepository
         Guid jobId,
         Guid syncRunId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Records a failed download attempt: increments the retry count and either requeues the item
+    /// with a scheduled next attempt (backoff) or dead-letters it as terminal 'failed' once
+    /// <paramref name="maxRetries"/> is exhausted.
+    /// </summary>
+    Task<DownloadQueueItem> RecordFailureAsync(
+        Guid id,
+        string? errorMessage,
+        int maxRetries,
+        DateTimeOffset nextAttemptAt,
+        long? bytesDownloaded = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Requeues an item for a later attempt without consuming retry budget
+    /// (e.g. the remote file is still inside the stability window).
+    /// </summary>
+    Task<DownloadQueueItem> DeferAsync(
+        Guid id,
+        DateTimeOffset nextAttemptAt,
+        string reason,
+        long? bytesDownloaded = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Manually requeues a dead-lettered ('failed') item with a fresh retry budget.
+    /// Returns null when the item does not exist or is not in a terminal failed state.
+    /// </summary>
+    Task<DownloadQueueItem?> RetryAsync(
+        Guid id,
+        CancellationToken cancellationToken = default);
 }

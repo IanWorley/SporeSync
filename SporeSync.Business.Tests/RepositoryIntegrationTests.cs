@@ -540,4 +540,201 @@ public sealed class RepositoryIntegrationTests : IClassFixture<RepositoryTestcon
         Assert.Equal("remote_deleted", skipped.HandledReason);
         Assert.Equal(0, skipped.BytesDownloaded);
     }
+
+    [Fact]
+    public async Task DownloadQueueItemRepository_RecordFailure_RequeuesWithBackoffUntilBudgetExhausted()
+    {
+        var queueRepository = new DownloadQueueItemRepository(_fixture.DataSource);
+        var item = await SeedClaimableItemAsync(queueRepository, "/incoming/retry-me.csv");
+
+        // First failure with budget remaining: requeued with a scheduled next attempt.
+        var afterFirstFailure = await queueRepository.RecordFailureAsync(
+            item.Id,
+            "transient error",
+            maxRetries: 1,
+            nextAttemptAt: DateTimeOffset.UtcNow.AddMinutes(5));
+
+        Assert.Equal("queued", afterFirstFailure.Status);
+        Assert.Equal(1, afterFirstFailure.RetryCount);
+        Assert.Equal("retry_scheduled", afterFirstFailure.HandledReason);
+        Assert.Equal("transient error", afterFirstFailure.ErrorMessage);
+        Assert.Null(afterFirstFailure.CompletedAt);
+
+        // Second failure exhausts the budget: dead-lettered as terminal 'failed'.
+        var afterSecondFailure = await queueRepository.RecordFailureAsync(
+            item.Id,
+            "still failing",
+            maxRetries: 1,
+            nextAttemptAt: DateTimeOffset.UtcNow.AddMinutes(5));
+
+        Assert.Equal("failed", afterSecondFailure.Status);
+        Assert.Equal(2, afterSecondFailure.RetryCount);
+        Assert.Equal("retry_budget_exhausted", afterSecondFailure.HandledReason);
+        Assert.NotNull(afterSecondFailure.CompletedAt);
+    }
+
+    [Fact]
+    public async Task DownloadQueueItemRepository_ClaimNext_RespectsScheduledNextAttempt()
+    {
+        var queueRepository = new DownloadQueueItemRepository(_fixture.DataSource);
+        var item = await SeedClaimableItemAsync(queueRepository, "/incoming/backoff.csv");
+
+        // Fail with a future next attempt: not claimable yet.
+        await queueRepository.RecordFailureAsync(
+            item.Id,
+            "transient error",
+            maxRetries: 5,
+            nextAttemptAt: DateTimeOffset.UtcNow.AddHours(1));
+
+        var claimedTooEarly = await ClaimSpecificAsync(queueRepository, item.Id);
+        Assert.Null(claimedTooEarly);
+
+        // Fail with a past next attempt: immediately claimable again.
+        await queueRepository.RecordFailureAsync(
+            item.Id,
+            "transient error",
+            maxRetries: 5,
+            nextAttemptAt: DateTimeOffset.UtcNow.AddHours(-1));
+
+        var claimed = await ClaimSpecificAsync(queueRepository, item.Id);
+        Assert.NotNull(claimed);
+        Assert.Equal("downloading", claimed.Status);
+    }
+
+    [Fact]
+    public async Task DownloadQueueItemRepository_Defer_RequeuesWithoutConsumingRetryBudget()
+    {
+        var queueRepository = new DownloadQueueItemRepository(_fixture.DataSource);
+        var item = await SeedClaimableItemAsync(queueRepository, "/incoming/unstable.csv");
+
+        var deferred = await queueRepository.DeferAsync(
+            item.Id,
+            DateTimeOffset.UtcNow.AddSeconds(30),
+            "awaiting_remote_stability");
+
+        Assert.Equal("queued", deferred.Status);
+        Assert.Equal(0, deferred.RetryCount);
+        Assert.Equal("awaiting_remote_stability", deferred.HandledReason);
+    }
+
+    [Fact]
+    public async Task DownloadQueueItemRepository_Retry_ResetsDeadLetteredItemAndRejectsOthers()
+    {
+        var queueRepository = new DownloadQueueItemRepository(_fixture.DataSource);
+        var item = await SeedClaimableItemAsync(queueRepository, "/incoming/dead.csv");
+
+        // Dead-letter the item (budget 0: the first failure is terminal).
+        var dead = await queueRepository.RecordFailureAsync(
+            item.Id,
+            "fatal",
+            maxRetries: 0,
+            nextAttemptAt: DateTimeOffset.UtcNow);
+        Assert.Equal("failed", dead.Status);
+
+        var retried = await queueRepository.RetryAsync(item.Id);
+
+        Assert.NotNull(retried);
+        Assert.Equal("queued", retried.Status);
+        Assert.Equal(0, retried.RetryCount);
+        Assert.Null(retried.ErrorMessage);
+        Assert.Null(retried.HandledReason);
+        Assert.Null(retried.CompletedAt);
+
+        // Retrying a non-failed item returns null.
+        var secondRetry = await queueRepository.RetryAsync(item.Id);
+        Assert.Null(secondRetry);
+    }
+
+    [Fact]
+    public async Task DownloadQueueItemRepository_UpsertAfterDeadLetter_ResetsRetryBudget()
+    {
+        var profileRepository = new SftpConnectionProfileRepository(_fixture.DataSource);
+        var jobRepository = new SporeSyncJobRepository(_fixture.DataSource);
+        var runRepository = new SporeSyncRunRepository(_fixture.DataSource);
+        var queueRepository = new DownloadQueueItemRepository(_fixture.DataSource);
+
+        var profile = await profileRepository.UpsertAsync(CreateProfile());
+        var job = await jobRepository.UpsertAsync(CreateJob(profile.Id));
+        var run = await runRepository.CreateAsync(job.Id);
+
+        var upsert = new UpsertDownloadQueueItem
+        {
+            JobId = job.Id,
+            SyncRunId = run.Id,
+            RemotePath = "/incoming/changed.csv",
+            DestinationPath = "/local/incoming/changed.csv",
+            FileSizeBytes = 100,
+            RemoteModifiedAt = DateTimeOffset.UtcNow,
+            IsGroup = false,
+            ChildCount = 0
+        };
+        var item = await queueRepository.UpsertAsync(upsert);
+
+        var dead = await queueRepository.RecordFailureAsync(
+            item.Id,
+            "fatal",
+            maxRetries: 0,
+            nextAttemptAt: DateTimeOffset.UtcNow);
+        Assert.Equal("failed", dead.Status);
+        Assert.Equal(1, dead.RetryCount);
+
+        // Remote content changed → the scan re-upserts and the budget starts fresh.
+        var reEnqueued = await queueRepository.UpsertAsync(upsert);
+
+        Assert.Equal(item.Id, reEnqueued.Id);
+        Assert.Equal("queued", reEnqueued.Status);
+        Assert.Equal(0, reEnqueued.RetryCount);
+        Assert.Null(reEnqueued.ErrorMessage);
+        Assert.Null(reEnqueued.HandledReason);
+    }
+
+    private async Task<DownloadQueueItem> SeedClaimableItemAsync(
+        DownloadQueueItemRepository queueRepository,
+        string remotePath)
+    {
+        var profileRepository = new SftpConnectionProfileRepository(_fixture.DataSource);
+        var jobRepository = new SporeSyncJobRepository(_fixture.DataSource);
+        var runRepository = new SporeSyncRunRepository(_fixture.DataSource);
+
+        var profile = await profileRepository.UpsertAsync(CreateProfile());
+        var job = await jobRepository.UpsertAsync(CreateJob(profile.Id));
+        var run = await runRepository.CreateAsync(job.Id);
+
+        return await queueRepository.UpsertAsync(new UpsertDownloadQueueItem
+        {
+            JobId = job.Id,
+            SyncRunId = run.Id,
+            RemotePath = remotePath,
+            DestinationPath = $"/local{remotePath}",
+            FileSizeBytes = 100,
+            RemoteModifiedAt = DateTimeOffset.UtcNow,
+            IsGroup = false,
+            ChildCount = 0
+        });
+    }
+
+    /// <summary>
+    /// Drains the shared claim queue looking for a specific item (other tests may have seeded
+    /// claimable rows in the shared container). Returns null when the item was not claimable.
+    /// </summary>
+    private static async Task<DownloadQueueItem?> ClaimSpecificAsync(
+        DownloadQueueItemRepository queueRepository,
+        Guid itemId)
+    {
+        for (var i = 0; i < 50; i++)
+        {
+            var claimed = await queueRepository.ClaimNextAsync();
+            if (claimed is null)
+            {
+                return null;
+            }
+
+            if (claimed.Id == itemId)
+            {
+                return claimed;
+            }
+        }
+
+        return null;
+    }
 }

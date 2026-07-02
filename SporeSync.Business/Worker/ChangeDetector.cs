@@ -72,19 +72,28 @@ public sealed class ChangeDetector : IChangeDetector
             return true;
         }
 
-        if (string.Equals(existing.Status, "failed", StringComparison.OrdinalIgnoreCase))
+        var remoteChanged = existing.RemoteModifiedAt != entry.RemoteModifiedAt
+            || existing.FileSizeBytes != entry.FileSizeBytes;
+        if (remoteChanged)
         {
+            // New remote content: re-enqueue (the upsert resets progress and the retry budget).
             return true;
         }
 
-        if (IsCompleted(existing.Status)
-            && existing.RemoteModifiedAt == entry.RemoteModifiedAt
-            && existing.FileSizeBytes == entry.FileSizeBytes)
+        if (IsCompleted(existing.Status))
         {
             return IsLocalDestinationMissing(entry, leavesByGroup);
         }
 
-        return true;
+        // Remote unchanged and not completed:
+        // - 'failed' items are dead-lettered (retry budget exhausted); re-enqueueing them here
+        //   would create an infinite retry loop across scans. They are revived only by a remote
+        //   change or an explicit manual retry.
+        // - 'queued'/'comparing'/'downloading' items are in flight or awaiting a scheduled retry;
+        //   re-upserting them would reset their progress and retry budget mid-cycle.
+        // - 'skipped' items (e.g. previously remote-deleted) that reappear in the scan should be
+        //   downloaded again.
+        return string.Equals(existing.Status, "skipped", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsLocalDestinationMissing(

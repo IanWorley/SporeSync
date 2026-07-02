@@ -113,6 +113,11 @@ export const api = {
       `/api/sftp-sync-runs/${runId}/queue-items/${queueItemId}/${target}`,
       { method: "DELETE" },
     ),
+  retryQueueItem: (runId: string, queueItemId: string) =>
+    fetchJson<DownloadQueueItem>(
+      `/api/sftp-sync-runs/${runId}/queue-items/${queueItemId}/retry`,
+      { method: "POST" },
+    ),
   jobs: () => fetchJson<SporeSyncJob[]>("/api/sftp-sync-jobs"),
   createJob: (request: UpsertSporeSyncJob) =>
     fetchJson<SporeSyncJob>("/api/sftp-sync-jobs", {

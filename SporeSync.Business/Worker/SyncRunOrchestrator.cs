@@ -95,7 +95,10 @@ public sealed class SyncRunOrchestrator : ISyncRunOrchestrator
                 await _notifier.NotifyQueueItemUpdatedAsync(item, cancellationToken);
             }
 
-            await _queueRepository.RequeueFailedAsync(job.Id, run.Id, cancellationToken);
+            // Note: failed items are intentionally NOT auto-requeued here. Transient failures are
+            // retried by the download worker with an exponential backoff budget; once that budget
+            // is exhausted the item is dead-lettered as terminal 'failed' and only revived by a
+            // remote content change (ChangeDetector) or an explicit manual retry via the API.
 
             stopwatch.Stop();
             _metrics.RecordScanCompleted(stopwatch.Elapsed.TotalSeconds, changes.EnqueuedVisibleCount);

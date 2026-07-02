@@ -49,6 +49,8 @@ services:
     environment:
       ASPNETCORE_URLS: http://+:8080
       ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=SporeSync;Username=sporesync;Password=change-this-database-password
+      Auth__Username: admin
+      Auth__PasswordHash: "change-this-to-a-generated-password-hash"
       Security__EncryptionKeyPath: /var/lib/sporesync/secrets/encryption.key
       SporeSync__DestinationRootPath: /downloads
       SporeSync__SchedulerIntervalSeconds: 10
@@ -83,6 +85,12 @@ volumes:
 Change both database password values to the same strong password before starting
 the stack. If you built the image locally, replace the `web.image` value with
 `sporesync-web:local`.
+
+Set `Auth__PasswordHash` to a hash generated with
+`dotnet run --project SporeSync.Web/SporeSync.Web.csproj -- hash-password`;
+the container refuses to start without an admin credential. See
+[`authentication.md`](authentication.md) for the full authentication
+configuration, including how to disable login on a trusted network.
 
 ## Start the stack
 

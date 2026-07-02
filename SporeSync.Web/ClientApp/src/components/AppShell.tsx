@@ -9,6 +9,7 @@ import {
   FileText,
   Info,
   LayoutDashboard,
+  LogOut,
   Menu,
   MonitorCog,
   Moon,
@@ -66,6 +67,22 @@ export function AppShell() {
     queryFn: api.status,
     refetchInterval: 30_000,
   });
+  const sessionQuery = useQuery({
+    queryKey: queryKeys.session,
+    queryFn: api.session,
+    staleTime: 60_000,
+  });
+  const showLogout =
+    sessionQuery.data?.authRequired && sessionQuery.data?.authenticated;
+
+  const logout = async () => {
+    try {
+      await api.logout();
+    } finally {
+      // Full reload clears client caches and lands on the login page.
+      window.location.assign("/login");
+    }
+  };
 
   useEffect(() => {
     localStorage.setItem(
@@ -148,21 +165,29 @@ export function AppShell() {
               </div>
             </div>
           </div>
-          <Button
-            title="Toggle theme"
-            onClick={() =>
-              setTheme(
-                theme === "system"
-                  ? "light"
-                  : theme === "light"
-                    ? "dark"
-                    : "system",
-              )
-            }
-          >
-            {themeIcon}
-            <span className="hidden sm:inline">{theme}</span>
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              title="Toggle theme"
+              onClick={() =>
+                setTheme(
+                  theme === "system"
+                    ? "light"
+                    : theme === "light"
+                      ? "dark"
+                      : "system",
+                )
+              }
+            >
+              {themeIcon}
+              <span className="hidden sm:inline">{theme}</span>
+            </Button>
+            {showLogout && (
+              <Button title="Sign out" onClick={logout}>
+                <LogOut size={16} />
+                <span className="hidden sm:inline">Sign out</span>
+              </Button>
+            )}
+          </div>
         </header>
 
         <main className="mx-auto w-full max-w-7xl px-4 py-5">

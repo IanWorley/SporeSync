@@ -182,6 +182,59 @@ public sealed class SftpFileDownloaderTests : IDisposable
     }
 
     [Fact]
+    public async Task DownloadWithReader_PartFromFailedAttempt_IsDiscardedWhenRemoteChangesAfterAttempt()
+    {
+        var localPath = LocalPath("changed-after-failure.bin");
+        var downloader = CreateDownloader();
+
+        // Attempt 1: remote v1 fails mid-transfer, leaving a .part stamped with v1's mtime.
+        var v1Content = CreateContent(4096);
+        var v1Remote = new FakeRemoteFileReader(
+            v1Content,
+            ModifiedAgo(TimeSpan.FromMinutes(10)),
+            failAfterBytes: 1024);
+        var firstResult = await downloader.DownloadWithReaderAsync(v1Remote, "/remote/changed.bin", localPath);
+        Assert.False(firstResult.Success);
+        Assert.True(File.Exists(localPath + ".part"));
+
+        // The remote file is then replaced with new content (newer mtime, larger size, so the
+        // part would still look like a plausible prefix by size alone).
+        var v2Content = CreateContent(8192);
+        var v2Remote = new FakeRemoteFileReader(v2Content, ModifiedAgo(TimeSpan.FromMinutes(1)));
+
+        var secondResult = await downloader.DownloadWithReaderAsync(v2Remote, "/remote/changed.bin", localPath);
+
+        Assert.True(secondResult.Success);
+        // The stale part must not be resumed: the whole v2 file is downloaded from offset 0.
+        Assert.Equal(0, v2Remote.LastReadStartOffset);
+        Assert.Equal(v2Content, await File.ReadAllBytesAsync(localPath));
+    }
+
+    [Fact]
+    public async Task DownloadWithReader_PartFromFailedAttempt_ResumesWhenRemoteUnchanged()
+    {
+        var localPath = LocalPath("unchanged-after-failure.bin");
+        var downloader = CreateDownloader();
+        var content = CreateContent(4096);
+        var modifiedAt = ModifiedAgo(TimeSpan.FromMinutes(10));
+
+        // Attempt 1 fails mid-transfer; the kept part is stamped with the remote's mtime, so an
+        // unchanged remote (same mtime) must still be resumable on the next attempt.
+        var failingRemote = new FakeRemoteFileReader(content, modifiedAt, failAfterBytes: 1024);
+        var firstResult = await downloader.DownloadWithReaderAsync(failingRemote, "/remote/unchanged.bin", localPath);
+        Assert.False(firstResult.Success);
+        var partLength = new FileInfo(localPath + ".part").Length;
+        Assert.True(partLength > 0);
+
+        var healthyRemote = new FakeRemoteFileReader(content, modifiedAt);
+        var secondResult = await downloader.DownloadWithReaderAsync(healthyRemote, "/remote/unchanged.bin", localPath);
+
+        Assert.True(secondResult.Success);
+        Assert.Equal(partLength, healthyRemote.LastReadStartOffset);
+        Assert.Equal(content, await File.ReadAllBytesAsync(localPath));
+    }
+
+    [Fact]
     public async Task DownloadWithReader_ZeroByteRemoteFile_Succeeds()
     {
         var remote = new FakeRemoteFileReader(Array.Empty<byte>(), ModifiedAgo(TimeSpan.FromMinutes(5)));

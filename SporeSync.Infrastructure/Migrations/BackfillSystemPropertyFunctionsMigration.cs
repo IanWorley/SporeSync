@@ -7,8 +7,8 @@ public sealed class BackfillSystemPropertyFunctionsMigration : Migration
 {
     private const string UpScript = "";
     private const string DownScript = "";
-    private const string UpPostFunctionPrefix = "SporeSync.Infrastructure.Migrations.Schema.Functions.202605300004_BackfillSystemPropertyFunctions.Up.Post.";
-    private const string DownPreFunctionPrefix = "SporeSync.Infrastructure.Migrations.Schema.Functions.202605300004_BackfillSystemPropertyFunctions.Down.Pre.";
+    private const string UpPostFunctionPrefix = "SporeSync.Infrastructure.Migrations.Functions.202605300004_BackfillSystemPropertyFunctions.Up.Post.";
+    private const string DownPreFunctionPrefix = "SporeSync.Infrastructure.Migrations.Functions.202605300004_BackfillSystemPropertyFunctions.Down.Pre.";
 
     public override void Up()
     {

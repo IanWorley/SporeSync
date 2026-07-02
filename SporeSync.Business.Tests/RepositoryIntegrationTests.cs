@@ -1031,6 +1031,252 @@ public sealed class RepositoryIntegrationTests : IClassFixture<RepositoryTestcon
         Assert.Equal(7, syncedState["/incoming/reports/"].ChildCount);
     }
 
++    [Fact]
+    public async Task DownloadQueueItemRepository_ClaimNext_WaitsUntilRunIsDownloading()
+    {
+        await SetAsideClaimableQueueItemsAsync();
+
+        var profileRepository = new SftpConnectionProfileRepository(_fixture.DataSource);
+        var jobRepository = new SporeSyncJobRepository(_fixture.DataSource);
+        var runRepository = new SporeSyncRunRepository(_fixture.DataSource);
+        var queueRepository = new DownloadQueueItemRepository(_fixture.DataSource);
+
+        var profile = await profileRepository.UpsertAsync(CreateProfile());
+        var job = await jobRepository.UpsertAsync(CreateJob(profile.Id));
+        var run = await runRepository.CreateAsync(job.Id);
+        var item = await queueRepository.UpsertAsync(new UpsertDownloadQueueItem
+        {
+            JobId = job.Id,
+            SyncRunId = run.Id,
+            RemotePath = "/incoming/wait-until-downloading.csv",
+            DestinationPath = "/local/incoming/wait-until-downloading.csv",
+            FileSizeBytes = 100,
+            RemoteModifiedAt = DateTimeOffset.UtcNow,
+            IsGroup = false,
+            ChildCount = 0
+        });
+
+        Assert.Null(await queueRepository.ClaimNextAsync(leaseSeconds: 300));
+
+        await runRepository.UpdateStatusAsync(new UpdateSporeSyncRunStatus
+        {
+            Id = run.Id,
+            Status = "downloading"
+        });
+
+        var claimed = await queueRepository.ClaimNextAsync(leaseSeconds: 300);
+        Assert.NotNull(claimed);
+        Assert.Equal(item.Id, claimed.Id);
+        Assert.Equal("downloading", claimed.Status);
+
+        Assert.True(await jobRepository.DeleteAsync(job.Id));
+    }
+
+    [Fact]
+    public async Task DownloadQueueItemRepository_RetryFailedForRun_RequeuesAndIncrementsRetryCount()
+    {
+        var profileRepository = new SftpConnectionProfileRepository(_fixture.DataSource);
+        var jobRepository = new SporeSyncJobRepository(_fixture.DataSource);
+        var runRepository = new SporeSyncRunRepository(_fixture.DataSource);
+        var queueRepository = new DownloadQueueItemRepository(_fixture.DataSource);
+
+        var profile = await profileRepository.UpsertAsync(CreateProfile());
+        var job = await jobRepository.UpsertAsync(CreateJob(profile.Id));
+        var run = await runRepository.CreateAsync(job.Id);
+        await runRepository.UpdateStatusAsync(new UpdateSporeSyncRunStatus
+        {
+            Id = run.Id,
+            Status = "failed",
+            ErrorMessage = "run failed"
+        });
+        await SeedQueueItemAsync(job.Id, run.Id, "/incoming/failed.csv", "failed", 100, 0);
+        await SeedQueueItemAsync(job.Id, run.Id, "/incoming/done.csv", "completed", 100, 100);
+
+        var retried = await runRepository.RetryFailedItemsAsync(run.Id);
+
+        Assert.Equal(1, retried);
+        var retriedRun = await runRepository.GetByIdAsync(run.Id);
+        Assert.NotNull(retriedRun);
+        Assert.Equal("downloading", retriedRun.Status);
+        Assert.Null(retriedRun.CompletedAt);
+        Assert.Null(retriedRun.ErrorMessage);
+
+        var items = await queueRepository.GetByRunIdAsync(run.Id, new QueueItemQuery
+        {
+            Statuses = ["queued"],
+            PageNumber = 1,
+            PageSize = 10
+        });
+        var requeued = Assert.Single(items.Items);
+        Assert.EndsWith("failed.csv", requeued.RemotePath);
+        Assert.Equal(1, requeued.RetryCount);
+        Assert.Null(requeued.ErrorMessage);
+
+        Assert.Equal(0, await runRepository.RetryFailedItemsAsync(run.Id));
+
+        Assert.True(await jobRepository.DeleteAsync(job.Id));
+    }
+
+    [Fact]
+    public async Task SftpConnectionProfileRepository_DeleteAndJobCount_WorkThroughPostgres()
+    {
+        var profileRepository = new SftpConnectionProfileRepository(_fixture.DataSource);
+        var jobRepository = new SporeSyncJobRepository(_fixture.DataSource);
+
+        var usedProfile = await profileRepository.UpsertAsync(CreateProfile());
+        var unusedProfile = await profileRepository.UpsertAsync(CreateProfile());
+        await jobRepository.UpsertAsync(CreateJob(usedProfile.Id));
+
+        Assert.Equal(1, await jobRepository.CountByConnectionProfileAsync(usedProfile.Id));
+        Assert.Equal(0, await jobRepository.CountByConnectionProfileAsync(unusedProfile.Id));
+
+        Assert.True(await profileRepository.DeleteAsync(unusedProfile.Id));
+        Assert.Null(await profileRepository.GetByIdAsync(unusedProfile.Id));
+        Assert.False(await profileRepository.DeleteAsync(unusedProfile.Id));
+    }
+
+    [Fact]
+    public async Task SporeSyncJobRepository_Delete_RemovesJobRunsAndQueueItems()
+    {
+        var profileRepository = new SftpConnectionProfileRepository(_fixture.DataSource);
+        var jobRepository = new SporeSyncJobRepository(_fixture.DataSource);
+        var runRepository = new SporeSyncRunRepository(_fixture.DataSource);
+
+        var profile = await profileRepository.UpsertAsync(CreateProfile());
+        var job = await jobRepository.UpsertAsync(CreateJob(profile.Id));
+        var runId = Guid.NewGuid();
+        await SeedRunAsync(job.Id, runId, "completed", "/incoming/file.csv");
+
+        Assert.True(await jobRepository.DeleteAsync(job.Id));
+        Assert.Null(await jobRepository.GetByIdAsync(job.Id));
+        Assert.Null(await runRepository.GetByIdAsync(runId));
+        Assert.False(await jobRepository.DeleteAsync(job.Id));
+    }
+
+    [Fact]
+    public async Task SporeSyncRunRepository_AdvanceScanStatus_AppliesTransition_WhenExpectedStatusMatches()
+    {
+        var profileRepository = new SftpConnectionProfileRepository(_fixture.DataSource);
+        var jobRepository = new SporeSyncJobRepository(_fixture.DataSource);
+        var runRepository = new SporeSyncRunRepository(_fixture.DataSource);
+
+        var profile = await profileRepository.UpsertAsync(CreateProfile());
+        var job = await jobRepository.UpsertAsync(CreateJob(profile.Id));
+        var run = await runRepository.CreateAsync(job.Id);
+
+        var scanning = await runRepository.AdvanceScanStatusAsync(new UpdateSporeSyncRunStatus
+        {
+            Id = run.Id,
+            Status = "scanning"
+        }, expectedStatus: "queued");
+        Assert.Equal("scanning", scanning.Status);
+
+        var downloading = await runRepository.AdvanceScanStatusAsync(new UpdateSporeSyncRunStatus
+        {
+            Id = run.Id,
+            Status = "downloading",
+            TotalFileCount = 3,
+            TotalBytes = 300
+        }, expectedStatus: "scanning");
+        Assert.Equal("downloading", downloading.Status);
+        Assert.Equal(3, downloading.TotalFileCount);
+        Assert.Equal(300, downloading.TotalBytes);
+
+        Assert.True(await jobRepository.DeleteAsync(job.Id));
+    }
+
+    [Fact]
+    public async Task SporeSyncRunRepository_AdvanceScanStatus_KeepsRunCancelled_AndSkipsLateItems()
+    {
+        var profileRepository = new SftpConnectionProfileRepository(_fixture.DataSource);
+        var jobRepository = new SporeSyncJobRepository(_fixture.DataSource);
+        var runRepository = new SporeSyncRunRepository(_fixture.DataSource);
+        var queueRepository = new DownloadQueueItemRepository(_fixture.DataSource);
+
+        var profile = await profileRepository.UpsertAsync(CreateProfile());
+        var job = await jobRepository.UpsertAsync(CreateJob(profile.Id));
+        var run = await runRepository.CreateAsync(job.Id);
+
+        await runRepository.AdvanceScanStatusAsync(new UpdateSporeSyncRunStatus
+        {
+            Id = run.Id,
+            Status = "scanning"
+        }, expectedStatus: "queued");
+
+        // Cancel mid-scan, then simulate the orchestrator enqueueing an item afterwards.
+        Assert.NotNull(await runRepository.CancelAsync(run.Id));
+        await SeedQueueItemAsync(job.Id, run.Id, "/incoming/late.csv", "queued", 100, 0);
+
+        var result = await runRepository.AdvanceScanStatusAsync(new UpdateSporeSyncRunStatus
+        {
+            Id = run.Id,
+            Status = "downloading",
+            TotalFileCount = 1,
+            TotalBytes = 100
+        }, expectedStatus: "scanning");
+
+        Assert.Equal("cancelled", result.Status);
+
+        var items = await queueRepository.GetByRunIdAsync(run.Id, new QueueItemQuery
+        {
+            Statuses = [],
+            PageNumber = 1,
+            PageSize = 10
+        });
+        var lateItem = Assert.Single(items.Items);
+        Assert.Equal("skipped", lateItem.Status);
+        Assert.Equal("run_cancelled", lateItem.HandledReason);
+
+        Assert.True(await jobRepository.DeleteAsync(job.Id));
+    }
+
+    [Fact]
+    public async Task SporeSyncRunRepository_Cancel_ReturnsNull_WhenRunCompleted()
+    {
+        var profileRepository = new SftpConnectionProfileRepository(_fixture.DataSource);
+        var jobRepository = new SporeSyncJobRepository(_fixture.DataSource);
+        var runRepository = new SporeSyncRunRepository(_fixture.DataSource);
+
+        var profile = await profileRepository.UpsertAsync(CreateProfile());
+        var job = await jobRepository.UpsertAsync(CreateJob(profile.Id));
+        var runId = Guid.NewGuid();
+        await SeedRunAsync(job.Id, runId, "completed", "/incoming/done.csv");
+
+        Assert.Null(await runRepository.CancelAsync(runId));
+    }
+
+    [Fact]
+    public async Task SporeSyncRunRepository_Cancel_SkipsPendingItemsAndMarksRunCancelled()
+    {
+        var profileRepository = new SftpConnectionProfileRepository(_fixture.DataSource);
+        var jobRepository = new SporeSyncJobRepository(_fixture.DataSource);
+        var runRepository = new SporeSyncRunRepository(_fixture.DataSource);
+        var queueRepository = new DownloadQueueItemRepository(_fixture.DataSource);
+
+        var profile = await profileRepository.UpsertAsync(CreateProfile());
+        var job = await jobRepository.UpsertAsync(CreateJob(profile.Id));
+        var run = await runRepository.CreateAsync(job.Id);
+        await SeedQueueItemAsync(job.Id, run.Id, "/incoming/pending.csv", "queued", 100, 0);
+
+        var cancelled = await runRepository.CancelAsync(run.Id);
+
+        Assert.NotNull(cancelled);
+        Assert.Equal("cancelled", cancelled.Status);
+        Assert.NotNull(cancelled.CompletedAt);
+
+        var items = await queueRepository.GetByRunIdAsync(run.Id, new QueueItemQuery
+        {
+            Statuses = [],
+            PageNumber = 1,
+            PageSize = 10
+        });
+        var item = Assert.Single(items.Items);
+        Assert.Equal("skipped", item.Status);
+        Assert.Equal("run_cancelled", item.HandledReason);
+
+        Assert.Null(await runRepository.CancelAsync(run.Id));
+    }
+
     private async Task<DownloadQueueItem> SeedClaimableItemAsync(
         DownloadQueueItemRepository queueRepository,
         string remotePath)

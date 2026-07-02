@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Options;
 using SporeSync.Business;
+using SporeSync.Business.Interface;
 using SporeSync.Business.Security;
 using SporeSync.Business.Service;
 using SporeSync.Domain.Interface;
@@ -79,17 +80,59 @@ public sealed class SporeSyncJobServiceTests
         Assert.Null(repository.UpsertedJob);
     }
 
+    [Fact]
+    public async Task DeleteAsync_ReturnsNotFound_WhenJobDoesNotExist()
+    {
+        var repository = new RecordingSporeSyncJobRepository { JobById = null };
+        var service = CreateService(repository);
+
+        var status = await service.DeleteAsync(Guid.NewGuid());
+
+        Assert.Equal(DeleteSporeSyncJobStatus.NotFound, status);
+        Assert.Null(repository.DeletedId);
+    }
+
+    [Fact]
+    public async Task DeleteAsync_ReturnsActiveRunExists_WhenJobHasActiveRun()
+    {
+        var repository = new RecordingSporeSyncJobRepository();
+        var service = CreateService(repository, hasActiveRun: true);
+
+        var status = await service.DeleteAsync(Guid.NewGuid());
+
+        Assert.Equal(DeleteSporeSyncJobStatus.ActiveRunExists, status);
+        Assert.Null(repository.DeletedId);
+    }
+
+    [Fact]
+    public async Task DeleteAsync_DeletesJob_WhenNoActiveRun()
+    {
+        var repository = new RecordingSporeSyncJobRepository();
+        var service = CreateService(repository);
+        var jobId = Guid.NewGuid();
+
+        var status = await service.DeleteAsync(jobId);
+
+        Assert.Equal(DeleteSporeSyncJobStatus.Deleted, status);
+        Assert.Equal(jobId, repository.DeletedId);
+    }
+
     private static string TestDestinationRoot =>
         Path.Combine(Path.GetTempPath(), "sporesync-destination-root");
 
-    private static SporeSyncJobService CreateService(RecordingSporeSyncJobRepository repository)
+    private static SporeSyncJobService CreateService(
+        RecordingSporeSyncJobRepository repository,
+        bool hasActiveRun = false)
     {
         var sandbox = new LocalDestinationPathSandbox(Options.Create(new SporeSyncOptions
         {
             DestinationRootPath = TestDestinationRoot
         }));
 
-        return new SporeSyncJobService(repository, sandbox);
+        return new SporeSyncJobService(
+            repository,
+            new FakeSporeSyncRunRepository { HasActiveRun = hasActiveRun },
+            sandbox);
     }
 
     private sealed class RecordingSporeSyncJobRepository : ISporeSyncJobRepository
@@ -108,7 +151,7 @@ public sealed class SporeSyncJobServiceTests
             }
         ];
 
-        public SporeSyncJob JobById { get; } = new()
+        public SporeSyncJob? JobById { get; set; } = new()
         {
             Id = Guid.NewGuid(),
             ConnectionProfileId = Guid.NewGuid(),
@@ -146,7 +189,7 @@ public sealed class SporeSyncJobServiceTests
         {
             LastRequestedId = id;
             LastCancellationToken = cancellationToken;
-            return Task.FromResult<SporeSyncJob?>(JobById);
+            return Task.FromResult(JobById);
         }
 
         public Task<SporeSyncJob> UpsertAsync(
@@ -163,5 +206,51 @@ public sealed class SporeSyncJobServiceTests
 
         public Task MarkPolledAsync(Guid id, CancellationToken cancellationToken = default)
             => Task.CompletedTask;
+
+        public Guid? DeletedId { get; private set; }
+
+        public Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default)
+        {
+            DeletedId = id;
+            return Task.FromResult(true);
+        }
+
+        public Task<int> CountByConnectionProfileAsync(Guid connectionProfileId, CancellationToken cancellationToken = default)
+            => Task.FromResult(0);
+    }
+
+    private sealed class FakeSporeSyncRunRepository : ISporeSyncRunRepository
+    {
+        public bool HasActiveRun { get; init; }
+
+        public Task<bool> HasActiveRunAsync(Guid jobId, CancellationToken cancellationToken = default)
+            => Task.FromResult(HasActiveRun);
+
+        public Task<PagedResult<SporeSyncRun>> GetRunsAsync(RunQuery query, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<SporeSyncRun?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<SporeSyncRun> CreateAsync(Guid jobId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<SporeSyncRun> UpdateStatusAsync(UpdateSporeSyncRunStatus update, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<SporeSyncRun> RecalculateAggregatesAsync(Guid runId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<bool> HasPendingDownloadsAsync(Guid runId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<SyncHistoryPruneResult> PruneHistoryAsync(DateTimeOffset cutoff, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<int> RetryFailedItemsAsync(Guid runId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<SporeSyncRun?> CancelAsync(Guid runId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
     }
 }

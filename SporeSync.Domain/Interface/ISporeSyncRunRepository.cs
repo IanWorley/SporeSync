@@ -54,4 +54,16 @@ public interface ISporeSyncRunRepository
     Task<IReadOnlyList<SporeSyncRun>> ReapOrphanedAsync(
         bool ignoreLeases,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Transitions the run to downloading and requeues its failed items in one
+    /// database operation. Returns the number of UI-visible items requeued.
+    /// </summary>
+    Task<int> RetryFailedItemsAsync(Guid runId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Cancels an active run (queued/scanning/downloading) and skips its pending
+    /// queue items. Returns null when the run does not exist or is not active.
+    /// </summary>
+    Task<SporeSyncRun?> CancelAsync(Guid runId, CancellationToken cancellationToken = default);
 }

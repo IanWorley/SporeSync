@@ -4,7 +4,9 @@ import type {
   DownloadQueueItem,
   HostKeyScanResult,
   PagedResponse,
+  RetryFailedItemsResponse,
   SftpConnectionProfile,
+  SftpConnectionTestResponse,
   SporeSyncJob,
   SporeSyncRun,
   StatusResponse,
@@ -39,10 +41,39 @@ export function shouldRedirectToLogin(status: number, path: string) {
   return status === 401 && !path.startsWith("/api/auth/");
 }
 
-export async function fetchJson<T>(
+export interface ProblemDetails {
+  type?: string;
+  title?: string;
+  status?: number;
+  detail?: string;
+  errors?: Record<string, string[]>;
+}
+
+export function problemDetailsMessage(body: string): string | undefined {
+  try {
+    const problem = JSON.parse(body) as ProblemDetails;
+    const fieldErrors = Object.values(problem.errors ?? {}).flat();
+    if (fieldErrors.length > 0) {
+      return fieldErrors.join(" ");
+    }
+    return problem.detail ?? problem.title;
+  } catch {
+    return undefined;
+  }
+}
+
+async function toRequestError(response: Response): Promise<ApiError> {
+  const body = await response.text();
+  const message = body
+    ? (problemDetailsMessage(body) ?? body)
+    : `Request failed with ${response.status}`;
+  return new ApiError(message, response.status);
+}
+
+async function fetchResponse(
   path: string,
   init?: RequestInit,
-): Promise<T> {
+): Promise<Response> {
   const response = await fetch(path, {
     ...init,
     headers: {
@@ -60,14 +91,25 @@ export async function fetchJson<T>(
       window.location.assign("/login");
     }
 
-    const message = await response.text();
-    throw new ApiError(
-      message || `Request failed with ${response.status}`,
-      response.status,
-    );
+    throw await toRequestError(response);
   }
 
+  return response;
+}
+
+export async function fetchJson<T>(
+  path: string,
+  init?: RequestInit,
+): Promise<T> {
+  const response = await fetchResponse(path, init);
   return response.json() as Promise<T>;
+}
+
+export async function fetchNoContent(
+  path: string,
+  init?: RequestInit,
+): Promise<void> {
+  await fetchResponse(path, init);
 }
 
 export function toQueryString(query: PageQuery = {}) {
@@ -154,6 +196,26 @@ export const api = {
     fetchJson<SporeSyncRun>(`/api/sftp-sync-jobs/${id}/run`, {
       method: "POST",
     }),
+  deleteJob: (id: string) =>
+    fetchNoContent(`/api/sftp-sync-jobs/${id}`, { method: "DELETE" }),
+  deleteProfile: (id: string) =>
+    fetchNoContent(`/api/sftp-connection-profiles/${id}`, {
+      method: "DELETE",
+    }),
+  testProfile: (id: string) =>
+    fetchJson<SftpConnectionTestResponse>(
+      `/api/sftp-connection-profiles/${id}/test`,
+      { method: "POST" },
+    ),
+  cancelRun: (id: string) =>
+    fetchJson<SporeSyncRun>(`/api/sftp-sync-runs/${id}/cancel`, {
+      method: "POST",
+    }),
+  retryRunFailed: (id: string) =>
+    fetchJson<RetryFailedItemsResponse>(
+      `/api/sftp-sync-runs/${id}/retry-failed`,
+      { method: "POST" },
+    ),
   getDbLogLevel: () =>
     fetchJson<SystemPropertyResponse>("/api/system-properties/db_log_level"),
   setDbLogLevel: (value: string) =>

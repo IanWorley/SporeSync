@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using SporeSync.Business.Interface;
 using SporeSync.Business.Sftp;
 using SporeSync.Domain.Interface;
@@ -8,13 +9,16 @@ namespace SporeSync.Business.Service;
 public sealed class SftpConnectionProfileService : ISftpConnectionProfileService
 {
     private readonly ISftpConnectionProfileRepository _repository;
+    private readonly ISporeSyncJobRepository _jobRepository;
     private readonly ISecretProtector _secretProtector;
 
     public SftpConnectionProfileService(
         ISftpConnectionProfileRepository repository,
+        ISporeSyncJobRepository jobRepository,
         ISecretProtector secretProtector)
     {
         _repository = repository;
+        _jobRepository = jobRepository;
         _secretProtector = secretProtector;
     }
 
@@ -48,7 +52,7 @@ public sealed class SftpConnectionProfileService : ISftpConnectionProfileService
 
         if (string.IsNullOrWhiteSpace(encryptedPassword) && string.IsNullOrWhiteSpace(encryptedPrivateKey))
         {
-            throw new InvalidOperationException("An SFTP password or private key is required.");
+            throw new ValidationException("An SFTP password or private key is required.");
         }
 
         var protectedProfile = new SftpConnectionProfile
@@ -82,6 +86,26 @@ public sealed class SftpConnectionProfileService : ISftpConnectionProfileService
         return string.IsNullOrWhiteSpace(requested)
             ? null
             : SshHostKeyFingerprint.Normalize(requested);
+    }
+
+    public async Task<DeleteSftpConnectionProfileStatus> DeleteAsync(
+        Guid id,
+        CancellationToken cancellationToken = default)
+    {
+        var profile = await _repository.GetByIdAsync(id, cancellationToken);
+        if (profile is null)
+        {
+            return DeleteSftpConnectionProfileStatus.NotFound;
+        }
+
+        var jobCount = await _jobRepository.CountByConnectionProfileAsync(id, cancellationToken);
+        if (jobCount > 0)
+        {
+            return DeleteSftpConnectionProfileStatus.InUse;
+        }
+
+        var deleted = await _repository.DeleteAsync(id, cancellationToken);
+        return deleted ? DeleteSftpConnectionProfileStatus.Deleted : DeleteSftpConnectionProfileStatus.NotFound;
     }
 
     private string? ProtectOptional(string? value)

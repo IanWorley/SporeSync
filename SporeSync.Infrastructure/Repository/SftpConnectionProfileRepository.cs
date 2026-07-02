@@ -14,6 +14,7 @@ public sealed class SftpConnectionProfileRepository : ISftpConnectionProfileRepo
     private const string OpUpsertProfile = "UpsertProfile";
     private const string OpTryPinHostKeyFingerprint = "TryPinHostKeyFingerprint";
     private const string OpHasAnyEncryptedSecrets = "HasAnyEncryptedSecrets";
+    private const string OpDeleteProfile = "DeleteProfile";
 
     private readonly NpgsqlDataSource _dataSource;
     private readonly ILogger<SftpConnectionProfileRepository> _logger;
@@ -190,6 +191,17 @@ public sealed class SftpConnectionProfileRepository : ISftpConnectionProfileRepo
 
         return (bool)(await DbCommandLogger.ExecuteScalarAsync(_logger, command, OpHasAnyEncryptedSecrets, cancellationToken)
             ?? throw new InvalidOperationException("Encrypted secret existence query did not return a value."));
+    }
+
+    public async Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        const string sql = "SELECT core.delete_sftp_connection_profile(@id);";
+
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.AddWithValue("id", id);
+
+        return await DbCommandLogger.ExecuteScalarAsync<bool>(_logger, command, OpDeleteProfile, cancellationToken);
     }
 
     private static SftpConnectionProfile ReadProfile(NpgsqlDataReader reader)

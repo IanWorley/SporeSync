@@ -222,5 +222,10 @@ public sealed class EncryptionKeyInitializerTests
         {
             return Task.FromResult(HasEncryptedSecrets);
         }
+
+        public Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
+        }
     }
 }

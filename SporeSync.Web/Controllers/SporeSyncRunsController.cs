@@ -10,17 +10,20 @@ namespace SporeSync.Web.Controllers;
 public sealed class SporeSyncRunsController : ControllerBase
 {
     private readonly ISporeSyncRunService _runService;
+    private readonly ISyncRunControlService _runControlService;
     private readonly IDownloadQueueItemService _queueItemService;
     private readonly IDownloadQueueItemFileDeleteService _queueItemFileDeleteService;
     private readonly ISyncDashboardNotifier _dashboardNotifier;
 
     public SporeSyncRunsController(
         ISporeSyncRunService runService,
+        ISyncRunControlService runControlService,
         IDownloadQueueItemService queueItemService,
         IDownloadQueueItemFileDeleteService queueItemFileDeleteService,
         ISyncDashboardNotifier dashboardNotifier)
     {
         _runService = runService;
+        _runControlService = runControlService;
         _queueItemService = queueItemService;
         _queueItemFileDeleteService = queueItemFileDeleteService;
         _dashboardNotifier = dashboardNotifier;
@@ -111,6 +114,40 @@ public sealed class SporeSyncRunsController : ControllerBase
         }
     }
 
+    [HttpPost("{id:guid}/cancel")]
+    public async Task<ActionResult<SporeSyncRunResponse>> Cancel(
+        Guid id,
+        CancellationToken cancellationToken)
+    {
+        var result = await _runControlService.CancelRunAsync(id, cancellationToken);
+        return result.Error switch
+        {
+            SyncRunControlError.NotFound => NotFound(),
+            SyncRunControlError.NotActive => Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "Run is not active.",
+                detail: "Only queued, scanning, or downloading runs can be cancelled."),
+            _ => Ok(ToRunResponse(result.Run!))
+        };
+    }
+
+    [HttpPost("{id:guid}/retry-failed")]
+    public async Task<ActionResult<RetryFailedItemsResponse>> RetryFailed(
+        Guid id,
+        CancellationToken cancellationToken)
+    {
+        var result = await _runControlService.RetryFailedItemsAsync(id, cancellationToken);
+        return result.Error switch
+        {
+            SyncRunControlError.NotFound => NotFound(),
+            SyncRunControlError.NoFailedItems => Problem(
+                statusCode: StatusCodes.Status400BadRequest,
+                title: "No failed items.",
+                detail: "The run has no failed items to retry."),
+            _ => Ok(new RetryFailedItemsResponse(result.RetriedCount, ToRunResponse(result.Run!)))
+        };
+    }
+
     [HttpDelete("{runId:guid}/queue-items/{queueItemId:guid}/local")]
     public async Task<ActionResult<DeleteQueueItemFileResponse>> DeleteQueueItemLocalFile(
         Guid runId,
@@ -136,8 +173,14 @@ public sealed class SporeSyncRunsController : ControllerBase
         return result.Status switch
         {
             DeleteQueueItemFileStatus.NotFound => NotFound(),
-            DeleteQueueItemFileStatus.JobNotFound => NotFound(new { message = "Queue item's sync job was not found." }),
-            DeleteQueueItemFileStatus.Failed => BadRequest(new { message = result.ErrorMessage }),
+            DeleteQueueItemFileStatus.JobNotFound => Problem(
+                statusCode: StatusCodes.Status404NotFound,
+                title: "Sync job not found.",
+                detail: "Queue item's sync job was not found."),
+            DeleteQueueItemFileStatus.Failed => Problem(
+                statusCode: StatusCodes.Status400BadRequest,
+                title: "Delete failed.",
+                detail: result.ErrorMessage),
             _ => Ok(new DeleteQueueItemFileResponse(
                 result.QueueItemId,
                 result.Target,

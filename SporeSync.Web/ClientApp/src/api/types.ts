@@ -111,6 +111,17 @@ export interface AuthSession {
   username: string | null;
 }
 
+export interface SftpConnectionTestResponse {
+  success: boolean;
+  message: string | null;
+  durationMs: number;
+}
+
+export interface RetryFailedItemsResponse {
+  retriedCount: number;
+  run: SporeSyncRun;
+}
+
 export interface StatusResponse {
   status: string;
   environment: string;

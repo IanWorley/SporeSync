@@ -461,8 +461,9 @@ public sealed class RepositoryIntegrationTests : IClassFixture<RepositoryTestcon
         });
 
         Assert.False(await runRepository.HasActiveRunAsync(job.Id));
-        var run = await runRepository.CreateAsync(job.Id);
-        Assert.Equal("queued", run.Status);
+        var run = await runRepository.CreateAsync(job.Id, leaseSeconds: 300);
+        Assert.NotNull(run);
+        Assert.Equal("queued", run!.Status);
         Assert.True(await runRepository.HasActiveRunAsync(job.Id));
 
         var item = await queueRepository.UpsertAsync(new UpsertDownloadQueueItem
@@ -478,7 +479,14 @@ public sealed class RepositoryIntegrationTests : IClassFixture<RepositoryTestcon
         });
         Assert.Equal("queued", item.Status);
 
-        var claimed = await queueRepository.ClaimNextAsync();
+        // Items only become claimable once the run finished its scan phase.
+        await runRepository.UpdateStatusAsync(new UpdateSporeSyncRunStatus
+        {
+            Id = run.Id,
+            Status = "downloading"
+        });
+
+        var claimed = await queueRepository.ClaimNextAsync(leaseSeconds: 300);
         Assert.NotNull(claimed);
         Assert.Equal("downloading", claimed!.Status);
 
@@ -555,12 +563,13 @@ public sealed class RepositoryIntegrationTests : IClassFixture<RepositoryTestcon
 
         var profile = await profileRepository.UpsertAsync(CreateProfile());
         var job = await jobRepository.UpsertAsync(CreateJob(profile.Id));
-        var run = await runRepository.CreateAsync(job.Id);
+        var run = await runRepository.CreateAsync(job.Id, leaseSeconds: 300);
+        Assert.NotNull(run);
 
         var item = await queueRepository.UpsertAsync(new UpsertDownloadQueueItem
         {
             JobId = job.Id,
-            SyncRunId = run.Id,
+            SyncRunId = run!.Id,
             RemotePath = "/incoming/deleted.csv",
             DestinationPath = "/local/incoming/deleted.csv",
             FileSizeBytes = 100,
@@ -745,6 +754,11 @@ public sealed class RepositoryIntegrationTests : IClassFixture<RepositoryTestcon
         var profile = await profileRepository.UpsertAsync(CreateProfile());
         var job = await jobRepository.UpsertAsync(CreateJob(profile.Id));
         var run = await runRepository.CreateAsync(job.Id);
+        run = await runRepository.UpdateStatusAsync(new UpdateSporeSyncRunStatus
+        {
+            Id = run.Id,
+            Status = "downloading"
+        });
 
         return await queueRepository.UpsertAsync(new UpsertDownloadQueueItem
         {
@@ -769,7 +783,7 @@ public sealed class RepositoryIntegrationTests : IClassFixture<RepositoryTestcon
     {
         for (var i = 0; i < 50; i++)
         {
-            var claimed = await queueRepository.ClaimNextAsync();
+            var claimed = await queueRepository.ClaimNextAsync(leaseSeconds: 1800);
             if (claimed is null)
             {
                 return null;

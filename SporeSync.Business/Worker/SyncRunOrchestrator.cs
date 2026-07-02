@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using SporeSync.Business.Interface;
 using SporeSync.Business.Observability;
 using SporeSync.Business.Sftp;
@@ -24,6 +25,7 @@ public sealed class SyncRunOrchestrator : ISyncRunOrchestrator
     private readonly IChangeDetector _changeDetector;
     private readonly ISyncDashboardNotifier _notifier;
     private readonly SporeSyncMetrics _metrics;
+    private readonly SporeSyncOptions _options;
     private readonly ILogger<SyncRunOrchestrator> _logger;
 
     public SyncRunOrchestrator(
@@ -33,6 +35,7 @@ public sealed class SyncRunOrchestrator : ISyncRunOrchestrator
         IChangeDetector changeDetector,
         ISyncDashboardNotifier notifier,
         SporeSyncMetrics metrics,
+        IOptions<SporeSyncOptions> options,
         ILogger<SyncRunOrchestrator> logger)
     {
         _runRepository = runRepository;
@@ -41,6 +44,7 @@ public sealed class SyncRunOrchestrator : ISyncRunOrchestrator
         _changeDetector = changeDetector;
         _notifier = notifier;
         _metrics = metrics;
+        _options = options.Value;
         _logger = logger;
     }
 
@@ -52,10 +56,13 @@ public sealed class SyncRunOrchestrator : ISyncRunOrchestrator
         run = await UpdateRunAsync(run.Id, new UpdateSporeSyncRunStatus
         {
             Id = run.Id,
-            Status = "scanning"
+            Status = "scanning",
+            LeaseSeconds = _options.RunScanLeaseSeconds
         }, cancellationToken);
 
         var stopwatch = Stopwatch.StartNew();
+        using var leaseRenewalCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var leaseRenewalTask = RenewLeaseWhileScanningAsync(run.Id, leaseRenewalCts.Token);
         try
         {
             var scanResult = await _scanner.ScanFirstLevelAsync(
@@ -77,21 +84,27 @@ public sealed class SyncRunOrchestrator : ISyncRunOrchestrator
                 await _notifier.NotifyQueueItemUpdatedAsync(item, cancellationToken);
             }
 
-            foreach (var entry in changes.EntriesToEnqueue)
-            {
-                var item = await _queueRepository.UpsertAsync(new UpsertDownloadQueueItem
-                {
-                    JobId = job.Id,
-                    SyncRunId = run.Id,
-                    RemotePath = entry.RemotePath,
-                    DestinationPath = entry.DestinationPath,
-                    FileSizeBytes = entry.FileSizeBytes,
-                    RemoteModifiedAt = entry.RemoteModifiedAt,
-                    IsGroup = entry.IsGroup,
-                    GroupRemotePath = entry.GroupRemotePath,
-                    ChildCount = entry.ChildCount
-                }, cancellationToken);
+            // Single transaction so groups and their leaves become visible atomically;
+            // nothing is claimable until the run transitions to 'downloading' below.
+            var enqueuedItems = await _queueRepository.UpsertManyAsync(
+                changes.EntriesToEnqueue
+                    .Select(entry => new UpsertDownloadQueueItem
+                    {
+                        JobId = job.Id,
+                        SyncRunId = run.Id,
+                        RemotePath = entry.RemotePath,
+                        DestinationPath = entry.DestinationPath,
+                        FileSizeBytes = entry.FileSizeBytes,
+                        RemoteModifiedAt = entry.RemoteModifiedAt,
+                        IsGroup = entry.IsGroup,
+                        GroupRemotePath = entry.GroupRemotePath,
+                        ChildCount = entry.ChildCount
+                    })
+                    .ToArray(),
+                cancellationToken);
 
+            foreach (var item in enqueuedItems)
+            {
                 await _notifier.NotifyQueueItemUpdatedAsync(item, cancellationToken);
             }
 
@@ -132,6 +145,21 @@ public sealed class SyncRunOrchestrator : ISyncRunOrchestrator
                 TotalBytes = changes.EnqueuedTotalBytes
             }, cancellationToken);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Graceful shutdown/cancellation: record the run as cancelled (not failed)
+            // using a fresh token so the status write itself is not cancelled.
+            _logger.LogInformation(
+                "Scan cancelled for job {JobId} run {RunId}; marking the run as cancelled.",
+                job.Id,
+                run.Id);
+            await UpdateRunAsync(run.Id, new UpdateSporeSyncRunStatus
+            {
+                Id = run.Id,
+                Status = "cancelled"
+            }, CancellationToken.None);
+            throw;
+        }
         catch (Exception ex)
         {
             stopwatch.Stop();
@@ -143,6 +171,41 @@ public sealed class SyncRunOrchestrator : ISyncRunOrchestrator
                 Status = "failed",
                 ErrorMessage = ex.Message
             }, cancellationToken);
+        }
+        finally
+        {
+            leaseRenewalCts.Cancel();
+            await leaseRenewalTask;
+        }
+    }
+
+    private async Task RenewLeaseWhileScanningAsync(
+        Guid runId,
+        CancellationToken cancellationToken)
+    {
+        var interval = TimeSpan.FromSeconds(Math.Max(1, _options.RunScanLeaseSeconds / 3.0));
+
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                await Task.Delay(interval, cancellationToken);
+                if (!await _runRepository.RenewLeaseAsync(runId, _options.RunScanLeaseSeconds, cancellationToken))
+                {
+                    _logger.LogWarning(
+                        "Sync run {RunId} is no longer lease-renewable; stopping scan lease renewal.",
+                        runId);
+                    return;
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to renew scanning lease for sync run {RunId}.", runId);
+            }
         }
     }
 

@@ -21,4 +21,10 @@ public sealed class UpdateSporeSyncRunStatus
     public decimal? CurrentBytesPerSecond { get; init; }
 
     public string? ErrorMessage { get; init; }
+
+    /// <summary>
+    /// When set and the new status is non-terminal, renews the run lease for this
+    /// many seconds. Terminal statuses always clear the lease.
+    /// </summary>
+    public int? LeaseSeconds { get; init; }
 }

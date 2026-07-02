@@ -22,6 +22,28 @@ public sealed class SporeSyncOptions
     [Range(1, 86_400)]
     public int SftpOperationTimeoutSeconds { get; set; } = 300;
 
+    /// Lease duration stamped on claimed queue items. The worker renews the lease
+    /// while a download is in progress; if the process dies, the recovery sweep
+    /// requeues the item once the lease expires.
+    /// </summary>
+    [Range(1, 86_400)]
+    public int DownloadLeaseSeconds { get; set; } = 300;
+
+    /// <summary>
+    /// Lease duration for runs in the queued/scanning phase. The scanner renews
+    /// this lease while a scan is in progress so recovery can distinguish an
+    /// active long scan from a crashed one.
+    /// </summary>
+    [Range(1, 86_400)]
+    public int RunScanLeaseSeconds { get; set; } = 1800;
+
+    /// <summary>
+    /// Interval between periodic recovery sweeps (stale item requeue and orphaned
+    /// run reaping).
+    /// </summary>
+    [Range(1, 86_400)]
+    public int RecoverySweepIntervalSeconds { get; set; } = 60;
+
     /// <summary>
     /// Number of retries allowed for a queue item after its initial download attempt.
     /// Once exhausted the item is dead-lettered as terminal 'failed'.

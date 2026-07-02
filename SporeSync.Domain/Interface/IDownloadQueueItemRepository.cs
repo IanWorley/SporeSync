@@ -24,11 +24,50 @@ public interface IDownloadQueueItemRepository
         UpsertDownloadQueueItem item,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Upserts all items in a single database transaction so groups and their
+    /// leaves become visible (and thus claimable) atomically.
+    /// </summary>
+    Task<IReadOnlyList<DownloadQueueItem>> UpsertManyAsync(
+        IReadOnlyCollection<UpsertDownloadQueueItem> items,
+        CancellationToken cancellationToken = default);
+
     Task<IReadOnlyDictionary<string, SyncedRemoteState>> GetSyncedStateAsync(
         Guid jobId,
         CancellationToken cancellationToken = default);
 
-    Task<DownloadQueueItem?> ClaimNextAsync(CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Claims the next queued item whose run has finished scanning (run status is
+    /// 'downloading'), stamping a lease that expires after <paramref name="leaseSeconds"/>.
+    /// </summary>
+    Task<DownloadQueueItem?> ClaimNextAsync(
+        int leaseSeconds,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Renews the lease of a claimed item. Returns <c>false</c> when the item is no
+    /// longer in the 'downloading' status (e.g. requeued by the recovery sweep).
+    /// </summary>
+    Task<bool> RenewLeaseAsync(
+        Guid id,
+        int leaseSeconds,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns a claimed item to the queue without recording a failure (graceful
+    /// shutdown/cancellation). Returns <c>null</c> when the item is not claimed.
+    /// </summary>
+    Task<DownloadQueueItem?> ReleaseAsync(
+        Guid id,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Requeues claimed items whose lease expired (or all claimed items when
+    /// <paramref name="ignoreLeases"/> is true, e.g. at startup).
+    /// </summary>
+    Task<IReadOnlyList<DownloadQueueItem>> RequeueStaleAsync(
+        bool ignoreLeases,
+        CancellationToken cancellationToken = default);
 
     Task<DownloadQueueItem> UpdateProgressAsync(
         UpdateDownloadQueueItemProgress update,

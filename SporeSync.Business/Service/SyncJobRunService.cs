@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Options;
 using SporeSync.Business.Interface;
 using SporeSync.Business.Worker;
 using SporeSync.Domain.Interface;
@@ -10,17 +11,20 @@ public sealed class SyncJobRunService : ISyncJobRunService
     private readonly ISporeSyncRunRepository _runRepository;
     private readonly ISyncRunOrchestrator _orchestrator;
     private readonly ISyncDashboardNotifier _notifier;
+    private readonly SporeSyncOptions _options;
 
     public SyncJobRunService(
         ISporeSyncJobRepository jobRepository,
         ISporeSyncRunRepository runRepository,
         ISyncRunOrchestrator orchestrator,
-        ISyncDashboardNotifier notifier)
+        ISyncDashboardNotifier notifier,
+        IOptions<SporeSyncOptions> options)
     {
         _jobRepository = jobRepository;
         _runRepository = runRepository;
         _orchestrator = orchestrator;
         _notifier = notifier;
+        _options = options.Value;
     }
 
     public async Task<SyncJobRunResult> TriggerManualRunAsync(
@@ -38,12 +42,14 @@ public sealed class SyncJobRunService : ISyncJobRunService
             return new SyncJobRunResult { Error = SyncJobRunError.Disabled };
         }
 
-        if (await _runRepository.HasActiveRunAsync(jobId, cancellationToken))
+        // Creation is atomic: null means another caller (scheduler or a concurrent
+        // manual trigger) created an active run first.
+        var run = await _runRepository.CreateAsync(jobId, _options.RunScanLeaseSeconds, cancellationToken);
+        if (run is null)
         {
             return new SyncJobRunResult { Error = SyncJobRunError.ActiveRunExists };
         }
 
-        var run = await _runRepository.CreateAsync(jobId, cancellationToken);
         await _notifier.NotifyRunUpdatedAsync(run, cancellationToken);
 
         _ = Task.Run(async () =>

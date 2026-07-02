@@ -190,9 +190,15 @@ public sealed class SftpFileDownloader : ISftpFileDownloader
                 progress?.Report(remoteInfo.Length);
             }
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (OperationCanceledException)
+        {
+            StampPartWithRemoteTimestamp(tempPath, remoteInfo);
+            throw;
+        }
+        catch (Exception ex)
         {
             // Intentionally keep the .part file: a later attempt can resume from this offset.
+            StampPartWithRemoteTimestamp(tempPath, remoteInfo);
             _logger.LogWarning(ex, "Failed to download {RemotePath} to {LocalPath}", remotePath, localPath);
             return SftpDownloadResult.Failure(ex.Message);
         }
@@ -208,6 +214,11 @@ public sealed class SftpFileDownloader : ISftpFileDownloader
             {
                 // Local part is larger than the remote file; it cannot be a valid prefix.
                 File.Delete(tempPath);
+            }
+            else
+            {
+                // Short part kept for resume.
+                StampPartWithRemoteTimestamp(tempPath, remoteInfo);
             }
 
             _logger.LogWarning(
@@ -227,6 +238,30 @@ public sealed class SftpFileDownloader : ISftpFileDownloader
             : (decimal?)transferredBytes;
 
         return SftpDownloadResult.Succeed(remoteInfo.Length, bytesPerSecond);
+    }
+
+    /// <summary>
+    /// Stamps a kept .part file with the remote modification time observed when this attempt
+    /// started. Without this, a remote file modified *during* the attempt would still look older
+    /// than the part (whose filesystem mtime is "now"), and a later attempt would resume onto a
+    /// mix of old and new content. With the stamp, a mid-attempt remote change yields a remote
+    /// mtime strictly newer than the part, so <see cref="DetermineResumeOffset"/> discards it.
+    /// </summary>
+    private static void StampPartWithRemoteTimestamp(string tempPath, SftpRemoteFileInfo remoteInfo)
+    {
+        if (remoteInfo.ModifiedAt is not { } modifiedAt || !File.Exists(tempPath))
+        {
+            return;
+        }
+
+        try
+        {
+            File.SetLastWriteTimeUtc(tempPath, modifiedAt.UtcDateTime);
+        }
+        catch (IOException)
+        {
+            // Best effort: a failed stamp only makes the resume check more conservative later.
+        }
     }
 
     /// <summary>

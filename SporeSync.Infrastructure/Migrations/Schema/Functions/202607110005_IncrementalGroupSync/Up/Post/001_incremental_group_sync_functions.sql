@@ -90,6 +90,14 @@ AS $$
         current_bytes_per_second = NULL,
         error_message = NULL,
         handled_reason = NULL,
+        retry_count = CASE
+            WHEN p_preserve_completed AND qi.status = 'completed' THEN qi.retry_count
+            ELSE 0
+        END,
+        next_attempt_at = CASE
+            WHEN p_preserve_completed AND qi.status = 'completed' THEN qi.next_attempt_at
+            ELSE NULL
+        END,
         started_at = CASE
             WHEN p_preserve_completed AND qi.status = 'completed' THEN qi.started_at
             ELSE NULL

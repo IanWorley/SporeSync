@@ -30,6 +30,7 @@ public sealed class ManualRunQueue : IManualRunQueue
 {
     private readonly Channel<ManualRunWorkItem> _channel;
     private readonly SemaphoreSlim _availableSlots;
+    private readonly HashSet<Guid> _queuedRunIds = [];
 
     public ManualRunQueue(IOptions<SporeSyncOptions> options)
     {
@@ -57,6 +58,7 @@ public sealed class ManualRunQueue : IManualRunQueue
     internal async ValueTask<ManualRunWorkItem> ReadAsync(CancellationToken cancellationToken)
     {
         var item = await _channel.Reader.ReadAsync(cancellationToken);
+        lock (_queuedRunIds) _queuedRunIds.Remove(item.RunId);
         _availableSlots.Release();
         return item;
     }
@@ -68,18 +70,23 @@ public sealed class ManualRunQueue : IManualRunQueue
             return false;
         }
 
+        lock (_queuedRunIds) _queuedRunIds.Remove(item.RunId);
         _availableSlots.Release();
         return true;
     }
 
     internal void EnqueueReserved(ManualRunWorkItem item)
     {
+        lock (_queuedRunIds) _queuedRunIds.Add(item.RunId);
         if (!_channel.Writer.TryWrite(item))
         {
+            lock (_queuedRunIds) _queuedRunIds.Remove(item.RunId);
             _availableSlots.Release();
             throw new InvalidOperationException("A reserved manual-run queue slot could not be committed.");
         }
     }
+
+    internal Guid[] GetQueuedRunIds() { lock (_queuedRunIds) return [.. _queuedRunIds]; }
 
     internal void ReleaseReservation() => _availableSlots.Release();
 }

@@ -138,7 +138,7 @@ public sealed class SftpConnectionProfileServiceTests
     public async Task UpsertAsync_NormalizesAndStoresHostKeyFingerprint()
     {
         var repository = new RecordingSftpConnectionProfileRepository();
-        var service = new SftpConnectionProfileService(repository, new RecordingSecretProtector());
+        var service = CreateService(repository, new RecordingSecretProtector());
 
         await service.UpsertAsync(
             new UpsertSftpConnectionProfile
@@ -160,7 +160,7 @@ public sealed class SftpConnectionProfileServiceTests
     public async Task UpsertAsync_Throws_WhenHostKeyFingerprintIsInvalid()
     {
         var repository = new RecordingSftpConnectionProfileRepository();
-        var service = new SftpConnectionProfileService(repository, new RecordingSecretProtector());
+        var service = CreateService(repository, new RecordingSecretProtector());
 
         await Assert.ThrowsAsync<FormatException>(
             () => service.UpsertAsync(
@@ -194,7 +194,7 @@ public sealed class SftpConnectionProfileServiceTests
                 IsDefault = true
             }
         };
-        var service = new SftpConnectionProfileService(repository, new RecordingSecretProtector());
+        var service = CreateService(repository, new RecordingSecretProtector());
 
         await service.UpsertAsync(
             new UpsertSftpConnectionProfile
@@ -230,7 +230,7 @@ public sealed class SftpConnectionProfileServiceTests
                 IsDefault = true
             }
         };
-        var service = new SftpConnectionProfileService(repository, new RecordingSecretProtector());
+        var service = CreateService(repository, new RecordingSecretProtector());
 
         await service.UpsertAsync(
             new UpsertSftpConnectionProfile

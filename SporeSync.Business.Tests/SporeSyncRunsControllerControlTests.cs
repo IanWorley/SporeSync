@@ -76,7 +76,8 @@ public sealed class SporeSyncRunsControllerControlTests
             new FakeRunService(),
             new FakeRunControlService { Result = controlResult },
             new FakeQueueItemService(),
-            new FakeFileDeleteService());
+            new FakeFileDeleteService(),
+            new FakeNotifier());
     }
 
     private static SporeSyncRun CreateRun(string status)
@@ -124,6 +125,9 @@ public sealed class SporeSyncRunsControllerControlTests
 
         public Task<IReadOnlyList<DownloadQueueItem>> GetLeavesForGroupAsync(Guid runId, string groupRemotePath, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
+
+        public Task<RetryQueueItemResult> RetryAsync(Guid runId, Guid queueItemId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
     }
 
     private sealed class FakeFileDeleteService : IDownloadQueueItemFileDeleteService
@@ -133,5 +137,14 @@ public sealed class SporeSyncRunsControllerControlTests
 
         public Task<DeleteQueueItemFileResult> DeleteRemoteAsync(Guid runId, Guid queueItemId, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
+    }
+
+    private sealed class FakeNotifier : ISyncDashboardNotifier
+    {
+        public Task NotifyRunUpdatedAsync(SporeSyncRun run, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task NotifyQueueItemUpdatedAsync(DownloadQueueItem item, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
     }
 }

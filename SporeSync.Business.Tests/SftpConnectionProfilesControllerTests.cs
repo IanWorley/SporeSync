@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using SporeSync.Business.Interface;
+using SporeSync.Business.Sftp;
 using SporeSync.Domain.Model;
 using SporeSync.Web.Controllers;
 using SporeSync.Web.DTO;
@@ -86,10 +87,17 @@ public sealed class SftpConnectionProfilesControllerTests
     {
         return new SftpConnectionProfilesController(
             new FakeProfileService { DeleteStatus = deleteStatus },
+            new FakeHostKeyScanner(),
             new FakeConnectionTestService
             {
                 Result = testResult ?? new SftpConnectionTestResult { ProfileFound = false }
             });
+    }
+
+    private sealed class FakeHostKeyScanner : ISshHostKeyScanner
+    {
+        public Task<SshHostKeyScanResult> ScanAsync(string host, int port, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
     }
 
     private sealed class FakeConnectionTestService : ISftpConnectionTestService

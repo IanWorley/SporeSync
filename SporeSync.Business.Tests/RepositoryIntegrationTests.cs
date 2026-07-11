@@ -799,7 +799,7 @@ public sealed class RepositoryIntegrationTests : IClassFixture<RepositoryTestcon
         Assert.Equal("failed", dead.Status);
         Assert.Equal(1, dead.RetryCount);
 
-        // Remote content changed → the scan re-upserts and the budget starts fresh.
+        // Remote content changed: the scan re-upserts and the budget starts fresh.
         var reEnqueued = await queueRepository.UpsertAsync(upsert);
 
         Assert.Equal(item.Id, reEnqueued.Id);
@@ -807,6 +807,75 @@ public sealed class RepositoryIntegrationTests : IClassFixture<RepositoryTestcon
         Assert.Equal(0, reEnqueued.RetryCount);
         Assert.Null(reEnqueued.ErrorMessage);
         Assert.Null(reEnqueued.HandledReason);
+    }
+
+    [Fact]
+    public async Task DownloadQueueItemRepository_MarkRemoteDeleted_SkipsFailedGroupedLeafBeforeRequeue()
+    {
+        var profileRepository = new SftpConnectionProfileRepository(_fixture.DataSource);
+        var jobRepository = new SporeSyncJobRepository(_fixture.DataSource);
+        var runRepository = new SporeSyncRunRepository(_fixture.DataSource);
+        var queueRepository = new DownloadQueueItemRepository(_fixture.DataSource);
+
+        var profile = await profileRepository.UpsertAsync(CreateProfile());
+        var job = await jobRepository.UpsertAsync(CreateJob(profile.Id));
+        var run = await runRepository.CreateAsync(job.Id);
+        var groupRemotePath = "/incoming/reports/";
+
+        var group = await queueRepository.UpsertAsync(new UpsertDownloadQueueItem
+        {
+            JobId = job.Id,
+            SyncRunId = run.Id,
+            RemotePath = groupRemotePath,
+            DestinationPath = "/local/incoming/reports/",
+            FileSizeBytes = 100,
+            RemoteModifiedAt = DateTimeOffset.UtcNow,
+            IsGroup = true,
+            GroupRemotePath = null,
+            ChildCount = 1
+        });
+        var staleLeaf = await queueRepository.UpsertAsync(new UpsertDownloadQueueItem
+        {
+            JobId = job.Id,
+            SyncRunId = run.Id,
+            RemotePath = "/incoming/reports/deleted.csv",
+            DestinationPath = "/local/incoming/reports/deleted.csv",
+            FileSizeBytes = 100,
+            RemoteModifiedAt = DateTimeOffset.UtcNow,
+            IsGroup = false,
+            GroupRemotePath = groupRemotePath,
+            ChildCount = 0
+        });
+        await queueRepository.UpdateProgressAsync(new UpdateDownloadQueueItemProgress
+        {
+            Id = group.Id,
+            Status = "completed",
+            BytesDownloaded = 100
+        });
+        await queueRepository.UpdateProgressAsync(new UpdateDownloadQueueItemProgress
+        {
+            Id = staleLeaf.Id,
+            Status = "failed",
+            BytesDownloaded = 40,
+            ErrorMessage = "remote file disappeared before retry"
+        });
+
+        var marked = await queueRepository.MarkRemoteDeletedAsync(
+            job.Id,
+            run.Id,
+            [staleLeaf.RemotePath]);
+        var requeuedCount = await queueRepository.RequeueFailedAsync(job.Id, run.Id);
+
+        Assert.Empty(marked);
+        Assert.Equal(0, requeuedCount);
+        var skippedLeaf = await queueRepository.GetByIdAsync(staleLeaf.Id);
+        Assert.NotNull(skippedLeaf);
+        Assert.Equal("skipped", skippedLeaf.Status);
+        Assert.Equal("remote_deleted", skippedLeaf.HandledReason);
+        Assert.Null(skippedLeaf.ErrorMessage);
+        var unchangedGroup = await queueRepository.GetByIdAsync(group.Id);
+        Assert.NotNull(unchangedGroup);
+        Assert.Equal("completed", unchangedGroup.Status);
     }
 
     [Fact]

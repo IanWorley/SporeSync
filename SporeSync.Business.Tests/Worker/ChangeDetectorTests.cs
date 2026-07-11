@@ -121,6 +121,36 @@ public sealed class ChangeDetectorTests
     }
 
     [Fact]
+    public void DetectChanges_FailedRemotePathMissingFromScan_IsRemoteDeleted()
+    {
+        var detector = new ChangeDetector();
+        var scan = CreateScan(
+            new ScannedRemoteEntry("/remote/reports/", "/data/reports/", true, 100, 1, null, null),
+            new ScannedRemoteEntry("/remote/remaining.txt", CreateMissingTempPath(), false, 100, 0, null, null));
+        var synced = new Dictionary<string, SyncedRemoteState>(StringComparer.Ordinal)
+        {
+            ["/remote/reports/deleted.csv"] = new SyncedRemoteState
+            {
+                RemotePath = "/remote/reports/deleted.csv",
+                RemoteModifiedAt = null,
+                FileSizeBytes = 100,
+                Status = "failed"
+            },
+            ["/remote/remaining.txt"] = new SyncedRemoteState
+            {
+                RemotePath = "/remote/remaining.txt",
+                RemoteModifiedAt = null,
+                FileSizeBytes = 100,
+                Status = "completed"
+            }
+        };
+
+        var result = detector.DetectChanges(scan, synced);
+
+        Assert.Equal(new[] { "/remote/reports/deleted.csv" }, result.RemoteDeletedPaths);
+    }
+
+    [Fact]
     public void DetectChanges_UnchangedGroupWithMissingLocalLeaf_ReEnqueuesOnlyMissingLeaf()
     {
         var modifiedAt = DateTimeOffset.Parse("2026-05-28T12:00:00Z");

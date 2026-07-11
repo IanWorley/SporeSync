@@ -4,11 +4,32 @@ using SporeSync.Business.Interface;
 using SporeSync.Domain.Model;
 using SporeSync.Web;
 using SporeSync.Web.Controllers;
+using SporeSync.Web.DTO;
 
 namespace SporeSync.Business.Tests;
 
 public sealed class SporeSyncJobsControllerRunTests
 {
+    [Fact]
+    public async Task RunNow_ReturnsAcceptedWithQueuedRun()
+    {
+        var run = new SporeSyncRun
+        {
+            Id = Guid.NewGuid(), JobId = Guid.NewGuid(), JobName = "manual", Status = "queued",
+            StartedAt = DateTimeOffset.UtcNow, TotalFileCount = 0, CompletedFileCount = 0,
+            SkippedFileCount = 0, FailedFileCount = 0, TotalBytes = 0, DownloadedBytes = 0
+        };
+        var controller = new SporeSyncJobsController(
+            new FakeSporeSyncJobService(),
+            new FakeSyncJobRunService { Result = new SyncJobRunResult { Run = run } });
+
+        var result = await controller.RunNow(run.JobId, CancellationToken.None);
+
+        var accepted = Assert.IsType<AcceptedResult>(result.Result);
+        var response = Assert.IsType<SporeSyncRunResponse>(accepted.Value);
+        Assert.Equal(run.Id, response.Id);
+    }
+
     [Fact]
     public async Task RunNow_ReturnsConflict_WhenActiveRunExists()
     {
@@ -24,6 +45,22 @@ public sealed class SporeSyncJobsControllerRunTests
         var objectResult = Assert.IsType<ObjectResult>(result.Result);
         var problem = Assert.IsType<ProblemDetails>(objectResult.Value);
         Assert.Equal(StatusCodes.Status409Conflict, problem.Status);
+    }
+
+    [Fact]
+    public async Task RunNow_ReturnsTooManyRequests_WhenManualQueueIsFull()
+    {
+        var controller = new SporeSyncJobsController(
+            new FakeSporeSyncJobService(),
+            new FakeSyncJobRunService
+            {
+                Result = new SyncJobRunResult { Error = SyncJobRunError.QueueSaturated }
+            });
+
+        var result = await controller.RunNow(Guid.NewGuid(), CancellationToken.None);
+
+        var objectResult = Assert.IsType<ObjectResult>(result.Result);
+        Assert.Equal(StatusCodes.Status429TooManyRequests, objectResult.StatusCode);
     }
 
     [Fact]

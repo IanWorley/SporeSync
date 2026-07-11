@@ -2,11 +2,11 @@ using FluentMigrator;
 
 namespace SporeSync.Infrastructure.Migrations;
 
-[Migration(202607110004)]
+[Migration(202607110007)]
 public sealed class MarkFailedRemoteDeletedQueueItemsMigration : Migration
 {
-    private const string UpScript = "SporeSync.Infrastructure.Migrations.Schema.202607110004_MarkFailedRemoteDeletedQueueItems_up.sql";
-    private const string DownScript = "SporeSync.Infrastructure.Migrations.Schema.202607110004_MarkFailedRemoteDeletedQueueItems_down.sql";
+    private const string UpScript = "SporeSync.Infrastructure.Migrations.Schema.202607110007_MarkFailedRemoteDeletedQueueItems_up.sql";
+    private const string DownScript = "SporeSync.Infrastructure.Migrations.Schema.202607110007_MarkFailedRemoteDeletedQueueItems_down.sql";
 
     public override void Up()
     {

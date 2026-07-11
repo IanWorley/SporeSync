@@ -2,11 +2,11 @@ using FluentMigrator;
 
 namespace SporeSync.Infrastructure.Migrations;
 
-[Migration(202607110003)]
+[Migration(202607110006)]
 public sealed class FixGroupedLeafRequeueMigration : Migration
 {
-    private const string UpScript = "SporeSync.Infrastructure.Migrations.Schema.202607110003_FixGroupedLeafRequeue_up.sql";
-    private const string DownScript = "SporeSync.Infrastructure.Migrations.Schema.202607110003_FixGroupedLeafRequeue_down.sql";
+    private const string UpScript = "SporeSync.Infrastructure.Migrations.Schema.202607110006_FixGroupedLeafRequeue_up.sql";
+    private const string DownScript = "SporeSync.Infrastructure.Migrations.Schema.202607110006_FixGroupedLeafRequeue_down.sql";
 
     public override void Up()
     {

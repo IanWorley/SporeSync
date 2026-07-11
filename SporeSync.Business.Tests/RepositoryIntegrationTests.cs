@@ -566,6 +566,11 @@ public sealed class RepositoryIntegrationTests : IClassFixture<RepositoryTestcon
         Assert.Equal("queued", requeuedGroup!.Status);
         Assert.Equal("queued", requeuedLeaf!.Status);
 
+        await runRepository.UpdateStatusAsync(new UpdateSporeSyncRunStatus
+        {
+            Id = run.Id,
+            Status = "downloading"
+        });
         var claimed = await queueRepository.ClaimNextAsync(leaseSeconds: 1800);
         Assert.NotNull(claimed);
         Assert.Equal(group.Id, claimed!.Id);
@@ -800,7 +805,17 @@ public sealed class RepositoryIntegrationTests : IClassFixture<RepositoryTestcon
         Assert.Equal(1, dead.RetryCount);
 
         // Remote content changed: the scan re-upserts and the budget starts fresh.
-        var reEnqueued = await queueRepository.UpsertAsync(upsert);
+        var reEnqueued = await queueRepository.UpsertAsync(new UpsertDownloadQueueItem
+        {
+            JobId = job.Id,
+            SyncRunId = run.Id,
+            RemotePath = upsert.RemotePath,
+            DestinationPath = upsert.DestinationPath,
+            FileSizeBytes = upsert.FileSizeBytes,
+            RemoteModifiedAt = DateTimeOffset.UtcNow.AddMinutes(1),
+            IsGroup = upsert.IsGroup,
+            ChildCount = upsert.ChildCount
+        });
 
         Assert.Equal(item.Id, reEnqueued.Id);
         Assert.Equal("queued", reEnqueued.Status);

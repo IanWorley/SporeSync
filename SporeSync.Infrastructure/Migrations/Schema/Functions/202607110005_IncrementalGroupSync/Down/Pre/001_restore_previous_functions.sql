@@ -74,6 +74,8 @@ AS $$
         current_bytes_per_second = NULL,
         error_message = NULL,
         handled_reason = NULL,
+        retry_count = 0,
+        next_attempt_at = NULL,
         started_at = NULL,
         completed_at = NULL,
         is_group = EXCLUDED.is_group,

@@ -81,16 +81,11 @@ public sealed class JobSchedulerHostedService : BackgroundService
         Interface.ISyncDashboardNotifier notifier,
         CancellationToken cancellationToken)
     {
-        if (await runRepository.HasActiveRunAsync(job.Id, cancellationToken))
-        {
-            return;
-        }
-
         await jobRepository.MarkPolledAsync(job.Id, cancellationToken);
 
         // Creation is atomic: it returns null when another scheduler tick or a
         // manual trigger created an active run for this job in the meantime.
-        var run = await runRepository.CreateAsync(job.Id, _options.RunScanLeaseSeconds, cancellationToken);
+        var run = await runRepository.TryCreateAsync(job.Id, _options.RunScanLeaseSeconds, cancellationToken);
         if (run is null)
         {
             return;

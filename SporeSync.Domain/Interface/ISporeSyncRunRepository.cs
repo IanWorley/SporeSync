@@ -16,7 +16,7 @@ public interface ISporeSyncRunRepository
     /// Atomically creates a run for the job, or returns <c>null</c> when the job
     /// already has an active (queued/scanning/downloading) run.
     /// </summary>
-    Task<SporeSyncRun?> CreateAsync(
+    Task<SporeSyncRun?> TryCreateAsync(
         Guid jobId,
         int leaseSeconds = 1800,
         CancellationToken cancellationToken = default);

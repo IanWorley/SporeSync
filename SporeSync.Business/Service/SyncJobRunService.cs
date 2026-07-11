@@ -44,7 +44,7 @@ public sealed class SyncJobRunService : ISyncJobRunService
 
         // Creation is atomic: null means another caller (scheduler or a concurrent
         // manual trigger) created an active run first.
-        var run = await _runRepository.CreateAsync(jobId, _options.RunScanLeaseSeconds, cancellationToken);
+        var run = await _runRepository.TryCreateAsync(jobId, _options.RunScanLeaseSeconds, cancellationToken);
         if (run is null)
         {
             return new SyncJobRunResult { Error = SyncJobRunError.ActiveRunExists };

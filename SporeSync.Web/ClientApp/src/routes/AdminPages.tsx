@@ -236,7 +236,14 @@ export function ProfilesPage() {
   });
 
   const testMutation = useMutation({
-    mutationFn: (profile: SftpConnectionProfile) => api.testProfile(profile.id),
+    mutationFn: (profile: SftpConnectionProfile) =>
+      api.testProfile({
+        profileId: profile.id,
+        host: profile.host,
+        port: profile.port,
+        username: profile.username,
+        hostKeyFingerprintSha256: profile.hostKeyFingerprintSha256,
+      }),
     onSuccess: (result, profile) => {
       setTestResults((results) => ({
         ...results,
@@ -834,6 +841,7 @@ function ProfileForm({
   const [hostKeyFingerprints, setHostKeyFingerprints] = useState(
     profile?.trustedHostKeyFingerprintsSha256.join("\n") ?? "",
   );
+  const [sourcePath, setSourcePath] = useState("");
   const [isDefault, setIsDefault] = useState(profile?.isDefault ?? true);
   const preservesSelectedCredential =
     profile?.authenticationMethod === authenticationMethod;
@@ -847,8 +855,24 @@ function ProfileForm({
       );
     },
   });
-  const validation = useMemo(() => {
-    if (!name.trim()) return "Name is required.";
+  const testMutation = useMutation({
+    mutationFn: () =>
+      api.testProfile({
+        profileId: profile?.id,
+        host: host.trim(),
+        port,
+        username: username.trim(),
+        password: password.trim() ? password : null,
+        privateKey: privateKey.trim() ? privateKey : null,
+        privateKeyPassphrase: privateKeyPassphrase.trim()
+          ? privateKeyPassphrase
+          : null,
+        hostKeyFingerprintSha256:
+          hostKeyFingerprints.split(/\s+/).filter(Boolean)[0] ?? "",
+        sourcePath: sourcePath.trim() ? sourcePath.trim() : null,
+      }),
+  });
+  const connectionValidation = useMemo(() => {
     if (!host.trim()) return "Host is required.";
     if (port < 1 || port > 65535) return "Port must be between 1 and 65535.";
     if (!username.trim()) return "Username is required.";
@@ -1041,6 +1065,17 @@ function ProfileForm({
         )}
         <div className="md:col-span-2">
           <Field label="Trusted host key fingerprints (SHA-256, one per line)">
+          <Field label="Source path to check (optional)">
+            <input
+              className={inputClass}
+              placeholder="/upload"
+              value={sourcePath}
+              onChange={(event) => setSourcePath(event.target.value)}
+            />
+          </Field>
+        </div>
+        <div className="md:col-span-2">
+          <Field label="Trusted host key fingerprints (SHA-256, one per line)">
             <div className="flex gap-2">
               <textarea
                 className={`${inputClass} min-h-20 py-2 font-mono text-xs`}
@@ -1092,6 +1127,30 @@ function ProfileForm({
           Blank secret fields keep the currently configured secret.
         </p>
       )}
+      <div className="mt-4 flex items-center gap-3">
+        <Button
+          type="button"
+          disabled={Boolean(connectionValidation) || testMutation.isPending}
+          onClick={() => testMutation.mutate()}
+        >
+          <PlugZap size={16} />
+          {testMutation.isPending ? "Testing…" : "Test Connection"}
+        </Button>
+        {testMutation.data && (
+          <p
+            className={
+              testMutation.data.success
+                ? "text-sm text-emerald-600 dark:text-emerald-300"
+                : "text-sm text-red-600 dark:text-red-300"
+            }
+          >
+            {testMutation.data.message}
+            {testMutation.data.success &&
+              ` (${testMutation.data.durationMs} ms)`}
+          </p>
+        )}
+        {testMutation.error && <ErrorMessage error={testMutation.error} />}
+      </div>
       <FormFooter validation={validation} error={error} isSaving={isSaving} />
     </form>
   );

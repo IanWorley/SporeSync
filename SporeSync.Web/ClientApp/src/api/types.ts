@@ -116,8 +116,21 @@ export interface AuthSession {
 
 export interface SftpConnectionTestResponse {
   success: boolean;
+  failureType: "connection" | "host_key" | "authentication" | "path" | null;
   message: string | null;
   durationMs: number;
+}
+
+export interface TestSftpConnectionRequest {
+  profileId?: string;
+  host: string;
+  port: number;
+  username: string;
+  password?: string | null;
+  privateKey?: string | null;
+  privateKeyPassphrase?: string | null;
+  hostKeyFingerprintSha256?: string | null;
+  sourcePath?: string | null;
 }
 
 export interface RetryFailedItemsResponse {

@@ -34,6 +34,21 @@ public sealed class SftpClientFactory : ISftpClientFactory
         var profile = await _profileRepository.GetByIdAsync(connectionProfileId, cancellationToken)
             ?? throw new InvalidOperationException($"SFTP connection profile '{connectionProfileId}' was not found.");
 
+        return await ConnectAsync(profile, persistFirstUseHostKey: true, cancellationToken);
+    }
+
+    public Task<IConnectedSftpClient> ConnectAsync(
+        SftpConnectionProfile profile,
+        CancellationToken cancellationToken = default)
+    {
+        return ConnectAsync(profile, persistFirstUseHostKey: false, cancellationToken);
+    }
+
+    private async Task<IConnectedSftpClient> ConnectAsync(
+        SftpConnectionProfile profile,
+        bool persistFirstUseHostKey,
+        CancellationToken cancellationToken)
+    {
         ConnectionInfo connectionInfo;
         if (!string.IsNullOrWhiteSpace(profile.EncryptedPrivateKey))
         {

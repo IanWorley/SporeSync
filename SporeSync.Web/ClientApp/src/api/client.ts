@@ -10,6 +10,7 @@ import type {
   SporeSyncJob,
   SporeSyncRun,
   StatusResponse,
+  TestSftpConnectionRequest,
   UpsertSftpConnectionProfile,
   UpsertSporeSyncJob,
 } from "./types";
@@ -202,10 +203,10 @@ export const api = {
     fetchNoContent(`/api/sftp-connection-profiles/${id}`, {
       method: "DELETE",
     }),
-  testProfile: (id: string) =>
+  testProfile: (request: TestSftpConnectionRequest) =>
     fetchJson<SftpConnectionTestResponse>(
-      `/api/sftp-connection-profiles/${id}/test`,
-      { method: "POST" },
+      "/api/sftp-connection-profiles/test",
+      { method: "POST", body: JSON.stringify(request) },
     ),
   cancelRun: (id: string) =>
     fetchJson<SporeSyncRun>(`/api/sftp-sync-runs/${id}/cancel`, {

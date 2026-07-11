@@ -42,7 +42,7 @@ public sealed class SftpConnectionProfilesControllerTests
         var controller = CreateController(
             testResult: new SftpConnectionTestResult { ProfileFound = false });
 
-        var result = await controller.Test(Guid.NewGuid(), CancellationToken.None);
+        var result = await controller.Test(TestRequest(), CancellationToken.None);
 
         Assert.IsType<NotFoundResult>(result.Result);
     }
@@ -58,7 +58,7 @@ public sealed class SftpConnectionProfilesControllerTests
                 DurationMs = 42
             });
 
-        var result = await controller.Test(Guid.NewGuid(), CancellationToken.None);
+        var result = await controller.Test(TestRequest(), CancellationToken.None);
 
         var okResult = Assert.IsType<OkObjectResult>(result.Result);
         var response = Assert.IsType<SftpConnectionTestResponse>(okResult.Value);
@@ -74,15 +74,17 @@ public sealed class SftpConnectionProfilesControllerTests
             {
                 ProfileFound = true,
                 Success = false,
-                ErrorMessage = "Permission denied (password)."
+                FailureType = "authentication",
+                Message = "Authentication failed. Check the username and credentials."
             });
 
-        var result = await controller.Test(Guid.NewGuid(), CancellationToken.None);
+        var result = await controller.Test(TestRequest(), CancellationToken.None);
 
         var okResult = Assert.IsType<OkObjectResult>(result.Result);
         var response = Assert.IsType<SftpConnectionTestResponse>(okResult.Value);
         Assert.False(response.Success);
-        Assert.Equal("Permission denied (password).", response.Message);
+        Assert.Equal("authentication", response.FailureType);
+        Assert.Equal("Authentication failed. Check the username and credentials.", response.Message);
     }
 
     [Fact]
@@ -147,6 +149,17 @@ public sealed class SftpConnectionProfilesControllerTests
             removePassphrase);
     }
 
+    private static TestSftpConnectionRequest TestRequest() => new(
+        null,
+        "sftp.example.test",
+        22,
+        "user",
+        "password",
+        null,
+        null,
+        null,
+        null);
+
     private sealed class FakeHostKeyScanner : ISshHostKeyScanner
     {
         public Task<SshHostKeyScanResult> ScanAsync(string host, int port, CancellationToken cancellationToken = default)
@@ -157,7 +170,9 @@ public sealed class SftpConnectionProfilesControllerTests
     {
         public required SftpConnectionTestResult Result { get; init; }
 
-        public Task<SftpConnectionTestResult> TestAsync(Guid profileId, CancellationToken cancellationToken = default)
+        public Task<SftpConnectionTestResult> TestAsync(
+            SftpConnectionTestRequest request,
+            CancellationToken cancellationToken = default)
             => Task.FromResult(Result);
     }
 

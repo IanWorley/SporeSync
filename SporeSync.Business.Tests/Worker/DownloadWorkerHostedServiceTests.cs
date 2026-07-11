@@ -551,7 +551,7 @@ public sealed class DownloadWorkerHostedServiceTests
         public Task<SporeSyncRun?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
             => Task.FromResult<SporeSyncRun?>(CreateRun(id, "downloading"));
 
-        public Task<SporeSyncRun?> CreateAsync(
+        public Task<SporeSyncRun?> TryCreateAsync(
             Guid jobId,
             int leaseSeconds = 1800,
             CancellationToken cancellationToken = default)

@@ -173,7 +173,7 @@ public sealed class SyncRunControlServiceTests
         public Task<PagedResult<SporeSyncRun>> GetRunsAsync(RunQuery query, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
-        public Task<SporeSyncRun?> CreateAsync(
+        public Task<SporeSyncRun?> TryCreateAsync(
             Guid jobId,
             int leaseSeconds = 1800,
             CancellationToken cancellationToken = default)

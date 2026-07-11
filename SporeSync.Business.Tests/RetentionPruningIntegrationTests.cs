@@ -24,7 +24,7 @@ public sealed class RetentionPruningIntegrationTests : IClassFixture<RepositoryT
         var profile = await profileRepository.UpsertAsync(CreateProfile());
         var job = await jobRepository.UpsertAsync(CreateJob(profile.Id));
 
-        var oldRun = await runRepository.CreateAsync(job.Id);
+        var oldRun = await runRepository.TryCreateAsync(job.Id);
         var completedItem = await queueRepository.UpsertAsync(new UpsertDownloadQueueItem
         {
             JobId = job.Id,
@@ -49,7 +49,7 @@ public sealed class RetentionPruningIntegrationTests : IClassFixture<RepositoryT
         });
         await BackdateRunAsync(oldRun.Id, DateTimeOffset.UtcNow.AddDays(-90));
 
-        var recentRun = await runRepository.CreateAsync(job.Id);
+        var recentRun = await runRepository.TryCreateAsync(job.Id);
 
         var result = await runRepository.PruneHistoryAsync(DateTimeOffset.UtcNow.AddDays(-30));
 
@@ -76,7 +76,7 @@ public sealed class RetentionPruningIntegrationTests : IClassFixture<RepositoryT
 
         var profile = await profileRepository.UpsertAsync(CreateProfile());
         var job = await jobRepository.UpsertAsync(CreateJob(profile.Id));
-        var run = await runRepository.CreateAsync(job.Id);
+        var run = await runRepository.TryCreateAsync(job.Id);
 
         var item = await queueRepository.UpsertAsync(new UpsertDownloadQueueItem
         {
@@ -120,7 +120,7 @@ public sealed class RetentionPruningIntegrationTests : IClassFixture<RepositoryT
 
         var profile = await profileRepository.UpsertAsync(CreateProfile());
         var job = await jobRepository.UpsertAsync(CreateJob(profile.Id));
-        var activeRun = await runRepository.CreateAsync(job.Id);
+        var activeRun = await runRepository.TryCreateAsync(job.Id);
         await runRepository.UpdateStatusAsync(new UpdateSporeSyncRunStatus
         {
             Id = activeRun.Id,

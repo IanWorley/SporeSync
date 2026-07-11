@@ -13,7 +13,7 @@ public sealed class SporeSyncRunRepository : ISporeSyncRunRepository
     private const string OpCountRuns = "CountRuns";
     private const string OpGetRuns = "GetRuns";
     private const string OpGetRunById = "GetRunById";
-    private const string OpCreateRun = "CreateRun";
+    private const string OpTryCreateRun = "TryCreateRun";
     private const string OpUpdateRunStatus = "UpdateRunStatus";
     private const string OpJobHasActiveRun = "JobHasActiveRun";
     private const string OpRecalculateAggregates = "RecalculateAggregates";
@@ -152,7 +152,7 @@ public sealed class SporeSyncRunRepository : ISporeSyncRunRepository
             }, cancellationToken);
     }
 
-    public async Task<SporeSyncRun?> CreateAsync(
+    public async Task<SporeSyncRun?> TryCreateAsync(
         Guid jobId,
         int leaseSeconds = 1800,
         CancellationToken cancellationToken = default)
@@ -180,7 +180,7 @@ public sealed class SporeSyncRunRepository : ISporeSyncRunRepository
         command.Parameters.AddWithValue("job_id", jobId);
         command.Parameters.AddWithValue("lease_seconds", leaseSeconds);
 
-        return await DbCommandLogger.ExecuteReaderAsync(_logger, command, OpCreateRun,
+        return await DbCommandLogger.ExecuteReaderAsync(_logger, command, OpTryCreateRun,
             async reader =>
             {
                 if (!await reader.ReadAsync(cancellationToken))

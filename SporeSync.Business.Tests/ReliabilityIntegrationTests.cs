@@ -65,23 +65,37 @@ public sealed class ReliabilityIntegrationTests : IClassFixture<RepositoryTestco
     }
 
     [Fact]
-    public async Task CreateRun_IsAtomic_SecondCreateReturnsNull()
+    public async Task TryCreateRun_ConcurrentAttemptsCreateExactlyOneActiveRun()
     {
         var job = await CreateJobAsync();
 
-        var first = await _runRepository.CreateAsync(job.Id, LeaseSeconds);
-        Assert.NotNull(first);
+        var attempts = Enumerable.Range(0, 20)
+            .Select(_ => new SporeSyncRunRepository(_fixture.DataSource)
+                .TryCreateAsync(job.Id, LeaseSeconds));
+        var results = await Task.WhenAll(attempts);
 
-        var second = await _runRepository.CreateAsync(job.Id, LeaseSeconds);
-        Assert.Null(second);
+        var first = Assert.Single(results, run => run is not null)!;
+        Assert.Equal(19, results.Count(run => run is null));
+
+        await using var connection = await _fixture.DataSource.OpenConnectionAsync();
+        await using var countCommand = new NpgsqlCommand("""
+            SELECT count(*)
+            FROM core.sftp_sync_runs
+            WHERE job_id = @job_id
+              AND status IN ('queued', 'scanning', 'downloading');
+            """, connection);
+        countCommand.Parameters.AddWithValue("job_id", job.Id);
+        var activeRunCount = (long)(await countCommand.ExecuteScalarAsync()
+            ?? throw new InvalidOperationException("Active run count query returned no value."));
+        Assert.Equal(1L, activeRunCount);
 
         await _runRepository.UpdateStatusAsync(new UpdateSporeSyncRunStatus
         {
-            Id = first!.Id,
+            Id = first.Id,
             Status = "completed"
         });
 
-        var third = await _runRepository.CreateAsync(job.Id, LeaseSeconds);
+        var third = await _runRepository.TryCreateAsync(job.Id, LeaseSeconds);
         Assert.NotNull(third);
     }
 
@@ -390,7 +404,7 @@ public sealed class ReliabilityIntegrationTests : IClassFixture<RepositoryTestco
 
     private async Task<SporeSyncRun> CreateRunAsync(Guid jobId, string? status = null)
     {
-        var run = await _runRepository.CreateAsync(jobId, LeaseSeconds);
+        var run = await _runRepository.TryCreateAsync(jobId, LeaseSeconds);
         Assert.NotNull(run);
 
         if (status is not null)

@@ -94,7 +94,7 @@ public sealed class SftpSyncEndToEndTests :
 
         var job = await CreateJobAsync(scope.ServiceProvider, caseRoot, "full-pipeline");
 
-        var run = await runRepository.CreateAsync(job.Id);
+        var run = await runRepository.TryCreateAsync(job.Id);
         run = await orchestrator.ScanAsync(job, run);
 
         Assert.Equal("downloading", run.Status);
@@ -127,7 +127,7 @@ public sealed class SftpSyncEndToEndTests :
 
         // Re-scan with no remote changes: nothing is enqueued and the run
         // completes immediately.
-        var secondRun = await runRepository.CreateAsync(job.Id);
+        var secondRun = await runRepository.TryCreateAsync(job.Id);
         secondRun = await orchestrator.ScanAsync(job, secondRun);
         Assert.Equal("completed", secondRun.Status);
         Assert.Equal(0, secondRun.TotalFileCount);
@@ -145,7 +145,7 @@ public sealed class SftpSyncEndToEndTests :
 
         var job = await CreateJobAsync(scope.ServiceProvider, caseRoot, "modified-file");
 
-        var firstRun = await orchestrator.ScanAsync(job, await runRepository.CreateAsync(job.Id));
+        var firstRun = await orchestrator.ScanAsync(job, await runRepository.TryCreateAsync(job.Id));
         Assert.Equal("downloading", firstRun.Status);
         await DrainDownloadQueueAsync();
 
@@ -154,7 +154,7 @@ public sealed class SftpSyncEndToEndTests :
 
         await _sftp.WriteFileAsync($"{caseRoot}/report.csv", "version-2-with-more-content");
 
-        var secondRun = await orchestrator.ScanAsync(job, await runRepository.CreateAsync(job.Id));
+        var secondRun = await orchestrator.ScanAsync(job, await runRepository.TryCreateAsync(job.Id));
         Assert.Equal("downloading", secondRun.Status);
         Assert.Equal(1, secondRun.TotalFileCount);
         await DrainDownloadQueueAsync();
@@ -179,13 +179,13 @@ public sealed class SftpSyncEndToEndTests :
 
         var job = await CreateJobAsync(scope.ServiceProvider, caseRoot, "remote-delete");
 
-        var firstRun = await orchestrator.ScanAsync(job, await runRepository.CreateAsync(job.Id));
+        var firstRun = await orchestrator.ScanAsync(job, await runRepository.TryCreateAsync(job.Id));
         Assert.Equal("downloading", firstRun.Status);
         await DrainDownloadQueueAsync();
 
         await _sftp.DeleteFileAsync($"{caseRoot}/gone.txt");
 
-        var secondRun = await orchestrator.ScanAsync(job, await runRepository.CreateAsync(job.Id));
+        var secondRun = await orchestrator.ScanAsync(job, await runRepository.TryCreateAsync(job.Id));
         Assert.Equal("completed", secondRun.Status);
         Assert.Equal(1, secondRun.SkippedFileCount);
 

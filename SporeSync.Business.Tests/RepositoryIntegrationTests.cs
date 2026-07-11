@@ -253,7 +253,7 @@ public sealed class RepositoryIntegrationTests : IClassFixture<RepositoryTestcon
 
         var profile = await profileRepository.UpsertAsync(CreateProfile());
         var job = await jobRepository.UpsertAsync(CreateJob(profile.Id));
-        var run = await runRepository.CreateAsync(job.Id);
+        var run = await runRepository.TryCreateAsync(job.Id);
 
         var group = await queueRepository.UpsertAsync(new UpsertDownloadQueueItem
         {
@@ -461,7 +461,7 @@ public sealed class RepositoryIntegrationTests : IClassFixture<RepositoryTestcon
         });
 
         Assert.False(await runRepository.HasActiveRunAsync(job.Id));
-        var run = await runRepository.CreateAsync(job.Id, leaseSeconds: 300);
+        var run = await runRepository.TryCreateAsync(job.Id, leaseSeconds: 300);
         Assert.NotNull(run);
         Assert.Equal("queued", run!.Status);
         Assert.True(await runRepository.HasActiveRunAsync(job.Id));
@@ -516,7 +516,7 @@ public sealed class RepositoryIntegrationTests : IClassFixture<RepositoryTestcon
 
         var profile = await profileRepository.UpsertAsync(CreateProfile());
         var job = await jobRepository.UpsertAsync(CreateJob(profile.Id));
-        var run = await runRepository.CreateAsync(job.Id);
+        var run = await runRepository.TryCreateAsync(job.Id);
         var groupRemotePath = "/incoming/reports/";
 
         var group = await queueRepository.UpsertAsync(new UpsertDownloadQueueItem
@@ -587,7 +587,7 @@ public sealed class RepositoryIntegrationTests : IClassFixture<RepositoryTestcon
 
         var profile = await profileRepository.UpsertAsync(CreateProfile());
         var job = await jobRepository.UpsertAsync(CreateJob(profile.Id));
-        var run = await runRepository.CreateAsync(job.Id);
+        var run = await runRepository.TryCreateAsync(job.Id);
         var item = await queueRepository.UpsertAsync(new UpsertDownloadQueueItem
         {
             JobId = job.Id,
@@ -634,7 +634,7 @@ public sealed class RepositoryIntegrationTests : IClassFixture<RepositoryTestcon
 
         var profile = await profileRepository.UpsertAsync(CreateProfile());
         var job = await jobRepository.UpsertAsync(CreateJob(profile.Id));
-        var run = await runRepository.CreateAsync(job.Id, leaseSeconds: 300);
+        var run = await runRepository.TryCreateAsync(job.Id, leaseSeconds: 300);
         Assert.NotNull(run);
 
         var item = await queueRepository.UpsertAsync(new UpsertDownloadQueueItem
@@ -781,7 +781,7 @@ public sealed class RepositoryIntegrationTests : IClassFixture<RepositoryTestcon
 
         var profile = await profileRepository.UpsertAsync(CreateProfile());
         var job = await jobRepository.UpsertAsync(CreateJob(profile.Id));
-        var run = await runRepository.CreateAsync(job.Id);
+        var run = await runRepository.TryCreateAsync(job.Id);
 
         var upsert = new UpsertDownloadQueueItem
         {
@@ -834,7 +834,7 @@ public sealed class RepositoryIntegrationTests : IClassFixture<RepositoryTestcon
 
         var profile = await profileRepository.UpsertAsync(CreateProfile());
         var job = await jobRepository.UpsertAsync(CreateJob(profile.Id));
-        var run = await runRepository.CreateAsync(job.Id);
+        var run = await runRepository.TryCreateAsync(job.Id);
         var groupRemotePath = "/incoming/reports/";
 
         var group = await queueRepository.UpsertAsync(new UpsertDownloadQueueItem
@@ -903,7 +903,7 @@ public sealed class RepositoryIntegrationTests : IClassFixture<RepositoryTestcon
 
         var profile = await profileRepository.UpsertAsync(CreateProfile());
         var job = await jobRepository.UpsertAsync(CreateJob(profile.Id));
-        var firstRun = await runRepository.CreateAsync(job.Id);
+        var firstRun = await runRepository.TryCreateAsync(job.Id);
         var groupRemotePath = "/incoming/reports/";
 
         UpsertDownloadQueueItem CreateLeafUpsert(Guid runId, bool preserve) => new()
@@ -933,7 +933,7 @@ public sealed class RepositoryIntegrationTests : IClassFixture<RepositoryTestcon
             Id = firstRun.Id,
             Status = "completed"
         });
-        var secondRun = await runRepository.CreateAsync(job.Id);
+        var secondRun = await runRepository.TryCreateAsync(job.Id);
 
         var carried = await queueRepository.UpsertAsync(CreateLeafUpsert(secondRun.Id, preserve: true));
 
@@ -966,7 +966,7 @@ public sealed class RepositoryIntegrationTests : IClassFixture<RepositoryTestcon
 
         var profile = await profileRepository.UpsertAsync(CreateProfile());
         var job = await jobRepository.UpsertAsync(CreateJob(profile.Id));
-        var run = await runRepository.CreateAsync(job.Id);
+        var run = await runRepository.TryCreateAsync(job.Id);
 
         var upsert = new UpsertDownloadQueueItem
         {
@@ -1011,7 +1011,7 @@ public sealed class RepositoryIntegrationTests : IClassFixture<RepositoryTestcon
 
         var profile = await profileRepository.UpsertAsync(CreateProfile());
         var job = await jobRepository.UpsertAsync(CreateJob(profile.Id));
-        var run = await runRepository.CreateAsync(job.Id);
+        var run = await runRepository.TryCreateAsync(job.Id);
 
         await queueRepository.UpsertAsync(new UpsertDownloadQueueItem
         {
@@ -1060,7 +1060,7 @@ public sealed class RepositoryIntegrationTests : IClassFixture<RepositoryTestcon
 
         var profile = await profileRepository.UpsertAsync(CreateProfile());
         var job = await jobRepository.UpsertAsync(CreateJob(profile.Id));
-        var run = await runRepository.CreateAsync(job.Id);
+        var run = await runRepository.TryCreateAsync(job.Id);
         var item = await queueRepository.UpsertAsync(new UpsertDownloadQueueItem
         {
             JobId = job.Id,
@@ -1099,7 +1099,7 @@ public sealed class RepositoryIntegrationTests : IClassFixture<RepositoryTestcon
 
         var profile = await profileRepository.UpsertAsync(CreateProfile());
         var job = await jobRepository.UpsertAsync(CreateJob(profile.Id));
-        var run = await runRepository.CreateAsync(job.Id);
+        var run = await runRepository.TryCreateAsync(job.Id);
         await runRepository.UpdateStatusAsync(new UpdateSporeSyncRunStatus
         {
             Id = run.Id,
@@ -1179,7 +1179,7 @@ public sealed class RepositoryIntegrationTests : IClassFixture<RepositoryTestcon
 
         var profile = await profileRepository.UpsertAsync(CreateProfile());
         var job = await jobRepository.UpsertAsync(CreateJob(profile.Id));
-        var run = await runRepository.CreateAsync(job.Id);
+        var run = await runRepository.TryCreateAsync(job.Id);
 
         var scanning = await runRepository.AdvanceScanStatusAsync(new UpdateSporeSyncRunStatus
         {
@@ -1212,7 +1212,7 @@ public sealed class RepositoryIntegrationTests : IClassFixture<RepositoryTestcon
 
         var profile = await profileRepository.UpsertAsync(CreateProfile());
         var job = await jobRepository.UpsertAsync(CreateJob(profile.Id));
-        var run = await runRepository.CreateAsync(job.Id);
+        var run = await runRepository.TryCreateAsync(job.Id);
 
         await runRepository.AdvanceScanStatusAsync(new UpdateSporeSyncRunStatus
         {
@@ -1272,7 +1272,7 @@ public sealed class RepositoryIntegrationTests : IClassFixture<RepositoryTestcon
 
         var profile = await profileRepository.UpsertAsync(CreateProfile());
         var job = await jobRepository.UpsertAsync(CreateJob(profile.Id));
-        var run = await runRepository.CreateAsync(job.Id);
+        var run = await runRepository.TryCreateAsync(job.Id);
         await SeedQueueItemAsync(job.Id, run.Id, "/incoming/pending.csv", "queued", 100, 0);
 
         var cancelled = await runRepository.CancelAsync(run.Id);
@@ -1304,7 +1304,7 @@ public sealed class RepositoryIntegrationTests : IClassFixture<RepositoryTestcon
 
         var profile = await profileRepository.UpsertAsync(CreateProfile());
         var job = await jobRepository.UpsertAsync(CreateJob(profile.Id));
-        var run = await runRepository.CreateAsync(job.Id);
+        var run = await runRepository.TryCreateAsync(job.Id);
         run = await runRepository.UpdateStatusAsync(new UpdateSporeSyncRunStatus
         {
             Id = run.Id,

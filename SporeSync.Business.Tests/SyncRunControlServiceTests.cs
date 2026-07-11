@@ -173,7 +173,10 @@ public sealed class SyncRunControlServiceTests
         public Task<PagedResult<SporeSyncRun>> GetRunsAsync(RunQuery query, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
-        public Task<SporeSyncRun> CreateAsync(Guid jobId, CancellationToken cancellationToken = default)
+        public Task<SporeSyncRun?> CreateAsync(
+            Guid jobId,
+            int leaseSeconds = 1800,
+            CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
         public Task<bool> HasActiveRunAsync(Guid jobId, CancellationToken cancellationToken = default)
@@ -182,10 +185,18 @@ public sealed class SyncRunControlServiceTests
         public Task<bool> HasPendingDownloadsAsync(Guid runId, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
+        public Task<bool> RenewLeaseAsync(Guid runId, int leaseSeconds, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
         public Task<SporeSyncRun> AdvanceScanStatusAsync(UpdateSporeSyncRunStatus update, string expectedStatus, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
         public Task<SyncHistoryPruneResult> PruneHistoryAsync(DateTimeOffset cutoff, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<IReadOnlyList<SporeSyncRun>> ReapOrphanedAsync(
+            bool ignoreLeases,
+            CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
     }
 }

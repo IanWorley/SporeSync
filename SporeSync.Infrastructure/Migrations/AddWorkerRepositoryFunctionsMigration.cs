@@ -7,8 +7,8 @@ public sealed class AddWorkerRepositoryFunctionsMigration : Migration
 {
     private const string UpScript = "";
     private const string DownScript = "";
-    private const string UpPostFunctionPrefix = "SporeSync.Infrastructure.Migrations.Schema.Functions.202605300001_AddWorkerRepositoryFunctions.Up.Post.";
-    private const string DownPreFunctionPrefix = "SporeSync.Infrastructure.Migrations.Schema.Functions.202605300001_AddWorkerRepositoryFunctions.Down.Pre.";
+    private const string UpPostFunctionPrefix = "SporeSync.Infrastructure.Migrations.Functions.202605300001_AddWorkerRepositoryFunctions.Up.Post.";
+    private const string DownPreFunctionPrefix = "SporeSync.Infrastructure.Migrations.Functions.202605300001_AddWorkerRepositoryFunctions.Down.Pre.";
 
     public override void Up()
     {

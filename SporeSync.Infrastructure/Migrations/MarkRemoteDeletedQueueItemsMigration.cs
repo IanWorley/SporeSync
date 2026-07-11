@@ -7,8 +7,8 @@ public sealed class MarkRemoteDeletedQueueItemsMigration : Migration
 {
     private const string UpScript = "";
     private const string DownScript = "";
-    private const string UpPostFunctionPrefix = "SporeSync.Infrastructure.Migrations.Schema.Functions.202605300002_MarkRemoteDeletedQueueItems.Up.Post.";
-    private const string DownPreFunctionPrefix = "SporeSync.Infrastructure.Migrations.Schema.Functions.202605300002_MarkRemoteDeletedQueueItems.Down.Pre.";
+    private const string UpPostFunctionPrefix = "SporeSync.Infrastructure.Migrations.Functions.202605300002_MarkRemoteDeletedQueueItems.Up.Post.";
+    private const string DownPreFunctionPrefix = "SporeSync.Infrastructure.Migrations.Functions.202605300002_MarkRemoteDeletedQueueItems.Down.Pre.";
 
     public override void Up()
     {

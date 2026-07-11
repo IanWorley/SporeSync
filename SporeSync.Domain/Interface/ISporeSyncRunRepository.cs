@@ -47,12 +47,11 @@ public interface ISporeSyncRunRepository
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Reaps orphaned runs: queued/scanning runs whose lease expired are marked
-    /// failed, and downloading runs with no pending items are finalized as
-    /// completed. Returns every run that was mutated.
+    /// Atomically reaps orphaned runs: queued/scanning runs whose lease expired
+    /// are marked failed, and downloading runs with no pending items are finalized
+    /// as completed. Unexpired leases are preserved. Returns every mutated run.
     /// </summary>
     Task<IReadOnlyList<SporeSyncRun>> ReapOrphanedAsync(
-        bool ignoreLeases,
         CancellationToken cancellationToken = default);
 
     /// <summary>

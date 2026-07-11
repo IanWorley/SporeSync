@@ -579,7 +579,6 @@ public sealed class DownloadQueueItemRepository : IDownloadQueueItemRepository
     }
 
     public async Task<IReadOnlyList<DownloadQueueItem>> RequeueStaleAsync(
-        bool ignoreLeases,
         CancellationToken cancellationToken = default)
     {
         const string sql = """
@@ -608,7 +607,9 @@ public sealed class DownloadQueueItemRepository : IDownloadQueueItemRepository
 
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
         await using var command = new NpgsqlCommand(sql, connection);
-        command.Parameters.AddWithValue("ignore_lease", ignoreLeases);
+        // Recovery must never bypass leases: another application instance may
+        // still be renewing and processing the item.
+        command.Parameters.AddWithValue("ignore_lease", false);
 
         return await DbCommandLogger.ExecuteReaderAsync(_logger, command, OpRequeueStaleItems,
             async reader =>

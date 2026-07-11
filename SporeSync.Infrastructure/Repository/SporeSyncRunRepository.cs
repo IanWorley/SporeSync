@@ -353,7 +353,6 @@ public sealed class SporeSyncRunRepository : ISporeSyncRunRepository
     }
 
     public async Task<IReadOnlyList<SporeSyncRun>> ReapOrphanedAsync(
-        bool ignoreLeases,
         CancellationToken cancellationToken = default)
     {
         const string sql = """
@@ -376,7 +375,9 @@ public sealed class SporeSyncRunRepository : ISporeSyncRunRepository
 
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
         await using var command = new NpgsqlCommand(sql, connection);
-        command.Parameters.AddWithValue("ignore_lease", ignoreLeases);
+        // Recovery must never bypass leases: another application instance may
+        // still be renewing and scanning the run.
+        command.Parameters.AddWithValue("ignore_lease", false);
 
         return await DbCommandLogger.ExecuteReaderAsync(_logger, command, OpReapOrphanedRuns,
             async reader =>

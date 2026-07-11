@@ -73,11 +73,10 @@ public interface IDownloadQueueItemRepository
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Requeues claimed items whose lease expired (or all claimed items when
-    /// <paramref name="ignoreLeases"/> is true, e.g. at startup).
+    /// Atomically requeues claimed items whose lease expired. Unexpired leases
+    /// are always preserved so concurrent application instances cannot steal work.
     /// </summary>
     Task<IReadOnlyList<DownloadQueueItem>> RequeueStaleAsync(
-        bool ignoreLeases,
         CancellationToken cancellationToken = default);
 
     Task<DownloadQueueItem> UpdateProgressAsync(

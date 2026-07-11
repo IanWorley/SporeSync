@@ -133,6 +133,9 @@ Worker settings in `appsettings.json`:
     "DownloadPollIntervalMs": 1000,
     "SftpConnectionTimeoutSeconds": 30,
     "SftpOperationTimeoutSeconds": 300,
+    "DownloadLeaseSeconds": 300,
+    "RunScanLeaseSeconds": 1800,
+    "RecoverySweepIntervalSeconds": 60,
     "DownloadMaxRetries": 3,
     "DownloadRetryBaseDelaySeconds": 30,
     "DownloadRetryMaxDelaySeconds": 900,
@@ -142,6 +145,16 @@ Worker settings in `appsettings.json`:
   }
 }
 ```
+
+SporeSync recovers interrupted work with renewable PostgreSQL leases. A recovery
+sweep runs at startup before this instance begins scheduling or downloading, and
+then every `RecoverySweepIntervalSeconds`. Expired scanning runs are marked
+failed so the job can run again; expired downloading items are reset and
+requeued on their existing run. Sweeps always honor unexpired leases, including
+at startup, so multiple instances cannot steal live work from one another. A
+crashed instance's work is therefore recovered after its last lease expires
+(bounded by `RunScanLeaseSeconds` or `DownloadLeaseSeconds`) and the next sweep.
+Recovery changes are logged and broadcast to connected dashboards.
 
 Failed downloads are retried within the same sync run. `DownloadMaxRetries` is
 the number of retries after the initial attempt. Retry delays use bounded

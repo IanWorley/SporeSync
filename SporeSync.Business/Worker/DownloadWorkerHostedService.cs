@@ -121,33 +121,18 @@ public sealed class DownloadWorkerHostedService : BackgroundService
         ISyncDashboardNotifier notifier,
         CancellationToken cancellationToken)
     {
-        var progress = new Progress<long>(bytes =>
+        var progress = new FireAndForgetDownloadProgress(async (bytes, token) =>
         {
-            // Best-effort progress update; do not block download thread
-            _ = Task.Run(async () =>
+            var partial = await queueRepository.UpdateProgressAsync(new UpdateDownloadQueueItemProgress
             {
-                try
-                {
-                    var partial = await queueRepository.UpdateProgressAsync(new UpdateDownloadQueueItemProgress
-                    {
-                        Id = item.Id,
-                        Status = "downloading",
-                        BytesDownloaded = bytes,
-                        CurrentBytesPerSecond = null,
-                        ErrorMessage = null
-                    }, cancellationToken);
-                    await notifier.NotifyQueueItemUpdatedAsync(partial, cancellationToken);
-                }
-                catch (OperationCanceledException)
-                {
-                    // ignore
-                }
-                catch
-                {
-                    // best effort; ignore transient progress reporting errors
-                }
-            }, cancellationToken);
-        });
+                Id = item.Id,
+                Status = "downloading",
+                BytesDownloaded = bytes,
+                CurrentBytesPerSecond = null,
+                ErrorMessage = null
+            }, token);
+            await notifier.NotifyQueueItemUpdatedAsync(partial, token);
+        }, cancellationToken);
 
         var result = await downloader.DownloadAsync(
             job.ConnectionProfileId,
@@ -156,14 +141,14 @@ public sealed class DownloadWorkerHostedService : BackgroundService
             progress,
             cancellationToken);
 
-        return await queueRepository.UpdateProgressAsync(new UpdateDownloadQueueItemProgress
+        return await progress.CompleteAsync(token => queueRepository.UpdateProgressAsync(new UpdateDownloadQueueItemProgress
         {
             Id = item.Id,
             Status = result.Success ? "completed" : "failed",
             BytesDownloaded = result.BytesDownloaded,
             CurrentBytesPerSecond = result.BytesPerSecond,
             ErrorMessage = result.ErrorMessage
-        }, cancellationToken);
+        }, token));
     }
 
     private static async Task<DownloadQueueItem> ProcessGroupAsync(
@@ -191,30 +176,31 @@ public sealed class DownloadWorkerHostedService : BackgroundService
                 continue;
             }
 
-            var leafProgress = new Progress<long>(bytes =>
+            var completedBeforeLeaf = groupBytesDownloaded;
+            var leafProgress = new FireAndForgetDownloadProgress(async (bytes, token) =>
             {
-                _ = Task.Run(async () =>
+                await queueRepository.UpdateProgressAsync(new UpdateDownloadQueueItemProgress
                 {
-                    try
-                    {
-                        var partial = await queueRepository.UpdateProgressAsync(new UpdateDownloadQueueItemProgress
-                        {
-                            Id = leaf.Id,
-                            Status = "downloading",
-                            BytesDownloaded = bytes,
-                            CurrentBytesPerSecond = null,
-                            ErrorMessage = null
-                        }, cancellationToken);
-                        await notifier.NotifyQueueItemUpdatedAsync(partial, cancellationToken);
-                    }
-                    catch (OperationCanceledException)
-                    {
-                    }
-                    catch
-                    {
-                    }
-                }, cancellationToken);
-            });
+                    Id = leaf.Id,
+                    Status = "downloading",
+                    BytesDownloaded = bytes,
+                    CurrentBytesPerSecond = null,
+                    ErrorMessage = null
+                }, token);
+
+                var visibleGroupBytes = Math.Min(
+                    groupItem.FileSizeBytes,
+                    completedBeforeLeaf + Math.Min(bytes, leaf.FileSizeBytes));
+                var groupPartial = await queueRepository.UpdateProgressAsync(new UpdateDownloadQueueItemProgress
+                {
+                    Id = groupItem.Id,
+                    Status = "downloading",
+                    BytesDownloaded = visibleGroupBytes,
+                    CurrentBytesPerSecond = null,
+                    ErrorMessage = null
+                }, token);
+                await notifier.NotifyQueueItemUpdatedAsync(groupPartial, token);
+            }, cancellationToken);
 
             var leafResult = await downloader.DownloadAsync(
                 job.ConnectionProfileId,
@@ -223,14 +209,14 @@ public sealed class DownloadWorkerHostedService : BackgroundService
                 leafProgress,
                 cancellationToken);
 
-            var updatedLeaf = await queueRepository.UpdateProgressAsync(new UpdateDownloadQueueItemProgress
+            await leafProgress.CompleteAsync(token => queueRepository.UpdateProgressAsync(new UpdateDownloadQueueItemProgress
             {
                 Id = leaf.Id,
                 Status = leafResult.Success ? "completed" : "failed",
                 BytesDownloaded = leafResult.BytesDownloaded,
                 CurrentBytesPerSecond = leafResult.BytesPerSecond,
                 ErrorMessage = leafResult.ErrorMessage
-            }, cancellationToken);
+            }, token));
 
             if (leafResult.Success)
             {
@@ -251,5 +237,73 @@ public sealed class DownloadWorkerHostedService : BackgroundService
             CurrentBytesPerSecond = latestRate,
             ErrorMessage = groupFailed ? "One or more files in the group failed to download." : null
         }, cancellationToken);
+    }
+
+    private sealed class FireAndForgetDownloadProgress : IProgress<long>
+    {
+        private readonly Func<long, CancellationToken, Task> _reportAsync;
+        private readonly CancellationToken _cancellationToken;
+        private readonly SemaphoreSlim _gate = new(1, 1);
+        private int _terminalUpdateStarted;
+
+        public FireAndForgetDownloadProgress(
+            Func<long, CancellationToken, Task> reportAsync,
+            CancellationToken cancellationToken)
+        {
+            _reportAsync = reportAsync;
+            _cancellationToken = cancellationToken;
+        }
+
+        public void Report(long bytesDownloaded)
+        {
+            if (Volatile.Read(ref _terminalUpdateStarted) != 0)
+            {
+                return;
+            }
+
+            _ = ReportAsync(bytesDownloaded);
+        }
+
+        public async Task<T> CompleteAsync<T>(Func<CancellationToken, Task<T>> terminalUpdateAsync)
+        {
+            Interlocked.Exchange(ref _terminalUpdateStarted, 1);
+            await _gate.WaitAsync(_cancellationToken);
+            try
+            {
+                return await terminalUpdateAsync(_cancellationToken);
+            }
+            finally
+            {
+                _gate.Release();
+            }
+        }
+
+        private async Task ReportAsync(long bytesDownloaded)
+        {
+            try
+            {
+                await _gate.WaitAsync(_cancellationToken);
+                try
+                {
+                    if (Volatile.Read(ref _terminalUpdateStarted) != 0)
+                    {
+                        return;
+                    }
+
+                    await _reportAsync(bytesDownloaded, _cancellationToken);
+                }
+                finally
+                {
+                    _gate.Release();
+                }
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch
+            {
+                // Best-effort progress reporting must not fail or strand the download.
+            }
+        }
     }
 }

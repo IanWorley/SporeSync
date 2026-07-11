@@ -48,6 +48,7 @@ public sealed class SftpSyncEndToEndTests :
             options.DownloadPollIntervalMs = 50;
             options.SftpConnectionTimeoutSeconds = 30;
             options.SftpOperationTimeoutSeconds = 60;
+            options.RemoteFileStabilityWindowSeconds = 0;
         });
         services.AddSingleton<IEncryptionKeyProvider>(keyProvider);
         services.AddSingleton<ISecretProtector, SecretProtector>();

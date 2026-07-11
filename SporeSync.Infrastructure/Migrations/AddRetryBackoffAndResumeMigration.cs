@@ -2,13 +2,13 @@ using FluentMigrator;
 
 namespace SporeSync.Infrastructure.Migrations;
 
-[Migration(202607010001)]
+[Migration(202607110002)]
 public sealed class AddRetryBackoffAndResumeMigration : Migration
 {
-    private const string UpScript = "SporeSync.Infrastructure.Migrations.Schema.202607010001_AddRetryBackoffAndResume_up.sql";
-    private const string DownScript = "SporeSync.Infrastructure.Migrations.Schema.202607010001_AddRetryBackoffAndResume_down.sql";
-    private const string UpPostFunctionPrefix = "SporeSync.Infrastructure.Migrations.Schema.Functions.202607010001_AddRetryBackoffAndResume.Up.Post.";
-    private const string DownPreFunctionPrefix = "SporeSync.Infrastructure.Migrations.Schema.Functions.202607010001_AddRetryBackoffAndResume.Down.Pre.";
+    private const string UpScript = "SporeSync.Infrastructure.Migrations.Schema.202607110002_AddRetryBackoffAndResume_up.sql";
+    private const string DownScript = "SporeSync.Infrastructure.Migrations.Schema.202607110002_AddRetryBackoffAndResume_down.sql";
+    private const string UpPostFunctionPrefix = "SporeSync.Infrastructure.Migrations.Schema.Functions.202607110002_AddRetryBackoffAndResume.Up.Post.";
+    private const string DownPreFunctionPrefix = "SporeSync.Infrastructure.Migrations.Schema.Functions.202607110002_AddRetryBackoffAndResume.Down.Pre.";
 
     public override void Up()
     {

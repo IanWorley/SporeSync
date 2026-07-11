@@ -211,6 +211,10 @@ AS $$
         END,
         updated_at = now()
     WHERE qi.id = p_id
+      AND (
+          p_status IN ('completed', 'failed', 'skipped')
+          OR qi.status NOT IN ('completed', 'failed', 'skipped')
+      )
     RETURNING qi.id,
               qi.job_id,
               qi.sync_run_id,

@@ -386,6 +386,11 @@ public sealed class DownloadWorkerHostedServiceTests
 
         public Task<bool> HasActiveRunAsync(Guid jobId, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
+
+        public Task<SyncHistoryPruneResult> PruneHistoryAsync(
+            DateTimeOffset cutoff,
+            CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
     }
 
     private sealed class FakeJobRepository : ISporeSyncJobRepository

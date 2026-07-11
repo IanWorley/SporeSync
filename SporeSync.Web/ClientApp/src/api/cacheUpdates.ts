@@ -33,11 +33,20 @@ export function upsertQueueItemInPagedCaches(
     return;
   }
 
+  const isHiddenGroupLeaf = !item.isGroup && item.groupRemotePath !== null;
+
   queryClient.setQueriesData<PagedResponse<DownloadQueueItem>>(
     { queryKey: ["runs", item.syncRunId, "queue-items"] },
     (page) => {
       if (!page) {
         return page;
+      }
+
+      if (isHiddenGroupLeaf) {
+        return {
+          ...page,
+          items: page.items.filter((existing) => existing.id !== item.id),
+        };
       }
 
       const exists = page.items.some((existing) => existing.id === item.id);

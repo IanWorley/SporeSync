@@ -197,6 +197,67 @@ public sealed class RepositoryIntegrationTests : IClassFixture<RepositoryTestcon
         Assert.Equal(1, result.TotalCount);
     }
 
+    [Fact]
+    public async Task DownloadQueueItemRepository_GetByRunId_ExcludesGroupLeavesAndReturnsVisibleGroupProgress()
+    {
+        var profileRepository = new SftpConnectionProfileRepository(_fixture.DataSource);
+        var jobRepository = new SporeSyncJobRepository(_fixture.DataSource);
+        var runRepository = new SporeSyncRunRepository(_fixture.DataSource);
+        var queueRepository = new DownloadQueueItemRepository(_fixture.DataSource);
+
+        var profile = await profileRepository.UpsertAsync(CreateProfile());
+        var job = await jobRepository.UpsertAsync(CreateJob(profile.Id));
+        var run = await runRepository.CreateAsync(job.Id);
+
+        var group = await queueRepository.UpsertAsync(new UpsertDownloadQueueItem
+        {
+            JobId = job.Id,
+            SyncRunId = run.Id,
+            RemotePath = "/incoming/group/",
+            DestinationPath = "/local/incoming/group",
+            FileSizeBytes = 300,
+            RemoteModifiedAt = DateTimeOffset.UtcNow,
+            IsGroup = true,
+            GroupRemotePath = null,
+            ChildCount = 2
+        });
+        await queueRepository.UpsertAsync(new UpsertDownloadQueueItem
+        {
+            JobId = job.Id,
+            SyncRunId = run.Id,
+            RemotePath = "/incoming/group/a.csv",
+            DestinationPath = "/local/incoming/group/a.csv",
+            FileSizeBytes = 100,
+            RemoteModifiedAt = DateTimeOffset.UtcNow,
+            IsGroup = false,
+            GroupRemotePath = group.RemotePath,
+            ChildCount = 0
+        });
+
+        var visibleProgress = await queueRepository.UpdateProgressAsync(new UpdateDownloadQueueItemProgress
+        {
+            Id = group.Id,
+            Status = "downloading",
+            BytesDownloaded = 75
+        });
+
+        var result = await queueRepository.GetByRunIdAsync(run.Id, new QueueItemQuery
+        {
+            PageNumber = 1,
+            PageSize = 10,
+            SortBy = "queuedAt",
+            SortDirection = "asc"
+        });
+
+        var item = Assert.Single(result.Items);
+        Assert.Equal(group.Id, item.Id);
+        Assert.True(item.IsGroup);
+        Assert.Null(item.GroupRemotePath);
+        Assert.Equal(75, visibleProgress.BytesDownloaded);
+        Assert.Equal(75, item.BytesDownloaded);
+        Assert.Equal(1, result.TotalCount);
+    }
+
     private static SftpConnectionProfile CreateProfile()
     {
         return new SftpConnectionProfile
@@ -389,6 +450,53 @@ public sealed class RepositoryIntegrationTests : IClassFixture<RepositoryTestcon
         var syncedState = await queueRepository.GetSyncedStateAsync(job.Id);
         Assert.True(syncedState.ContainsKey("/remote/incoming/file.txt"));
         Assert.Equal("queued", syncedState["/remote/incoming/file.txt"].Status);
+    }
+
+    [Fact]
+    public async Task DownloadQueueItemRepository_UpdateProgress_DoesNotRegressTerminalItemToDownloading()
+    {
+        var profileRepository = new SftpConnectionProfileRepository(_fixture.DataSource);
+        var jobRepository = new SporeSyncJobRepository(_fixture.DataSource);
+        var runRepository = new SporeSyncRunRepository(_fixture.DataSource);
+        var queueRepository = new DownloadQueueItemRepository(_fixture.DataSource);
+
+        var profile = await profileRepository.UpsertAsync(CreateProfile());
+        var job = await jobRepository.UpsertAsync(CreateJob(profile.Id));
+        var run = await runRepository.CreateAsync(job.Id);
+        var item = await queueRepository.UpsertAsync(new UpsertDownloadQueueItem
+        {
+            JobId = job.Id,
+            SyncRunId = run.Id,
+            RemotePath = "/incoming/race.csv",
+            DestinationPath = "/local/incoming/race.csv",
+            FileSizeBytes = 100,
+            RemoteModifiedAt = DateTimeOffset.UtcNow,
+            IsGroup = false,
+            ChildCount = 0
+        });
+
+        var completed = await queueRepository.UpdateProgressAsync(new UpdateDownloadQueueItemProgress
+        {
+            Id = item.Id,
+            Status = "completed",
+            BytesDownloaded = 100,
+            CurrentBytesPerSecond = 25
+        });
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            queueRepository.UpdateProgressAsync(new UpdateDownloadQueueItemProgress
+            {
+                Id = item.Id,
+                Status = "downloading",
+                BytesDownloaded = 50
+            }));
+
+        var afterLateProgress = await queueRepository.GetByIdAsync(item.Id);
+        Assert.NotNull(afterLateProgress);
+        Assert.Equal("completed", afterLateProgress.Status);
+        Assert.Equal(completed.CompletedAt, afterLateProgress.CompletedAt);
+        Assert.Equal(100, afterLateProgress.BytesDownloaded);
+        Assert.Equal(25, afterLateProgress.CurrentBytesPerSecond);
     }
 
     [Fact]

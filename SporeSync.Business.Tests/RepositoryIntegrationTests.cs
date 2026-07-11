@@ -75,6 +75,52 @@ public sealed class RepositoryIntegrationTests : IClassFixture<RepositoryTestcon
     }
 
     [Fact]
+    public async Task SftpConnectionProfileRepository_TryPinHostKeyFingerprint_OnlyUpdatesNullPin()
+    {
+        var repository = new SftpConnectionProfileRepository(_fixture.DataSource);
+        var profile = await repository.UpsertAsync(new SftpConnectionProfile
+        {
+            Id = Guid.NewGuid(),
+            Name = $"profile-{Guid.NewGuid():N}",
+            Host = "sftp.example.com",
+            Port = 22,
+            Username = "sync-user",
+            EncryptedPassword = "encrypted-password",
+            IsDefault = false
+        });
+        await repository.UpsertAsync(new SftpConnectionProfile
+        {
+            Id = profile.Id,
+            Name = "concurrently-edited",
+            Host = "edited.example.com",
+            Port = 2222,
+            Username = "edited-user",
+            EncryptedPassword = "edited-password",
+            IsDefault = false
+        });
+
+        var pinned = await repository.TryPinHostKeyFingerprintAsync(
+            profile.Id,
+            "SHA256:nThbg6kXUpJWGl7E1IGOCspRomTxdCARLviKw6E5SY8");
+        var repinned = await repository.TryPinHostKeyFingerprintAsync(
+            profile.Id,
+            "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+        var fetched = await repository.GetByIdAsync(profile.Id);
+
+        Assert.True(pinned);
+        Assert.False(repinned);
+        Assert.NotNull(fetched);
+        Assert.Equal("concurrently-edited", fetched.Name);
+        Assert.Equal("edited.example.com", fetched.Host);
+        Assert.Equal(2222, fetched.Port);
+        Assert.Equal("edited-user", fetched.Username);
+        Assert.Equal("edited-password", fetched.EncryptedPassword);
+        Assert.Equal(
+            "SHA256:nThbg6kXUpJWGl7E1IGOCspRomTxdCARLviKw6E5SY8",
+            fetched.HostKeyFingerprintSha256);
+    }
+
+    [Fact]
     public async Task SftpConnectionProfileRepository_HasAnyEncryptedSecretsAsync_ReturnsWhetherAnySecretsExist()
     {
         var repository = new SftpConnectionProfileRepository(_fixture.DataSource);

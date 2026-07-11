@@ -18,5 +18,12 @@ public sealed class UpsertSftpConnectionProfile
 
     public string? PrivateKeyPassphrase { get; init; }
 
+    /// <summary>
+    /// SSH host key fingerprint to pin. Null preserves the currently stored fingerprint,
+    /// an empty/whitespace value clears the pin (re-enabling trust-on-first-use), and a
+    /// non-blank value replaces the pin after normalization.
+    /// </summary>
+    public string? HostKeyFingerprintSha256 { get; init; }
+
     public bool IsDefault { get; init; } = true;
 }

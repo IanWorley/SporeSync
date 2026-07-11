@@ -12,6 +12,7 @@ public sealed class SftpConnectionProfileRepository : ISftpConnectionProfileRepo
     private const string OpGetAllProfiles = "GetAllProfiles";
     private const string OpGetProfileById = "GetProfileById";
     private const string OpUpsertProfile = "UpsertProfile";
+    private const string OpTryPinHostKeyFingerprint = "TryPinHostKeyFingerprint";
     private const string OpHasAnyEncryptedSecrets = "HasAnyEncryptedSecrets";
 
     private readonly NpgsqlDataSource _dataSource;
@@ -37,6 +38,7 @@ public sealed class SftpConnectionProfileRepository : ISftpConnectionProfileRepo
                    encrypted_password,
                    encrypted_private_key,
                    encrypted_private_key_passphrase,
+                   host_key_fingerprint_sha256,
                    is_default
             FROM core.get_sftp_connection_profiles();
             """;
@@ -69,6 +71,7 @@ public sealed class SftpConnectionProfileRepository : ISftpConnectionProfileRepo
                    encrypted_password,
                    encrypted_private_key,
                    encrypted_private_key_passphrase,
+                   host_key_fingerprint_sha256,
                    is_default
             FROM core.get_sftp_connection_profile(@id);
             """;
@@ -101,6 +104,7 @@ public sealed class SftpConnectionProfileRepository : ISftpConnectionProfileRepo
                    encrypted_password,
                    encrypted_private_key,
                    encrypted_private_key_passphrase,
+                   host_key_fingerprint_sha256,
                    is_default
             FROM core.upsert_sftp_connection_profile(
                 @id,
@@ -111,6 +115,7 @@ public sealed class SftpConnectionProfileRepository : ISftpConnectionProfileRepo
                 @encrypted_password,
                 @encrypted_private_key,
                 @encrypted_private_key_passphrase,
+                @host_key_fingerprint_sha256,
                 @is_default);
             """;
 
@@ -126,6 +131,9 @@ public sealed class SftpConnectionProfileRepository : ISftpConnectionProfileRepo
         command.Parameters.AddWithValue(
             "encrypted_private_key_passphrase",
             (object?)profile.EncryptedPrivateKeyPassphrase ?? DBNull.Value);
+        command.Parameters.AddWithValue(
+            "host_key_fingerprint_sha256",
+            (object?)profile.HostKeyFingerprintSha256 ?? DBNull.Value);
         command.Parameters.AddWithValue("is_default", profile.IsDefault);
 
         return await DbCommandLogger.ExecuteReaderAsync(_logger, command, OpUpsertProfile,
@@ -137,6 +145,38 @@ public sealed class SftpConnectionProfileRepository : ISftpConnectionProfileRepo
                 }
                 return ReadProfile(reader);
             }, cancellationToken);
+    }
+
+    public async Task<bool> TryPinHostKeyFingerprintAsync(
+        Guid id,
+        string fingerprintSha256,
+        CancellationToken cancellationToken = default)
+    {
+        const string sql = """
+            WITH pinned AS (
+                UPDATE core.sftp_connection_profiles
+                SET host_key_fingerprint_sha256 = @host_key_fingerprint_sha256,
+                    updated_at = now()
+                WHERE id = @id
+                  AND host_key_fingerprint_sha256 IS NULL
+                RETURNING 1
+            )
+            SELECT EXISTS(SELECT 1 FROM pinned);
+            """;
+
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.AddWithValue("id", id);
+        command.Parameters.AddWithValue("host_key_fingerprint_sha256", fingerprintSha256);
+
+        var pinned = await DbCommandLogger.ExecuteScalarAsync(
+            _logger,
+            command,
+            OpTryPinHostKeyFingerprint,
+            cancellationToken);
+
+        return (bool)(pinned
+            ?? throw new InvalidOperationException("Host key pin update did not return a value."));
     }
 
     public async Task<bool> HasAnyEncryptedSecretsAsync(CancellationToken cancellationToken = default)
@@ -164,7 +204,8 @@ public sealed class SftpConnectionProfileRepository : ISftpConnectionProfileRepo
             EncryptedPassword = reader.IsDBNull(5) ? null : reader.GetString(5),
             EncryptedPrivateKey = reader.IsDBNull(6) ? null : reader.GetString(6),
             EncryptedPrivateKeyPassphrase = reader.IsDBNull(7) ? null : reader.GetString(7),
-            IsDefault = reader.GetBoolean(8)
+            HostKeyFingerprintSha256 = reader.IsDBNull(8) ? null : reader.GetString(8),
+            IsDefault = reader.GetBoolean(9)
         };
     }
 }

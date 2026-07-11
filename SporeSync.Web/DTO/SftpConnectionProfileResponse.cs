@@ -9,4 +9,5 @@ public sealed record SftpConnectionProfileResponse(
     bool HasPassword,
     bool HasPrivateKey,
     bool HasPrivateKeyPassphrase,
+    string? HostKeyFingerprintSha256,
     bool IsDefault);

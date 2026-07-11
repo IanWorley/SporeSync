@@ -12,5 +12,10 @@ public interface ISftpConnectionProfileRepository
         SftpConnectionProfile profile,
         CancellationToken cancellationToken = default);
 
+    Task<bool> TryPinHostKeyFingerprintAsync(
+        Guid id,
+        string fingerprintSha256,
+        CancellationToken cancellationToken = default);
+
     Task<bool> HasAnyEncryptedSecretsAsync(CancellationToken cancellationToken = default);
 }

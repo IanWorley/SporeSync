@@ -12,11 +12,22 @@ public sealed class UpsertSftpConnectionProfile
 
     public required string Username { get; init; }
 
+    /// <summary>
+    /// Selects the only credential type that will remain stored after this upsert.
+    /// </summary>
+    public SftpAuthenticationMethod AuthenticationMethod { get; init; }
+
     public string? Password { get; init; }
 
     public string? PrivateKey { get; init; }
 
     public string? PrivateKeyPassphrase { get; init; }
+
+    /// <summary>
+    /// Explicitly clears a stored private key passphrase. When false, a blank
+    /// replacement preserves the existing passphrase.
+    /// </summary>
+    public bool RemovePrivateKeyPassphrase { get; init; }
 
     /// <summary>
     /// SSH host key fingerprint to pin. Null preserves the currently stored fingerprint,

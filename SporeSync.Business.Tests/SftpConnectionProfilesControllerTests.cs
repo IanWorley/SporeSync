@@ -10,6 +10,32 @@ namespace SporeSync.Business.Tests;
 
 public sealed class SftpConnectionProfilesControllerTests
 {
+    [Theory]
+    [InlineData("password", SftpAuthenticationMethod.Password, false)]
+    [InlineData("privateKey", SftpAuthenticationMethod.PrivateKey, true)]
+    public async Task Update_ForwardsExplicitAuthenticationTransition(
+        string authenticationMethod,
+        SftpAuthenticationMethod expectedMethod,
+        bool removePassphrase)
+    {
+        var service = new FakeProfileService();
+        var controller = CreateController(profileService: service);
+        var id = Guid.NewGuid();
+
+        await controller.Update(
+            id,
+            CreateRequest(authenticationMethod, removePassphrase),
+            CancellationToken.None);
+
+        Assert.NotNull(service.LastUpsert);
+        Assert.Equal(id, service.LastUpsert.Id);
+        Assert.Equal(expectedMethod, service.LastUpsert.AuthenticationMethod);
+        Assert.Equal("replacement-password", service.LastUpsert.Password);
+        Assert.Equal("replacement-key", service.LastUpsert.PrivateKey);
+        Assert.Equal("replacement-passphrase", service.LastUpsert.PrivateKeyPassphrase);
+        Assert.Equal(removePassphrase, service.LastUpsert.RemovePrivateKeyPassphrase);
+    }
+
     [Fact]
     public async Task Test_ReturnsNotFound_WhenProfileDoesNotExist()
     {
@@ -83,15 +109,32 @@ public sealed class SftpConnectionProfilesControllerTests
 
     private static SftpConnectionProfilesController CreateController(
         SftpConnectionTestResult? testResult = null,
-        DeleteSftpConnectionProfileStatus deleteStatus = DeleteSftpConnectionProfileStatus.Deleted)
+        DeleteSftpConnectionProfileStatus deleteStatus = DeleteSftpConnectionProfileStatus.Deleted,
+        FakeProfileService? profileService = null)
     {
         return new SftpConnectionProfilesController(
-            new FakeProfileService { DeleteStatus = deleteStatus },
+            profileService ?? new FakeProfileService { DeleteStatus = deleteStatus },
             new FakeHostKeyScanner(),
             new FakeConnectionTestService
             {
                 Result = testResult ?? new SftpConnectionTestResult { ProfileFound = false }
             });
+    }
+
+    private static UpsertSftpConnectionProfileRequest CreateRequest(
+        string authenticationMethod,
+        bool removePassphrase)
+    {
+        return new UpsertSftpConnectionProfileRequest(
+            "profile",
+            "sftp.example.com",
+            22,
+            "sync-user",
+            authenticationMethod,
+            "replacement-password",
+            "replacement-key",
+            "replacement-passphrase",
+            removePassphrase);
     }
 
     private sealed class FakeHostKeyScanner : ISshHostKeyScanner
@@ -112,6 +155,8 @@ public sealed class SftpConnectionProfilesControllerTests
     {
         public DeleteSftpConnectionProfileStatus DeleteStatus { get; init; }
 
+        public UpsertSftpConnectionProfile? LastUpsert { get; private set; }
+
         public Task<DeleteSftpConnectionProfileStatus> DeleteAsync(Guid id, CancellationToken cancellationToken = default)
             => Task.FromResult(DeleteStatus);
 
@@ -122,6 +167,23 @@ public sealed class SftpConnectionProfilesControllerTests
             => throw new NotSupportedException();
 
         public Task<SftpConnectionProfile> UpsertAsync(UpsertSftpConnectionProfile profile, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
+        {
+            LastUpsert = profile;
+            return Task.FromResult(new SftpConnectionProfile
+            {
+                Id = profile.Id ?? Guid.NewGuid(),
+                Name = profile.Name,
+                Host = profile.Host,
+                Port = profile.Port,
+                Username = profile.Username,
+                EncryptedPassword = profile.AuthenticationMethod == SftpAuthenticationMethod.Password
+                    ? "encrypted-password"
+                    : null,
+                EncryptedPrivateKey = profile.AuthenticationMethod == SftpAuthenticationMethod.PrivateKey
+                    ? "encrypted-key"
+                    : null,
+                IsDefault = profile.IsDefault
+            });
+        }
     }
 }

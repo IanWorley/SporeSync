@@ -18,11 +18,16 @@ public sealed record UpsertSftpConnectionProfileRequest(
     [param: MaxLength(200)]
     string Username,
 
+    [param: Required]
+    string AuthenticationMethod,
+
     string? Password,
 
     string? PrivateKey,
 
     string? PrivateKeyPassphrase,
+
+    bool RemovePrivateKeyPassphrase = false,
 
     [param: MaxLength(100)]
     string? HostKeyFingerprintSha256 = null,

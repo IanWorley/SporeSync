@@ -819,16 +819,20 @@ function ProfileForm({
   const [host, setHost] = useState(profile?.host ?? "");
   const [port, setPort] = useState(profile?.port ?? 22);
   const [username, setUsername] = useState(profile?.username ?? "");
+  const [authenticationMethod, setAuthenticationMethod] = useState<
+    "password" | "privateKey"
+  >(profile?.authenticationMethod ?? "password");
   const [password, setPassword] = useState("");
   const [privateKey, setPrivateKey] = useState("");
   const [privateKeyPassphrase, setPrivateKeyPassphrase] = useState("");
+  const [removePrivateKeyPassphrase, setRemovePrivateKeyPassphrase] =
+    useState(false);
   const [hostKeyFingerprint, setHostKeyFingerprint] = useState(
     profile?.hostKeyFingerprintSha256 ?? "",
   );
   const [isDefault, setIsDefault] = useState(profile?.isDefault ?? true);
-  const hasExistingSecret = Boolean(
-    profile?.hasPassword || profile?.hasPrivateKey,
-  );
+  const preservesSelectedCredential =
+    profile?.authenticationMethod === authenticationMethod;
   const scanMutation = useMutation({
     mutationFn: () => api.scanHostKey(host.trim(), port),
     onSuccess: (result) => {
@@ -840,10 +844,29 @@ function ProfileForm({
     if (!host.trim()) return "Host is required.";
     if (port < 1 || port > 65535) return "Port must be between 1 and 65535.";
     if (!username.trim()) return "Username is required.";
-    if (!hasExistingSecret && !password.trim() && !privateKey.trim())
-      return "Password or private key is required.";
+    if (
+      authenticationMethod === "password" &&
+      !preservesSelectedCredential &&
+      !password.trim()
+    )
+      return "Password is required when selecting password authentication.";
+    if (
+      authenticationMethod === "privateKey" &&
+      !preservesSelectedCredential &&
+      !privateKey.trim()
+    )
+      return "Private key is required when selecting key authentication.";
     return undefined;
-  }, [hasExistingSecret, host, name, password, port, privateKey, username]);
+  }, [
+    authenticationMethod,
+    host,
+    name,
+    password,
+    port,
+    preservesSelectedCredential,
+    privateKey,
+    username,
+  ]);
 
   return (
     <form
@@ -856,11 +879,13 @@ function ProfileForm({
             host,
             port,
             username,
+            authenticationMethod,
             password: password.trim() ? password : null,
             privateKey: privateKey.trim() ? privateKey : null,
             privateKeyPassphrase: privateKeyPassphrase.trim()
               ? privateKeyPassphrase
               : null,
+            removePrivateKeyPassphrase,
             // The form always knows the current pin, so submit it verbatim;
             // an empty value clears the pin and re-enables trust-on-first-use.
             hostKeyFingerprintSha256: hostKeyFingerprint.trim(),
@@ -905,37 +930,107 @@ function ProfileForm({
             onChange={(event) => setUsername(event.target.value)}
           />
         </Field>
-        <Field label={profile?.hasPassword ? "Replace password" : "Password"}>
-          <input
+        <Field label="Authentication method">
+          <select
             className={inputClass}
-            type="password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-          />
+            value={authenticationMethod}
+            onChange={(event) => {
+              setAuthenticationMethod(
+                event.target.value as "password" | "privateKey",
+              );
+              setRemovePrivateKeyPassphrase(false);
+            }}
+          >
+            <option value="password">Password</option>
+            <option value="privateKey">Private key</option>
+          </select>
         </Field>
-        <Field
-          label={profile?.hasPrivateKey ? "Replace private key" : "Private key"}
-        >
-          <textarea
-            className={`${inputClass} min-h-24 py-2 font-mono text-xs`}
-            value={privateKey}
-            onChange={(event) => setPrivateKey(event.target.value)}
-          />
-        </Field>
-        <Field
-          label={
-            profile?.hasPrivateKeyPassphrase
-              ? "Replace key passphrase"
-              : "Key passphrase"
-          }
-        >
-          <input
-            className={inputClass}
-            type="password"
-            value={privateKeyPassphrase}
-            onChange={(event) => setPrivateKeyPassphrase(event.target.value)}
-          />
-        </Field>
+        <div className="hidden md:block" />
+        {authenticationMethod === "password" ? (
+          <div className="md:col-span-2">
+            <Field
+              label={
+                preservesSelectedCredential ? "Replace password" : "Password"
+              }
+            >
+              <input
+                className={inputClass}
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+              />
+            </Field>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {preservesSelectedCredential
+                ? "Leave blank to keep the stored password. Enter a value to replace it."
+                : "A password is required. Saving removes any stored private key and passphrase."}
+            </p>
+          </div>
+        ) : (
+          <>
+            <div className="md:col-span-2">
+              <Field
+                label={
+                  preservesSelectedCredential
+                    ? "Replace private key"
+                    : "Private key"
+                }
+              >
+                <textarea
+                  className={`${inputClass} min-h-24 py-2 font-mono text-xs`}
+                  value={privateKey}
+                  onChange={(event) => setPrivateKey(event.target.value)}
+                />
+              </Field>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {preservesSelectedCredential
+                  ? "Leave blank to keep the stored key. Enter a value to replace it."
+                  : "A private key is required. Saving removes any stored password."}
+              </p>
+            </div>
+            <div className="md:col-span-2">
+              <Field
+                label={
+                  profile?.hasPrivateKeyPassphrase &&
+                  preservesSelectedCredential
+                    ? "Replace key passphrase"
+                    : "Key passphrase (optional)"
+                }
+              >
+                <input
+                  className={inputClass}
+                  disabled={removePrivateKeyPassphrase}
+                  type="password"
+                  value={privateKeyPassphrase}
+                  onChange={(event) =>
+                    setPrivateKeyPassphrase(event.target.value)
+                  }
+                />
+              </Field>
+              {profile?.hasPrivateKeyPassphrase &&
+                preservesSelectedCredential && (
+                  <label className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+                    <input
+                      checked={removePrivateKeyPassphrase}
+                      type="checkbox"
+                      onChange={(event) => {
+                        setRemovePrivateKeyPassphrase(event.target.checked);
+                        if (event.target.checked) setPrivateKeyPassphrase("");
+                      }}
+                    />
+                    Remove the stored passphrase
+                  </label>
+                )}
+              <p className="mt-1 text-xs text-muted-foreground">
+                {profile?.hasPrivateKeyPassphrase && preservesSelectedCredential
+                  ? removePrivateKeyPassphrase
+                    ? "The stored passphrase will be removed."
+                    : "Leave blank to keep the stored passphrase, or enter a value to replace it."
+                  : "Leave blank when the private key has no passphrase."}
+              </p>
+            </div>
+          </>
+        )}
         <div className="md:col-span-2">
           <Field label="Pinned host key fingerprint (SHA-256)">
             <div className="flex gap-2">

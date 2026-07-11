@@ -6,6 +6,7 @@ public sealed record SftpConnectionProfileResponse(
     string Host,
     int Port,
     string Username,
+    string AuthenticationMethod,
     bool HasPassword,
     bool HasPrivateKey,
     bool HasPrivateKeyPassphrase,

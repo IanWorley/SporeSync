@@ -103,6 +103,9 @@ the PostgreSQL and SFTP containers automatically.
 
 ## Conventions
 
+- Only submit pull requests with fewer than 500 changed lines of code. If a
+  change requires 500 lines or more, split it into separate issues and
+  feature branches so each pull request is easier for humans to review.
 - Do not commit `SporeSync.Web/wwwroot/` (generated) or
   `SporeSync.Web/ClientApp/node_modules/`.
 - The backend runs FluentMigrator migrations on startup; add schema changes as

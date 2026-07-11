@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using SporeSync.Business.Interface;
 using SporeSync.Business.Observability;
@@ -27,29 +28,30 @@ public sealed class DownloadWorkerHostedServiceTests : IDisposable
     public async Task ProcessNextItemAsync_MarksClaimedItemFailed_WhenHostKeyMismatchFailsConnect()
     {
         var runId = Guid.NewGuid();
-        var job = new SporeSyncJob
-        {
-            Id = Guid.NewGuid(),
-            ConnectionProfileId = Guid.NewGuid(),
-            Name = "host-key-mismatch",
-            SourcePath = "/remote",
-            DestinationPath = _destinationRoot,
-            PollingIntervalSeconds = 120,
-            IsEnabled = true
-        };
-        var item = CreateQueueItem(job.Id, runId, Path.Combine(_destinationRoot, "file.txt"));
-        var queueRepository = new RecordingDownloadQueueItemRepository(item);
-        var runRepository = new RecordingSporeSyncRunRepository(job.Id, runId);
+        var job = CreateJob(Guid.NewGuid(), Guid.NewGuid(), _destinationRoot);
+        var item = CreateItem(job.Id, runId, "/remote/file.txt", Path.Combine(_destinationRoot, "file.txt"), "downloading");
+        var queueRepository = new RecordingQueueRepository(item);
+        var runRepository = new RecordingRunRepository(CreateRun(runId, job.Id, "downloading"));
 
         await using var provider = CreateProvider(
             job,
             queueRepository,
             runRepository,
-            new SshHostKeyMismatchException(
-                "sftp.example.com",
-                22,
-                "SHA256:expected",
-                "SHA256:actual"));
+            new SftpFileDownloader(
+                new ThrowingSftpClientFactory(new SshHostKeyMismatchException(
+                    "sftp.example.com",
+                    22,
+                    "SHA256:expected",
+                    "SHA256:actual")),
+                new LocalDestinationPathSandbox(Options.Create(new SporeSyncOptions
+                {
+                    DestinationRootPath = _destinationRoot
+                })),
+                Options.Create(new SporeSyncOptions
+                {
+                    DestinationRootPath = _destinationRoot
+                }),
+                NullLogger<SftpFileDownloader>.Instance));
 
         var worker = provider.GetRequiredService<DownloadWorkerHostedService>();
 
@@ -61,63 +63,148 @@ public sealed class DownloadWorkerHostedServiceTests : IDisposable
         Assert.Equal("failed", failed.Status);
         Assert.Equal(0, failed.BytesDownloaded);
         Assert.Contains("SSH host key verification failed", failed.ErrorMessage);
-        Assert.NotNull(queueRepository.CurrentItem.CompletedAt);
+        Assert.NotNull(queueRepository.Item(item.Id).CompletedAt);
         Assert.Equal("completed", runRepository.LastStatusUpdate?.Status);
+    }
+
+    [Fact]
+    public async Task ProcessNextItemAsync_StopsGroupAfterRunCancelled()
+    {
+        var runId = Guid.NewGuid();
+        var job = CreateJob(Guid.NewGuid(), Guid.NewGuid(), "/local");
+        var now = DateTimeOffset.UtcNow;
+        var group = CreateItem(job.Id, runId, "/remote/show/", "/local/show", "queued", now, isGroup: true, childCount: 2, fileSizeBytes: 20);
+        var firstLeaf = CreateItem(job.Id, runId, "/remote/show/one.txt", "/local/show/one.txt", "queued", now, fileSizeBytes: 10, groupRemotePath: group.RemotePath);
+        var secondLeaf = CreateItem(job.Id, runId, "/remote/show/two.txt", "/local/show/two.txt", "queued", now, fileSizeBytes: 10, groupRemotePath: group.RemotePath);
+
+        var runRepository = new RecordingRunRepository(CreateRun(runId, job.Id, "downloading"));
+        var queueRepository = new RecordingQueueRepository(group, [firstLeaf, secondLeaf]);
+        var downloader = new SuccessfulDownloader(() =>
+        {
+            queueRepository.CancelQueuedItems(runId);
+            runRepository.CancelRun();
+        });
+        await using var provider = CreateProvider(job, queueRepository, runRepository, downloader);
+        var worker = provider.GetRequiredService<DownloadWorkerHostedService>();
+
+        Assert.True(await worker.ProcessNextItemAsync(CancellationToken.None));
+
+        Assert.Equal([firstLeaf.RemotePath], downloader.DownloadedRemotePaths);
+        Assert.Equal("completed", queueRepository.Item(firstLeaf.Id).Status);
+        Assert.Equal("skipped", queueRepository.Item(secondLeaf.Id).Status);
+        Assert.Equal("run_cancelled", queueRepository.Item(secondLeaf.Id).HandledReason);
+        Assert.Equal("skipped", queueRepository.Item(group.Id).Status);
+        Assert.Equal("run_cancelled", queueRepository.Item(group.Id).HandledReason);
+        Assert.Equal("cancelled", runRepository.RecalculatedStatus);
+        Assert.False(runRepository.CompletedRun);
+    }
+
+    [Fact]
+    public async Task ProcessNextItemAsync_DoesNotCompleteGroup_WhenRunCancelledAfterFinalLeaf()
+    {
+        var runId = Guid.NewGuid();
+        var job = CreateJob(Guid.NewGuid(), Guid.NewGuid(), "/local");
+        var now = DateTimeOffset.UtcNow;
+        var group = CreateItem(job.Id, runId, "/remote/show/", "/local/show", "queued", now, isGroup: true, childCount: 1, fileSizeBytes: 10);
+        var leaf = CreateItem(job.Id, runId, "/remote/show/one.txt", "/local/show/one.txt", "queued", now, fileSizeBytes: 10, groupRemotePath: group.RemotePath);
+
+        var runRepository = new RecordingRunRepository(CreateRun(runId, job.Id, "downloading"));
+        var queueRepository = new RecordingQueueRepository(group, [leaf]);
+        var downloader = new SuccessfulDownloader(runRepository.CancelRun);
+        await using var provider = CreateProvider(job, queueRepository, runRepository, downloader);
+        var worker = provider.GetRequiredService<DownloadWorkerHostedService>();
+
+        Assert.True(await worker.ProcessNextItemAsync(CancellationToken.None));
+
+        Assert.Equal("completed", queueRepository.Item(leaf.Id).Status);
+        Assert.Equal("skipped", queueRepository.Item(group.Id).Status);
+        Assert.Equal("run_cancelled", queueRepository.Item(group.Id).HandledReason);
+        Assert.Equal("cancelled", runRepository.RecalculatedStatus);
+        Assert.False(runRepository.CompletedRun);
     }
 
     private ServiceProvider CreateProvider(
         SporeSyncJob job,
         IDownloadQueueItemRepository queueRepository,
         ISporeSyncRunRepository runRepository,
-        Exception connectException)
+        ISftpFileDownloader downloader)
     {
         var services = new ServiceCollection();
-        services.AddLogging();
         services.AddSingleton(Options.Create(new SporeSyncOptions
         {
             DestinationRootPath = _destinationRoot,
             DownloadPollIntervalMs = 1
         }));
-        services.AddSingleton<SporeSyncMetrics>();
-        services.AddSingleton<ISyncDashboardNotifier, RecordingSyncDashboardNotifier>();
-        services.AddSingleton<IDownloadQueueItemRepository>(queueRepository);
-        services.AddSingleton<ISporeSyncRunRepository>(runRepository);
+        services.AddSingleton(new SporeSyncMetrics());
+        services.AddSingleton(new DownloadRetryPolicy(Options.Create(new SporeSyncOptions())));
+        services.AddSingleton(queueRepository);
+        services.AddSingleton(runRepository);
         services.AddSingleton<ISporeSyncJobRepository>(new SingleJobRepository(job));
-        services.AddSingleton<ISftpClientFactory>(new ThrowingSftpClientFactory(connectException));
-        services.AddSingleton<LocalDestinationPathSandbox>();
-        services.AddSingleton<SftpFileDownloader>();
-        services.AddSingleton<ISftpFileDownloader>(sp => sp.GetRequiredService<SftpFileDownloader>());
-        services.AddSingleton<DownloadRetryPolicy>();
+        services.AddSingleton(downloader);
+        services.AddSingleton<ISyncDashboardNotifier, NoOpNotifier>();
         services.AddSingleton<DownloadWorkerHostedService>();
+        services.AddSingleton<ILogger<DownloadWorkerHostedService>>(NullLogger<DownloadWorkerHostedService>.Instance);
         return services.BuildServiceProvider();
     }
 
-    private static DownloadQueueItem CreateQueueItem(Guid jobId, Guid runId, string destinationPath)
+    private static SporeSyncJob CreateJob(Guid jobId, Guid profileId, string destinationPath)
     {
-        var now = DateTimeOffset.UtcNow;
+        return new SporeSyncJob
+        {
+            Id = jobId,
+            ConnectionProfileId = profileId,
+            Name = "job",
+            SourcePath = "/remote",
+            DestinationPath = destinationPath,
+            PollingIntervalSeconds = 60,
+            IsEnabled = true
+        };
+    }
+
+    private static DownloadQueueItem CreateItem(
+        Guid jobId,
+        Guid runId,
+        string remotePath,
+        string destinationPath,
+        string status,
+        DateTimeOffset? now = null,
+        bool isGroup = false,
+        int childCount = 0,
+        long fileSizeBytes = 10,
+        string? groupRemotePath = null)
+    {
+        var timestamp = now ?? DateTimeOffset.UtcNow;
         return new DownloadQueueItem
         {
             Id = Guid.NewGuid(),
             JobId = jobId,
             SyncRunId = runId,
-            RemotePath = "/remote/file.txt",
+            RemotePath = remotePath,
             DestinationPath = destinationPath,
-            FileSizeBytes = 100,
-            RemoteModifiedAt = now,
-            Status = "downloading",
+            FileSizeBytes = fileSizeBytes,
+            RemoteModifiedAt = timestamp,
+            Status = status,
             BytesDownloaded = 0,
             RetryCount = 0,
-            QueuedAt = now,
-            StartedAt = now,
-            UpdatedAt = now,
-            IsGroup = false,
-            ChildCount = 0
+            QueuedAt = timestamp,
+            StartedAt = status == "downloading" ? timestamp : null,
+            UpdatedAt = timestamp,
+            IsGroup = isGroup,
+            GroupRemotePath = groupRemotePath,
+            ChildCount = childCount
         };
     }
 
-    private static DownloadQueueItem ApplyUpdate(DownloadQueueItem item, UpdateDownloadQueueItemProgress update)
+    private static DownloadQueueItem CopyWith(
+        DownloadQueueItem item,
+        string? status = null,
+        long? bytesDownloaded = null,
+        decimal? currentBytesPerSecond = null,
+        string? errorMessage = null,
+        string? handledReason = null,
+        DateTimeOffset? completedAt = null,
+        int? retryCount = null)
     {
-        var now = DateTimeOffset.UtcNow;
         return new DownloadQueueItem
         {
             Id = item.Id,
@@ -127,20 +214,354 @@ public sealed class DownloadWorkerHostedServiceTests : IDisposable
             DestinationPath = item.DestinationPath,
             FileSizeBytes = item.FileSizeBytes,
             RemoteModifiedAt = item.RemoteModifiedAt,
-            Status = update.Status,
-            BytesDownloaded = update.BytesDownloaded,
-            CurrentBytesPerSecond = update.CurrentBytesPerSecond,
-            RetryCount = item.RetryCount,
-            HandledReason = update.HandledReason,
-            ErrorMessage = update.ErrorMessage,
+            Status = status ?? item.Status,
+            BytesDownloaded = bytesDownloaded ?? item.BytesDownloaded,
+            CurrentBytesPerSecond = currentBytesPerSecond,
+            RetryCount = retryCount ?? item.RetryCount,
+            HandledReason = handledReason,
+            ErrorMessage = errorMessage,
             QueuedAt = item.QueuedAt,
             StartedAt = item.StartedAt,
-            CompletedAt = update.Status is "completed" or "failed" or "skipped" ? now : null,
-            UpdatedAt = now,
+            CompletedAt = completedAt ?? item.CompletedAt,
+            UpdatedAt = DateTimeOffset.UtcNow,
             IsGroup = item.IsGroup,
             GroupRemotePath = item.GroupRemotePath,
             ChildCount = item.ChildCount
         };
+    }
+
+    private static SporeSyncRun CreateRun(Guid runId, Guid jobId, string status)
+    {
+        return new SporeSyncRun
+        {
+            Id = runId,
+            JobId = jobId,
+            JobName = "job",
+            Status = status,
+            StartedAt = DateTimeOffset.UtcNow,
+            CompletedAt = status is "completed" or "cancelled" ? DateTimeOffset.UtcNow : null,
+            TotalFileCount = 1,
+            CompletedFileCount = 0,
+            SkippedFileCount = 0,
+            FailedFileCount = 0,
+            TotalBytes = 20,
+            DownloadedBytes = 0
+        };
+    }
+
+    private static SporeSyncRun CopyRunWith(SporeSyncRun run, string status)
+    {
+        return new SporeSyncRun
+        {
+            Id = run.Id,
+            JobId = run.JobId,
+            JobName = run.JobName,
+            Status = status,
+            StartedAt = run.StartedAt,
+            CompletedAt = status is "completed" or "cancelled" ? DateTimeOffset.UtcNow : run.CompletedAt,
+            TotalFileCount = run.TotalFileCount,
+            CompletedFileCount = run.CompletedFileCount,
+            SkippedFileCount = run.SkippedFileCount,
+            FailedFileCount = run.FailedFileCount,
+            TotalBytes = run.TotalBytes,
+            DownloadedBytes = run.DownloadedBytes,
+            CurrentBytesPerSecond = run.CurrentBytesPerSecond,
+            ErrorMessage = run.ErrorMessage
+        };
+    }
+
+    private sealed class RecordingQueueRepository : IDownloadQueueItemRepository
+    {
+        private readonly Dictionary<Guid, DownloadQueueItem> _items;
+        private readonly Guid _claimId;
+        private readonly List<Guid> _leafIds;
+        private bool _claimed;
+
+        public RecordingQueueRepository(DownloadQueueItem item)
+        {
+            _claimId = item.Id;
+            _leafIds = [];
+            _items = new Dictionary<Guid, DownloadQueueItem> { [item.Id] = item };
+        }
+
+        public RecordingQueueRepository(DownloadQueueItem group, IReadOnlyList<DownloadQueueItem> leaves)
+        {
+            _claimId = group.Id;
+            _leafIds = leaves.Select(leaf => leaf.Id).ToList();
+            _items = leaves.Concat([group]).ToDictionary(item => item.Id);
+        }
+
+        public List<UpdateDownloadQueueItemProgress> Updates { get; } = [];
+
+        public DownloadQueueItem Item(Guid id) => _items[id];
+
+        public void CancelQueuedItems(Guid runId)
+        {
+            foreach (var item in _items.Values.Where(item => item.SyncRunId == runId && item.Status == "queued").ToArray())
+            {
+                _items[item.Id] = CopyWith(
+                    item,
+                    status: "skipped",
+                    handledReason: "run_cancelled",
+                    completedAt: DateTimeOffset.UtcNow);
+            }
+        }
+
+        public Task<DownloadQueueItem?> ClaimNextAsync(int leaseSeconds, CancellationToken cancellationToken = default)
+        {
+            if (_claimed)
+            {
+                return Task.FromResult<DownloadQueueItem?>(null);
+            }
+
+            _claimed = true;
+            var claimed = CopyWith(_items[_claimId], status: "downloading");
+            _items[_claimId] = claimed;
+            return Task.FromResult<DownloadQueueItem?>(claimed);
+        }
+
+        public Task<bool> RenewLeaseAsync(Guid id, int leaseSeconds, CancellationToken cancellationToken = default)
+            => Task.FromResult(_items.ContainsKey(id));
+
+        public Task<DownloadQueueItem?> ReleaseAsync(Guid id, CancellationToken cancellationToken = default)
+            => Task.FromResult(_items.GetValueOrDefault(id));
+
+        public Task<IReadOnlyList<DownloadQueueItem>> RequeueStaleAsync(
+            bool ignoreLeases,
+            CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<IReadOnlyList<DownloadQueueItem>> GetLeavesForGroupAsync(
+            Guid runId,
+            string groupRemotePath,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<DownloadQueueItem>>(_leafIds.Select(id => _items[id]).ToList());
+
+        public Task<DownloadQueueItem?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
+            => Task.FromResult(_items.GetValueOrDefault(id));
+
+        public Task<DownloadQueueItem> UpdateProgressAsync(
+            UpdateDownloadQueueItemProgress update,
+            CancellationToken cancellationToken = default)
+        {
+            Updates.Add(update);
+            var current = _items[update.Id];
+            var updated = CopyWith(
+                current,
+                update.Status,
+                update.BytesDownloaded,
+                update.CurrentBytesPerSecond,
+                update.ErrorMessage,
+                update.HandledReason,
+                update.Status is "completed" or "failed" or "skipped" ? DateTimeOffset.UtcNow : null);
+            _items[update.Id] = updated;
+            return Task.FromResult(updated);
+        }
+
+        public Task<DownloadQueueItem> RecordFailureAsync(
+            Guid id,
+            string? errorMessage,
+            int maxRetries,
+            DateTimeOffset nextAttemptAt,
+            long? bytesDownloaded = null,
+            CancellationToken cancellationToken = default)
+        {
+            var current = _items[id];
+            var retryCount = current.RetryCount + 1;
+            var failed = retryCount > maxRetries;
+            var updated = CopyWith(
+                current,
+                failed ? "failed" : "queued",
+                bytesDownloaded ?? current.BytesDownloaded,
+                errorMessage: errorMessage,
+                handledReason: failed ? "retry_budget_exhausted" : "retry_scheduled",
+                completedAt: failed ? DateTimeOffset.UtcNow : null,
+                retryCount: retryCount);
+            _items[id] = updated;
+            return Task.FromResult(updated);
+        }
+
+        public Task<DownloadQueueItem> DeferAsync(
+            Guid id,
+            DateTimeOffset nextAttemptAt,
+            string reason,
+            long? bytesDownloaded = null,
+            CancellationToken cancellationToken = default)
+        {
+            var current = _items[id];
+            var updated = CopyWith(current, "queued", bytesDownloaded ?? current.BytesDownloaded, handledReason: reason);
+            _items[id] = updated;
+            return Task.FromResult(updated);
+        }
+
+        public Task<PagedResult<DownloadQueueItem>> GetByRunIdAsync(
+            Guid runId,
+            QueueItemQuery query,
+            CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<DownloadQueueItem> UpsertAsync(UpsertDownloadQueueItem item, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<IReadOnlyList<DownloadQueueItem>> UpsertManyAsync(
+            IReadOnlyCollection<UpsertDownloadQueueItem> items,
+            CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<IReadOnlyDictionary<string, SyncedRemoteState>> GetSyncedStateAsync(Guid jobId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<IReadOnlyList<DownloadQueueItem>> MarkRemoteDeletedAsync(
+            Guid jobId,
+            Guid syncRunId,
+            IReadOnlyCollection<string> remotePaths,
+            CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<int> RequeueFailedAsync(Guid jobId, Guid syncRunId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<DownloadQueueItem?> RetryAsync(Guid id, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+    }
+
+    private sealed class RecordingRunRepository : ISporeSyncRunRepository
+    {
+        private SporeSyncRun _run;
+
+        public RecordingRunRepository(SporeSyncRun run)
+        {
+            _run = run;
+        }
+
+        public string? RecalculatedStatus { get; private set; }
+
+        public bool CompletedRun { get; private set; }
+
+        public UpdateSporeSyncRunStatus? LastStatusUpdate { get; private set; }
+
+        public void CancelRun()
+        {
+            _run = CopyRunWith(_run, "cancelled");
+        }
+
+        public Task<SporeSyncRun?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
+            => Task.FromResult<SporeSyncRun?>(_run.Id == id ? _run : null);
+
+        public Task<SporeSyncRun> RecalculateAggregatesAsync(Guid runId, CancellationToken cancellationToken = default)
+        {
+            RecalculatedStatus = _run.Status;
+            return Task.FromResult(_run);
+        }
+
+        public Task<bool> HasPendingDownloadsAsync(Guid runId, CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
+
+        public Task<SporeSyncRun> UpdateStatusAsync(UpdateSporeSyncRunStatus update, CancellationToken cancellationToken = default)
+        {
+            LastStatusUpdate = update;
+            CompletedRun = string.Equals(update.Status, "completed", StringComparison.OrdinalIgnoreCase);
+            _run = CopyRunWith(_run, update.Status);
+            return Task.FromResult(_run);
+        }
+
+        public Task<PagedResult<SporeSyncRun>> GetRunsAsync(RunQuery query, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<SporeSyncRun?> CreateAsync(
+            Guid jobId,
+            int leaseSeconds = 1800,
+            CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<bool> HasActiveRunAsync(Guid jobId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<bool> RenewLeaseAsync(Guid runId, int leaseSeconds, CancellationToken cancellationToken = default)
+            => Task.FromResult(_run.Id == runId);
+
+        public Task<SyncHistoryPruneResult> PruneHistoryAsync(DateTimeOffset cutoff, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<IReadOnlyList<SporeSyncRun>> ReapOrphanedAsync(
+            bool ignoreLeases,
+            CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<int> RetryFailedItemsAsync(Guid runId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<SporeSyncRun> AdvanceScanStatusAsync(
+            UpdateSporeSyncRunStatus update,
+            string expectedStatus,
+            CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<SporeSyncRun?> CancelAsync(Guid runId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+    }
+
+    private sealed class SingleJobRepository : ISporeSyncJobRepository
+    {
+        private readonly SporeSyncJob _job;
+
+        public SingleJobRepository(SporeSyncJob job)
+        {
+            _job = job;
+        }
+
+        public Task<SporeSyncJob?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
+            => Task.FromResult<SporeSyncJob?>(_job.Id == id ? _job : null);
+
+        public Task<IReadOnlyCollection<SporeSyncJob>> GetAllAsync(CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<SporeSyncJob> UpsertAsync(UpsertSporeSyncJob job, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<IReadOnlyCollection<SporeSyncJob>> GetDueJobsAsync(CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task MarkPolledAsync(Guid id, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<int> CountByConnectionProfileAsync(Guid connectionProfileId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+    }
+
+    private sealed class SuccessfulDownloader : ISftpFileDownloader
+    {
+        private readonly Action? _afterDownload;
+
+        public SuccessfulDownloader(Action? afterDownload = null)
+        {
+            _afterDownload = afterDownload;
+        }
+
+        public List<string> DownloadedRemotePaths { get; } = [];
+
+        public Task<SftpDownloadResult> DownloadAsync(
+            Guid connectionProfileId,
+            string remotePath,
+            string localPath,
+            CancellationToken cancellationToken = default)
+            => DownloadAsync(connectionProfileId, remotePath, localPath, null, cancellationToken);
+
+        public Task<SftpDownloadResult> DownloadAsync(
+            Guid connectionProfileId,
+            string remotePath,
+            string localPath,
+            IProgress<long>? progress,
+            CancellationToken cancellationToken = default)
+        {
+            DownloadedRemotePaths.Add(remotePath);
+            progress?.Report(10);
+            _afterDownload?.Invoke();
+            return Task.FromResult(new SftpDownloadResult(true, 10, 100, null));
+        }
     }
 
     private sealed class ThrowingSftpClientFactory : ISftpClientFactory
@@ -160,267 +581,7 @@ public sealed class DownloadWorkerHostedServiceTests : IDisposable
         }
     }
 
-    private sealed class RecordingDownloadQueueItemRepository : IDownloadQueueItemRepository
-    {
-        private bool _claimed;
-
-        public RecordingDownloadQueueItemRepository(DownloadQueueItem item)
-        {
-            CurrentItem = item;
-        }
-
-        public DownloadQueueItem CurrentItem { get; private set; }
-
-        public List<UpdateDownloadQueueItemProgress> Updates { get; } = [];
-
-        public Task<PagedResult<DownloadQueueItem>> GetByRunIdAsync(
-            Guid runId,
-            QueueItemQuery query,
-            CancellationToken cancellationToken = default)
-        {
-            throw new NotSupportedException();
-        }
-
-        public Task<DownloadQueueItem?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
-            => Task.FromResult<DownloadQueueItem?>(CurrentItem.Id == id ? CurrentItem : null);
-
-        public Task<IReadOnlyList<DownloadQueueItem>> GetLeavesForGroupAsync(
-            Guid runId,
-            string groupRemotePath,
-            CancellationToken cancellationToken = default)
-        {
-            throw new NotSupportedException();
-        }
-
-        public Task<DownloadQueueItem> UpsertAsync(
-            UpsertDownloadQueueItem item,
-            CancellationToken cancellationToken = default)
-        {
-            throw new NotSupportedException();
-        }
-
-        public Task<IReadOnlyList<DownloadQueueItem>> UpsertManyAsync(
-            IReadOnlyCollection<UpsertDownloadQueueItem> items,
-            CancellationToken cancellationToken = default)
-        {
-            throw new NotSupportedException();
-        }
-
-        public Task<IReadOnlyDictionary<string, SyncedRemoteState>> GetSyncedStateAsync(
-            Guid jobId,
-            CancellationToken cancellationToken = default)
-        {
-            throw new NotSupportedException();
-        }
-
-        public Task<DownloadQueueItem?> ClaimNextAsync(int leaseSeconds, CancellationToken cancellationToken = default)
-        {
-            if (_claimed)
-            {
-                return Task.FromResult<DownloadQueueItem?>(null);
-            }
-
-            _claimed = true;
-            return Task.FromResult<DownloadQueueItem?>(CurrentItem);
-        }
-
-        public Task<bool> RenewLeaseAsync(Guid id, int leaseSeconds, CancellationToken cancellationToken = default)
-            => Task.FromResult(CurrentItem.Id == id);
-
-        public Task<DownloadQueueItem?> ReleaseAsync(Guid id, CancellationToken cancellationToken = default)
-            => Task.FromResult<DownloadQueueItem?>(CurrentItem.Id == id ? CurrentItem : null);
-
-        public Task<IReadOnlyList<DownloadQueueItem>> RequeueStaleAsync(
-            bool ignoreLeases,
-            CancellationToken cancellationToken = default)
-        {
-            throw new NotSupportedException();
-        }
-
-        public Task<DownloadQueueItem> UpdateProgressAsync(
-            UpdateDownloadQueueItemProgress update,
-            CancellationToken cancellationToken = default)
-        {
-            Updates.Add(update);
-            CurrentItem = ApplyUpdate(CurrentItem, update);
-            return Task.FromResult(CurrentItem);
-        }
-
-        public Task<IReadOnlyList<DownloadQueueItem>> MarkRemoteDeletedAsync(
-            Guid jobId,
-            Guid syncRunId,
-            IReadOnlyCollection<string> remotePaths,
-            CancellationToken cancellationToken = default)
-        {
-            throw new NotSupportedException();
-        }
-
-        public Task<int> RequeueFailedAsync(Guid jobId, Guid syncRunId, CancellationToken cancellationToken = default)
-        {
-            throw new NotSupportedException();
-        }
-
-        public Task<DownloadQueueItem> RecordFailureAsync(
-            Guid id,
-            string? errorMessage,
-            int maxRetries,
-            DateTimeOffset nextAttemptAt,
-            long? bytesDownloaded = null,
-            CancellationToken cancellationToken = default)
-        {
-            var update = new UpdateDownloadQueueItemProgress
-            {
-                Id = id,
-                Status = "failed",
-                BytesDownloaded = bytesDownloaded ?? 0,
-                ErrorMessage = errorMessage
-            };
-            Updates.Add(update);
-            CurrentItem = ApplyUpdate(CurrentItem, update);
-            return Task.FromResult(CurrentItem);
-        }
-
-        public Task<DownloadQueueItem> DeferAsync(
-            Guid id,
-            DateTimeOffset nextAttemptAt,
-            string reason,
-            long? bytesDownloaded = null,
-            CancellationToken cancellationToken = default)
-        {
-            throw new NotSupportedException();
-        }
-
-        public Task<DownloadQueueItem?> RetryAsync(Guid id, CancellationToken cancellationToken = default)
-        {
-            throw new NotSupportedException();
-        }
-    }
-
-    private sealed class SingleJobRepository : ISporeSyncJobRepository
-    {
-        private readonly SporeSyncJob _job;
-
-        public SingleJobRepository(SporeSyncJob job)
-        {
-            _job = job;
-        }
-
-        public Task<IReadOnlyCollection<SporeSyncJob>> GetAllAsync(CancellationToken cancellationToken = default)
-        {
-            throw new NotSupportedException();
-        }
-
-        public Task<SporeSyncJob?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
-            => Task.FromResult<SporeSyncJob?>(_job.Id == id ? _job : null);
-
-        public Task<SporeSyncJob> UpsertAsync(UpsertSporeSyncJob job, CancellationToken cancellationToken = default)
-        {
-            throw new NotSupportedException();
-        }
-
-        public Task<IReadOnlyCollection<SporeSyncJob>> GetDueJobsAsync(CancellationToken cancellationToken = default)
-        {
-            throw new NotSupportedException();
-        }
-
-        public Task MarkPolledAsync(Guid id, CancellationToken cancellationToken = default)
-        {
-            throw new NotSupportedException();
-        }
-    }
-
-    private sealed class RecordingSporeSyncRunRepository : ISporeSyncRunRepository
-    {
-        private readonly Guid _jobId;
-        private readonly Guid _runId;
-
-        public RecordingSporeSyncRunRepository(Guid jobId, Guid runId)
-        {
-            _jobId = jobId;
-            _runId = runId;
-        }
-
-        public UpdateSporeSyncRunStatus? LastStatusUpdate { get; private set; }
-
-        public Task<PagedResult<SporeSyncRun>> GetRunsAsync(
-            RunQuery query,
-            CancellationToken cancellationToken = default)
-        {
-            throw new NotSupportedException();
-        }
-
-        public Task<SporeSyncRun?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
-        {
-            throw new NotSupportedException();
-        }
-
-        public Task<SporeSyncRun?> CreateAsync(
-            Guid jobId,
-            int leaseSeconds = 1800,
-            CancellationToken cancellationToken = default)
-        {
-            throw new NotSupportedException();
-        }
-
-        public Task<SporeSyncRun> UpdateStatusAsync(
-            UpdateSporeSyncRunStatus update,
-            CancellationToken cancellationToken = default)
-        {
-            LastStatusUpdate = update;
-            return Task.FromResult(CreateRun(update.Status));
-        }
-
-        public Task<bool> HasActiveRunAsync(Guid jobId, CancellationToken cancellationToken = default)
-        {
-            throw new NotSupportedException();
-        }
-
-        public Task<SporeSyncRun> RecalculateAggregatesAsync(
-            Guid runId,
-            CancellationToken cancellationToken = default)
-            => Task.FromResult(CreateRun("downloading"));
-
-        public Task<bool> HasPendingDownloadsAsync(Guid runId, CancellationToken cancellationToken = default)
-            => Task.FromResult(false);
-
-        public Task<bool> RenewLeaseAsync(Guid runId, int leaseSeconds, CancellationToken cancellationToken = default)
-            => Task.FromResult(runId == _runId);
-
-        public Task<SyncHistoryPruneResult> PruneHistoryAsync(
-            DateTimeOffset cutoff,
-            CancellationToken cancellationToken = default)
-        {
-            throw new NotSupportedException();
-        }
-
-        public Task<IReadOnlyList<SporeSyncRun>> ReapOrphanedAsync(
-            bool ignoreLeases,
-            CancellationToken cancellationToken = default)
-        {
-            throw new NotSupportedException();
-        }
-
-        private SporeSyncRun CreateRun(string status)
-        {
-            return new SporeSyncRun
-            {
-                Id = _runId,
-                JobId = _jobId,
-                JobName = "host-key-mismatch",
-                Status = status,
-                StartedAt = DateTimeOffset.UtcNow,
-                CompletedAt = status == "completed" ? DateTimeOffset.UtcNow : null,
-                TotalFileCount = 1,
-                CompletedFileCount = 0,
-                SkippedFileCount = 0,
-                FailedFileCount = 1,
-                TotalBytes = 100,
-                DownloadedBytes = 0
-            };
-        }
-    }
-
-    private sealed class RecordingSyncDashboardNotifier : ISyncDashboardNotifier
+    private sealed class NoOpNotifier : ISyncDashboardNotifier
     {
         public Task NotifyRunUpdatedAsync(SporeSyncRun run, CancellationToken cancellationToken = default)
             => Task.CompletedTask;

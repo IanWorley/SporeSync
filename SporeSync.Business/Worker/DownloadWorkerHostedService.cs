@@ -94,6 +94,7 @@ public sealed class DownloadWorkerHostedService : BackgroundService
                     item,
                     job,
                     queueRepository,
+                    runRepository,
                     downloader,
                     clientFactory,
                     notifier,
@@ -278,6 +279,7 @@ public sealed class DownloadWorkerHostedService : BackgroundService
         DownloadQueueItem groupItem,
         SporeSyncJob job,
         IDownloadQueueItemRepository queueRepository,
+        ISporeSyncRunRepository runRepository,
         ISftpFileDownloader downloader,
         ISftpClientFactory clientFactory,
         ISyncDashboardNotifier notifier,
@@ -298,16 +300,32 @@ public sealed class DownloadWorkerHostedService : BackgroundService
         {
             foreach (var leaf in leaves)
             {
-                if (string.Equals(leaf.Status, "completed", StringComparison.OrdinalIgnoreCase))
+                if (await IsRunCancelledAsync(groupItem.SyncRunId.Value, runRepository, cancellationToken))
                 {
-                    groupBytesDownloaded += leaf.BytesDownloaded;
+                    return await MarkGroupCancelledAsync(groupItem, queueRepository, groupBytesDownloaded, cancellationToken);
+                }
+
+                var currentLeaf = await queueRepository.GetByIdAsync(leaf.Id, cancellationToken);
+                if (currentLeaf is null)
+                {
+                    continue;
+                }
+
+                if (string.Equals(currentLeaf.Status, "completed", StringComparison.OrdinalIgnoreCase))
+                {
+                    groupBytesDownloaded += currentLeaf.BytesDownloaded;
                     continue;
                 }
 
                 // Leaves marked skipped (e.g. deleted remotely) must not be downloaded
                 // and must not fail the group.
-                if (string.Equals(leaf.Status, "skipped", StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(currentLeaf.Status, "skipped", StringComparison.OrdinalIgnoreCase))
                 {
+                    if (string.Equals(currentLeaf.HandledReason, "run_cancelled", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return await MarkGroupCancelledAsync(groupItem, queueRepository, groupBytesDownloaded, cancellationToken);
+                    }
+
                     continue;
                 }
 
@@ -316,7 +334,7 @@ public sealed class DownloadWorkerHostedService : BackgroundService
                 {
                     await queueRepository.UpdateProgressAsync(new UpdateDownloadQueueItemProgress
                     {
-                        Id = leaf.Id,
+                        Id = currentLeaf.Id,
                         Status = "downloading",
                         BytesDownloaded = bytes,
                         CurrentBytesPerSecond = null,
@@ -325,7 +343,7 @@ public sealed class DownloadWorkerHostedService : BackgroundService
 
                     var visibleGroupBytes = Math.Min(
                         groupItem.FileSizeBytes,
-                        completedBeforeLeaf + Math.Min(bytes, leaf.FileSizeBytes));
+                        completedBeforeLeaf + Math.Min(bytes, currentLeaf.FileSizeBytes));
                     var groupPartial = await queueRepository.UpdateProgressAsync(new UpdateDownloadQueueItemProgress
                     {
                         Id = groupItem.Id,
@@ -349,8 +367,8 @@ public sealed class DownloadWorkerHostedService : BackgroundService
                     connection ??= await clientFactory.ConnectAsync(job.ConnectionProfileId, cancellationToken);
                     leafResult = await downloader.DownloadAsync(
                         connection,
-                        leaf.RemotePath,
-                        leaf.DestinationPath,
+                        currentLeaf.RemotePath,
+                        currentLeaf.DestinationPath,
                         leafProgress,
                         cancellationToken);
                 }
@@ -359,18 +377,18 @@ public sealed class DownloadWorkerHostedService : BackgroundService
                     _logger.LogWarning(
                         ex,
                         "Download setup failed for grouped leaf {RemotePath} in job {JobId}",
-                        leaf.RemotePath,
+                        currentLeaf.RemotePath,
                         job.Id);
                     leafResult = SftpDownloadResult.Failure(ex.Message);
                 }
 
-                RecordDownloadResult(job.Id, leaf.RemotePath, leafResult);
+                RecordDownloadResult(job.Id, currentLeaf.RemotePath, leafResult);
 
                 if (leafResult.Success)
                 {
                     await leafProgress.CompleteAsync(token => queueRepository.UpdateProgressAsync(new UpdateDownloadQueueItemProgress
                     {
-                        Id = leaf.Id,
+                        Id = currentLeaf.Id,
                         Status = "completed",
                         BytesDownloaded = leafResult.BytesDownloaded,
                         CurrentBytesPerSecond = leafResult.BytesPerSecond
@@ -385,21 +403,26 @@ public sealed class DownloadWorkerHostedService : BackgroundService
                 {
                     await leafProgress.CompleteAsync(token => queueRepository.UpdateProgressAsync(new UpdateDownloadQueueItemProgress
                     {
-                        Id = leaf.Id,
+                        Id = currentLeaf.Id,
                         Status = "queued",
-                        BytesDownloaded = leaf.BytesDownloaded,
+                        BytesDownloaded = currentLeaf.BytesDownloaded,
                         HandledReason = AwaitingRemoteStabilityReason
                     }, token));
 
                     groupDeferred = true;
+                    if (await IsRunCancelledAsync(groupItem.SyncRunId.Value, runRepository, cancellationToken))
+                    {
+                        return await MarkGroupCancelledAsync(groupItem, queueRepository, groupBytesDownloaded, cancellationToken);
+                    }
+
                     continue;
                 }
 
                 await leafProgress.CompleteAsync(token => queueRepository.UpdateProgressAsync(new UpdateDownloadQueueItemProgress
                 {
-                    Id = leaf.Id,
+                    Id = currentLeaf.Id,
                     Status = "failed",
-                    BytesDownloaded = leaf.BytesDownloaded,
+                    BytesDownloaded = currentLeaf.BytesDownloaded,
                     ErrorMessage = leafResult.ErrorMessage
                 }, token));
 
@@ -408,6 +431,11 @@ public sealed class DownloadWorkerHostedService : BackgroundService
                 {
                     await connection.DisposeAsync();
                     connection = null;
+                }
+
+                if (await IsRunCancelledAsync(groupItem.SyncRunId.Value, runRepository, cancellationToken))
+                {
+                    return await MarkGroupCancelledAsync(groupItem, queueRepository, groupBytesDownloaded, cancellationToken);
                 }
             }
         }
@@ -442,12 +470,43 @@ public sealed class DownloadWorkerHostedService : BackgroundService
                 cancellationToken);
         }
 
+        if (await IsRunCancelledAsync(groupItem.SyncRunId.Value, runRepository, cancellationToken))
+        {
+            return await MarkGroupCancelledAsync(groupItem, queueRepository, groupBytesDownloaded, cancellationToken);
+        }
+
         return await queueRepository.UpdateProgressAsync(new UpdateDownloadQueueItemProgress
         {
             Id = groupItem.Id,
             Status = "completed",
             BytesDownloaded = groupBytesDownloaded,
             CurrentBytesPerSecond = latestRate
+        }, cancellationToken);
+    }
+
+    private static async Task<bool> IsRunCancelledAsync(
+        Guid runId,
+        ISporeSyncRunRepository runRepository,
+        CancellationToken cancellationToken)
+    {
+        var currentRun = await runRepository.GetByIdAsync(runId, cancellationToken);
+        return string.Equals(currentRun?.Status, "cancelled", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static Task<DownloadQueueItem> MarkGroupCancelledAsync(
+        DownloadQueueItem groupItem,
+        IDownloadQueueItemRepository queueRepository,
+        long groupBytesDownloaded,
+        CancellationToken cancellationToken)
+    {
+        return queueRepository.UpdateProgressAsync(new UpdateDownloadQueueItemProgress
+        {
+            Id = groupItem.Id,
+            Status = "skipped",
+            BytesDownloaded = groupBytesDownloaded,
+            CurrentBytesPerSecond = null,
+            ErrorMessage = null,
+            HandledReason = "run_cancelled"
         }, cancellationToken);
     }
 

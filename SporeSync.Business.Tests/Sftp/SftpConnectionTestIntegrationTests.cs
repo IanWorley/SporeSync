@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Renci.SshNet.Common;
 using SporeSync.Business.Interface;
 using SporeSync.Business.Security;
 using SporeSync.Business.Service;
@@ -89,6 +90,18 @@ public sealed class SftpConnectionTestIntegrationTests : IClassFixture<SftpTestc
             service.TestAsync(PasswordRequest(SftpTestcontainerFixture.Password), cancellation.Token));
     }
 
+    [Fact]
+    public async Task OperationTimeout_IsClassifiedAsConnectionFailure()
+    {
+        var (service, _) = CreateService(new TimeoutSftpClientFactory());
+
+        var result = await TestAsync(service, PasswordRequest(SftpTestcontainerFixture.Password));
+
+        Assert.False(result.Success);
+        Assert.Equal("connection", result.FailureType);
+        Assert.Equal("The SFTP connection or operation timed out.", result.Message);
+    }
+
     private async Task<SftpConnectionTestResult> TestAsync(
         ISftpConnectionTestService service,
         SftpConnectionTestRequest request)
@@ -112,7 +125,8 @@ public sealed class SftpConnectionTestIntegrationTests : IClassFixture<SftpTestc
         SourcePath = sourcePath
     };
 
-    private static (SftpConnectionTestService Service, FakeProfileRepository Repository) CreateService()
+    private static (SftpConnectionTestService Service, FakeProfileRepository Repository) CreateService(
+        ISftpClientFactory? factory = null)
     {
         var keyProvider = new EncryptionKeyProvider();
         keyProvider.Initialize(RandomNumberGenerator.GetBytes(32));
@@ -123,7 +137,7 @@ public sealed class SftpConnectionTestIntegrationTests : IClassFixture<SftpTestc
             SftpConnectionTimeoutSeconds = 10,
             SftpOperationTimeoutSeconds = 10
         });
-        var factory = new SftpClientFactory(
+        factory ??= new SftpClientFactory(
             repository,
             protector,
             options,
@@ -133,6 +147,19 @@ public sealed class SftpConnectionTestIntegrationTests : IClassFixture<SftpTestc
             factory,
             protector,
             NullLogger<SftpConnectionTestService>.Instance), repository);
+    }
+
+    private sealed class TimeoutSftpClientFactory : ISftpClientFactory
+    {
+        public Task<IConnectedSftpClient> ConnectAsync(
+            Guid connectionProfileId,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<IConnectedSftpClient> ConnectAsync(
+            SftpConnectionProfile profile,
+            CancellationToken cancellationToken = default) =>
+            throw new SshOperationTimeoutException("secret-bearing provider detail");
     }
 
     private sealed class FakeProfileRepository(ISecretProtector protector) : ISftpConnectionProfileRepository

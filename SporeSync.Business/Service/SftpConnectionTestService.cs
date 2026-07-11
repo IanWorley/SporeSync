@@ -101,6 +101,10 @@ public sealed class SftpConnectionTestService : ISftpConnectionTestService
         {
             return Failure("connection", "Could not connect to the SFTP server.", stopwatch);
         }
+        catch (SshOperationTimeoutException)
+        {
+            return Failure("connection", "The SFTP connection or operation timed out.", stopwatch);
+        }
         catch (SshException)
         {
             return Failure("authentication", "Authentication failed. Check the username and credentials.", stopwatch);

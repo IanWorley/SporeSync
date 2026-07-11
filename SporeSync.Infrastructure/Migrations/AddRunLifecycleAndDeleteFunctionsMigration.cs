@@ -2,11 +2,11 @@ using FluentMigrator;
 
 namespace SporeSync.Infrastructure.Migrations;
 
-[Migration(202607110004)]
+[Migration(202607110005)]
 public sealed class AddRunLifecycleAndDeleteFunctionsMigration : Migration
 {
-    private const string UpPostFunctionPrefix = "SporeSync.Infrastructure.Migrations.Schema.Functions.202607110002_AddRunLifecycleAndDeleteFunctions.Up.Post.";
-    private const string DownPreFunctionPrefix = "SporeSync.Infrastructure.Migrations.Schema.Functions.202607110002_AddRunLifecycleAndDeleteFunctions.Down.Pre.";
+    private const string UpPostFunctionPrefix = "SporeSync.Infrastructure.Migrations.Schema.Functions.202607110005_AddRunLifecycleAndDeleteFunctions.Up.Post.";
+    private const string DownPreFunctionPrefix = "SporeSync.Infrastructure.Migrations.Schema.Functions.202607110005_AddRunLifecycleAndDeleteFunctions.Down.Pre.";
 
     public override void Up()
     {

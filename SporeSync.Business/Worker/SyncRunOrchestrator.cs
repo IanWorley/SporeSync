@@ -1,5 +1,7 @@
+using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 using SporeSync.Business.Interface;
+using SporeSync.Business.Observability;
 using SporeSync.Business.Sftp;
 using SporeSync.Domain.Interface;
 using SporeSync.Domain.Model;
@@ -21,6 +23,7 @@ public sealed class SyncRunOrchestrator : ISyncRunOrchestrator
     private readonly RealSftpDirectoryScanner _scanner;
     private readonly IChangeDetector _changeDetector;
     private readonly ISyncDashboardNotifier _notifier;
+    private readonly SporeSyncMetrics _metrics;
     private readonly ILogger<SyncRunOrchestrator> _logger;
 
     public SyncRunOrchestrator(
@@ -29,6 +32,7 @@ public sealed class SyncRunOrchestrator : ISyncRunOrchestrator
         RealSftpDirectoryScanner scanner,
         IChangeDetector changeDetector,
         ISyncDashboardNotifier notifier,
+        SporeSyncMetrics metrics,
         ILogger<SyncRunOrchestrator> logger)
     {
         _runRepository = runRepository;
@@ -36,6 +40,7 @@ public sealed class SyncRunOrchestrator : ISyncRunOrchestrator
         _scanner = scanner;
         _changeDetector = changeDetector;
         _notifier = notifier;
+        _metrics = metrics;
         _logger = logger;
     }
 
@@ -50,6 +55,7 @@ public sealed class SyncRunOrchestrator : ISyncRunOrchestrator
             Status = "scanning"
         }, cancellationToken);
 
+        var stopwatch = Stopwatch.StartNew();
         try
         {
             var scanResult = await _scanner.ScanFirstLevelAsync(
@@ -91,6 +97,17 @@ public sealed class SyncRunOrchestrator : ISyncRunOrchestrator
 
             await _queueRepository.RequeueFailedAsync(job.Id, run.Id, cancellationToken);
 
+            stopwatch.Stop();
+            _metrics.RecordScanCompleted(stopwatch.Elapsed.TotalSeconds, changes.EnqueuedVisibleCount);
+            _logger.LogInformation(
+                "Scan completed for job {JobId} run {RunId}: {EnqueuedCount} entries enqueued ({EnqueuedBytes} bytes), {RemoteDeletedCount} remote-deleted, in {DurationMs} ms",
+                job.Id,
+                run.Id,
+                changes.EnqueuedVisibleCount,
+                changes.EnqueuedTotalBytes,
+                remoteDeletedItems.Count,
+                stopwatch.ElapsedMilliseconds);
+
             var totalVisibleCount = changes.EnqueuedVisibleCount + remoteDeletedItems.Count;
             if (changes.EnqueuedVisibleCount == 0)
             {
@@ -114,6 +131,8 @@ public sealed class SyncRunOrchestrator : ISyncRunOrchestrator
         }
         catch (Exception ex)
         {
+            stopwatch.Stop();
+            _metrics.RecordScanFailed(stopwatch.Elapsed.TotalSeconds);
             _logger.LogError(ex, "Scan failed for job {JobId} run {RunId}", job.Id, run.Id);
             return await UpdateRunAsync(run.Id, new UpdateSporeSyncRunStatus
             {

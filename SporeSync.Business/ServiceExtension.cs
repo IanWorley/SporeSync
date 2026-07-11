@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using SporeSync.Business.Interface;
+using SporeSync.Business.Observability;
 using SporeSync.Business.Security;
 using SporeSync.Business.Service;
 using SporeSync.Business.Sftp;
@@ -14,7 +15,14 @@ public static class ServiceExtension
         this IServiceCollection services,
         IConfiguration configuration)
     {
-        services.Configure<SporeSyncOptions>(configuration.GetSection(SporeSyncOptions.SectionName));
+        services.AddOptions<SporeSyncOptions>()
+            .Bind(configuration.GetSection(SporeSyncOptions.SectionName))
+            .ValidateDataAnnotations()
+            .Validate(
+                options => Path.IsPathFullyQualified(options.DestinationRootPath),
+                $"{SporeSyncOptions.SectionName}:{nameof(SporeSyncOptions.DestinationRootPath)} must be an absolute path.")
+            .ValidateOnStart();
+        services.AddSingleton<SporeSyncMetrics>();
         services.AddSingleton<IEncryptionKeyProvider, EncryptionKeyProvider>();
         services.AddSingleton<ISecretProtector, SecretProtector>();
         services.AddScoped<IEncryptionKeyInitializer, EncryptionKeyInitializer>();
@@ -33,6 +41,7 @@ public static class ServiceExtension
         services.AddScoped<ISyncJobRunService, SyncJobRunService>();
         services.AddHostedService<JobSchedulerHostedService>();
         services.AddHostedService<DownloadWorkerHostedService>();
+        services.AddHostedService<RetentionPruningHostedService>();
 
         return services;
     }

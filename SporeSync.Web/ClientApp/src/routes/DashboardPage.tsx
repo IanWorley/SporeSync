@@ -160,7 +160,6 @@ export function DashboardPage() {
     },
     enabled: Boolean(effectiveRunId),
   });
-  const queryClient = useQueryClient();
   const retryMutation = useMutation({
     mutationFn: (item: DownloadQueueItem) => {
       if (!item.syncRunId) {

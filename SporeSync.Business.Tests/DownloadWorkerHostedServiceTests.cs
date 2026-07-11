@@ -29,7 +29,13 @@ public sealed class DownloadWorkerHostedServiceTests : IDisposable
     {
         var runId = Guid.NewGuid();
         var job = CreateJob(Guid.NewGuid(), Guid.NewGuid(), _destinationRoot);
-        var item = CreateItem(job.Id, runId, "/remote/file.txt", Path.Combine(_destinationRoot, "file.txt"), "downloading");
+        var item = CreateItem(
+            job.Id,
+            runId,
+            "/remote/file.txt",
+            Path.Combine(_destinationRoot, "file.txt"),
+            "downloading",
+            retryCount: 3);
         var queueRepository = new RecordingQueueRepository(item);
         var runRepository = new RecordingRunRepository(CreateRun(runId, job.Id, "downloading"));
 
@@ -58,8 +64,8 @@ public sealed class DownloadWorkerHostedServiceTests : IDisposable
         var processed = await worker.ProcessNextItemAsync(CancellationToken.None);
 
         Assert.True(processed);
-        var failed = Assert.Single(queueRepository.Updates);
-        Assert.Equal(item.Id, failed.Id);
+        Assert.Empty(queueRepository.Updates);
+        var failed = queueRepository.Item(item.Id);
         Assert.Equal("failed", failed.Status);
         Assert.Equal(0, failed.BytesDownloaded);
         Assert.Contains("SSH host key verification failed", failed.ErrorMessage);
@@ -171,7 +177,8 @@ public sealed class DownloadWorkerHostedServiceTests : IDisposable
         bool isGroup = false,
         int childCount = 0,
         long fileSizeBytes = 10,
-        string? groupRemotePath = null)
+        string? groupRemotePath = null,
+        int retryCount = 0)
     {
         var timestamp = now ?? DateTimeOffset.UtcNow;
         return new DownloadQueueItem
@@ -185,7 +192,7 @@ public sealed class DownloadWorkerHostedServiceTests : IDisposable
             RemoteModifiedAt = timestamp,
             Status = status,
             BytesDownloaded = 0,
-            RetryCount = 0,
+            RetryCount = retryCount,
             QueuedAt = timestamp,
             StartedAt = status == "downloading" ? timestamp : null,
             UpdatedAt = timestamp,

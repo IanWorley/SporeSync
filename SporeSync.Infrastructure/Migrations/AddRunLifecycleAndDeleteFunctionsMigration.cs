@@ -2,7 +2,7 @@ using FluentMigrator;
 
 namespace SporeSync.Infrastructure.Migrations;
 
-[Migration(202607110002)]
+[Migration(202607110004)]
 public sealed class AddRunLifecycleAndDeleteFunctionsMigration : Migration
 {
     private const string UpPostFunctionPrefix = "SporeSync.Infrastructure.Migrations.Schema.Functions.202607110002_AddRunLifecycleAndDeleteFunctions.Up.Post.";

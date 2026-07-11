@@ -389,7 +389,14 @@ public sealed class DownloadWorkerHostedServiceTests
             => throw new NotSupportedException();
 
         public Task<DownloadQueueItem?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
+        {
+            if (_claimable?.Id == id)
+            {
+                return Task.FromResult<DownloadQueueItem?>(_claimable);
+            }
+
+            return Task.FromResult<DownloadQueueItem?>(Leaves.FirstOrDefault(leaf => leaf.Id == id));
+        }
 
         public Task<DownloadQueueItem> UpsertAsync(UpsertDownloadQueueItem item, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
@@ -526,7 +533,7 @@ public sealed class DownloadWorkerHostedServiceTests
             => throw new NotSupportedException();
 
         public Task<SporeSyncRun?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
+            => Task.FromResult<SporeSyncRun?>(CreateRun(id, "downloading"));
 
         public Task<SporeSyncRun?> CreateAsync(
             Guid jobId,
@@ -548,6 +555,18 @@ public sealed class DownloadWorkerHostedServiceTests
         public Task<IReadOnlyList<SporeSyncRun>> ReapOrphanedAsync(
             bool ignoreLeases,
             CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<int> RetryFailedItemsAsync(Guid runId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<SporeSyncRun> AdvanceScanStatusAsync(
+            UpdateSporeSyncRunStatus update,
+            string expectedStatus,
+            CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<SporeSyncRun?> CancelAsync(Guid runId, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
     }
 
@@ -578,6 +597,12 @@ public sealed class DownloadWorkerHostedServiceTests
 
         public Task MarkPolledAsync(Guid id, CancellationToken cancellationToken = default)
             => Task.CompletedTask;
+
+        public Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<int> CountByConnectionProfileAsync(Guid connectionProfileId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
     }
 
     private sealed class FakeNotifier : ISyncDashboardNotifier

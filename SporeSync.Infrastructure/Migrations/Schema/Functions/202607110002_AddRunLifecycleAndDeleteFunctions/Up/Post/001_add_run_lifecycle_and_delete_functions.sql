@@ -249,6 +249,7 @@ BEGIN
         WHERE qi.status = 'queued'
           AND r.status = 'downloading'
           AND (qi.is_group = true OR (qi.is_group = false AND qi.group_remote_path IS NULL))
+          AND (qi.next_attempt_at IS NULL OR qi.next_attempt_at <= now())
         ORDER BY qi.queued_at ASC, qi.id
         FOR UPDATE OF r, qi SKIP LOCKED
         LIMIT 1

@@ -329,6 +329,16 @@ public sealed class DownloadWorkerHostedService : BackgroundService
                     continue;
                 }
 
+                if (!string.Equals(currentLeaf.Status, "queued", StringComparison.OrdinalIgnoreCase)
+                    && !string.Equals(currentLeaf.Status, "downloading", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!string.Equals(currentLeaf.Status, "failed", StringComparison.OrdinalIgnoreCase))
+                    {
+                        groupFailed = true;
+                        continue;
+                    }
+                }
+
                 var completedBeforeLeaf = groupBytesDownloaded;
                 var leafProgress = new FireAndForgetDownloadProgress(async (bytes, token) =>
                 {

@@ -81,6 +81,16 @@ public sealed class SftpConnectionProfilesControllerTests
         Assert.IsType<NoContentResult>(result);
     }
 
+    [Fact]
+    public async Task Delete_ReturnsNotFound_WhenProfileDoesNotExist()
+    {
+        var controller = CreateController(deleteStatus: DeleteSftpConnectionProfileStatus.NotFound);
+
+        var result = await controller.Delete(Guid.NewGuid(), CancellationToken.None);
+
+        Assert.IsType<NotFoundResult>(result);
+    }
+
     private static SftpConnectionProfilesController CreateController(
         SftpConnectionTestResult? testResult = null,
         DeleteSftpConnectionProfileStatus deleteStatus = DeleteSftpConnectionProfileStatus.Deleted)

@@ -204,6 +204,26 @@ public sealed class SftpConnectionProfileRepository : ISftpConnectionProfileRepo
         return await DbCommandLogger.ExecuteScalarAsync<bool>(_logger, command, OpDeleteProfile, cancellationToken);
     }
 
+    public async Task<SafeDeleteSftpConnectionProfileResult> SafeDeleteAsync(
+        Guid id,
+        CancellationToken cancellationToken = default)
+    {
+        const string sql = "SELECT core.safe_delete_sftp_connection_profile(@id);";
+
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.AddWithValue("id", id);
+
+        var result = await DbCommandLogger.ExecuteScalarAsync<string>(_logger, command, OpDeleteProfile, cancellationToken);
+        return result switch
+        {
+            "deleted" => SafeDeleteSftpConnectionProfileResult.Deleted,
+            "not_found" => SafeDeleteSftpConnectionProfileResult.NotFound,
+            "in_use" => SafeDeleteSftpConnectionProfileResult.InUse,
+            _ => throw new InvalidOperationException($"Unexpected safe profile deletion result '{result}'.")
+        };
+    }
+
     private static SftpConnectionProfile ReadProfile(NpgsqlDataReader reader)
     {
         return new SftpConnectionProfile

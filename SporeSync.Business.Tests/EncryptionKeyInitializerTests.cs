@@ -227,5 +227,12 @@ public sealed class EncryptionKeyInitializerTests
         {
             throw new NotSupportedException();
         }
+
+        public Task<SafeDeleteSftpConnectionProfileResult> SafeDeleteAsync(
+            Guid id,
+            CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
+        }
     }
 }

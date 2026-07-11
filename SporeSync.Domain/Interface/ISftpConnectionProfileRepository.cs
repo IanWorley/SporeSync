@@ -2,6 +2,13 @@ using SporeSync.Domain.Model;
 
 namespace SporeSync.Domain.Interface;
 
+public enum SafeDeleteSftpConnectionProfileResult
+{
+    Deleted,
+    NotFound,
+    InUse
+}
+
 public interface ISftpConnectionProfileRepository
 {
     Task<IReadOnlyCollection<SftpConnectionProfile>> GetAllAsync(CancellationToken cancellationToken = default);
@@ -23,4 +30,8 @@ public interface ISftpConnectionProfileRepository
     /// Deletes a connection profile. Returns false when the profile does not exist.
     /// </summary>
     Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default);
+
+    Task<SafeDeleteSftpConnectionProfileResult> SafeDeleteAsync(
+        Guid id,
+        CancellationToken cancellationToken = default);
 }

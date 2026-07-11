@@ -95,7 +95,7 @@ export function JobsPage() {
   const deleteJob = (job: SporeSyncJob) => {
     if (
       window.confirm(
-        `Delete job "${job.name}"?\n\nIts run history and queue items will also be removed.`,
+        `Delete job "${job.name}"?\n\nIts run history and queue items will be removed. Downloaded local files will be kept. Active runs must be cancelled first.`,
       )
     ) {
       deleteMutation.mutate(job);
@@ -272,7 +272,11 @@ export function ProfilesPage() {
   });
 
   const deleteProfile = (profile: SftpConnectionProfile) => {
-    if (window.confirm(`Delete profile "${profile.name}"?`)) {
+    if (
+      window.confirm(
+        `Delete profile "${profile.name}"?\n\nIts stored credentials will be removed. Referencing jobs must be reassigned or deleted first. Downloaded local files and run history will be kept.`,
+      )
+    ) {
       deleteMutation.mutate(profile);
     }
   };

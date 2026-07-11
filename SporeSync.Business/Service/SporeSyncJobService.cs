@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using SporeSync.Business.Interface;
 using SporeSync.Business.Security;
 using SporeSync.Domain.Interface;
@@ -10,15 +12,18 @@ public sealed class SporeSyncJobService : ISporeSyncJobService
     private readonly ISporeSyncJobRepository _sporeSyncJobRepository;
     private readonly ISporeSyncRunRepository _sporeSyncRunRepository;
     private readonly LocalDestinationPathSandbox _destinationPathSandbox;
+    private readonly ILogger<SporeSyncJobService> _logger;
 
     public SporeSyncJobService(
         ISporeSyncJobRepository sporeSyncJobRepository,
         ISporeSyncRunRepository sporeSyncRunRepository,
-        LocalDestinationPathSandbox destinationPathSandbox)
+        LocalDestinationPathSandbox destinationPathSandbox,
+        ILogger<SporeSyncJobService>? logger = null)
     {
         _sporeSyncJobRepository = sporeSyncJobRepository;
         _sporeSyncRunRepository = sporeSyncRunRepository;
         _destinationPathSandbox = destinationPathSandbox;
+        _logger = logger ?? NullLogger<SporeSyncJobService>.Instance;
     }
 
     public Task<IReadOnlyCollection<SporeSyncJob>> GetConfiguredJobsAsync(
@@ -67,7 +72,20 @@ public sealed class SporeSyncJobService : ISporeSyncJobService
             return DeleteSporeSyncJobStatus.ActiveRunExists;
         }
 
-        var deleted = await _sporeSyncJobRepository.DeleteAsync(id, cancellationToken);
-        return deleted ? DeleteSporeSyncJobStatus.Deleted : DeleteSporeSyncJobStatus.NotFound;
+        var result = await _sporeSyncJobRepository.SafeDeleteAsync(id, cancellationToken);
+        if (result == SafeDeleteSporeSyncJobResult.Deleted)
+        {
+            _logger.LogInformation(
+                "Configuration audit: deleted sync job {JobId} ({JobName}); history removed and local files retained",
+                job.Id,
+                job.Name);
+        }
+
+        return result switch
+        {
+            SafeDeleteSporeSyncJobResult.Deleted => DeleteSporeSyncJobStatus.Deleted,
+            SafeDeleteSporeSyncJobResult.ActiveRunExists => DeleteSporeSyncJobStatus.ActiveRunExists,
+            _ => DeleteSporeSyncJobStatus.NotFound
+        };
     }
 }

@@ -30,11 +30,10 @@ public sealed class UpsertSftpConnectionProfile
     public bool RemovePrivateKeyPassphrase { get; init; }
 
     /// <summary>
-    /// SSH host key fingerprint to pin. Null preserves the currently stored fingerprint,
-    /// an empty/whitespace value clears the pin (re-enabling trust-on-first-use), and a
-    /// non-blank value replaces the pin after normalization.
+    /// Trusted SSH host key fingerprints. Null preserves the currently stored collection;
+    /// an empty collection clears it, causing all connections to fail closed.
     /// </summary>
-    public string? HostKeyFingerprintSha256 { get; init; }
+    public IReadOnlyList<string>? TrustedHostKeyFingerprintsSha256 { get; init; }
 
     public bool IsDefault { get; init; } = true;
 }

@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
+using NpgsqlTypes;
 using SporeSync.Domain.Interface;
 using SporeSync.Domain.Model;
 using SporeSync.Infrastructure.Logging;
@@ -12,7 +13,6 @@ public sealed class SftpConnectionProfileRepository : ISftpConnectionProfileRepo
     private const string OpGetAllProfiles = "GetAllProfiles";
     private const string OpGetProfileById = "GetProfileById";
     private const string OpUpsertProfile = "UpsertProfile";
-    private const string OpTryPinHostKeyFingerprint = "TryPinHostKeyFingerprint";
     private const string OpHasAnyEncryptedSecrets = "HasAnyEncryptedSecrets";
     private const string OpDeleteProfile = "DeleteProfile";
 
@@ -47,7 +47,7 @@ public sealed class SftpConnectionProfileRepository : ISftpConnectionProfileRepo
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
         await using var command = new NpgsqlCommand(sql, connection);
 
-        return await DbCommandLogger.ExecuteReaderAsync(_logger, command, OpGetAllProfiles,
+        var profiles = await DbCommandLogger.ExecuteReaderAsync(_logger, command, OpGetAllProfiles,
             async reader =>
             {
                 var profiles = new List<SftpConnectionProfile>();
@@ -57,6 +57,8 @@ public sealed class SftpConnectionProfileRepository : ISftpConnectionProfileRepo
                 }
                 return profiles;
             }, cancellationToken);
+        await LoadTrustedHostKeysAsync(connection, profiles, cancellationToken);
+        return profiles;
     }
 
     public async Task<SftpConnectionProfile?> GetByIdAsync(
@@ -81,7 +83,7 @@ public sealed class SftpConnectionProfileRepository : ISftpConnectionProfileRepo
         await using var command = new NpgsqlCommand(sql, connection);
         command.Parameters.AddWithValue("id", id);
 
-        return await DbCommandLogger.ExecuteReaderAsync(_logger, command, OpGetProfileById,
+        var profile = await DbCommandLogger.ExecuteReaderAsync(_logger, command, OpGetProfileById,
             async reader =>
             {
                 if (!await reader.ReadAsync(cancellationToken))
@@ -90,6 +92,11 @@ public sealed class SftpConnectionProfileRepository : ISftpConnectionProfileRepo
                 }
                 return ReadProfile(reader);
             }, cancellationToken);
+        if (profile is not null)
+        {
+            await LoadTrustedHostKeysAsync(connection, [profile], cancellationToken);
+        }
+        return profile;
     }
 
     public async Task<SftpConnectionProfile> UpsertAsync(
@@ -121,7 +128,8 @@ public sealed class SftpConnectionProfileRepository : ISftpConnectionProfileRepo
             """;
 
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
-        await using var command = new NpgsqlCommand(sql, connection);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(sql, connection, transaction);
         command.Parameters.AddWithValue("id", profile.Id);
         command.Parameters.AddWithValue("name", profile.Name);
         command.Parameters.AddWithValue("host", profile.Host);
@@ -134,10 +142,10 @@ public sealed class SftpConnectionProfileRepository : ISftpConnectionProfileRepo
             (object?)profile.EncryptedPrivateKeyPassphrase ?? DBNull.Value);
         command.Parameters.AddWithValue(
             "host_key_fingerprint_sha256",
-            (object?)profile.HostKeyFingerprintSha256 ?? DBNull.Value);
+            DBNull.Value);
         command.Parameters.AddWithValue("is_default", profile.IsDefault);
 
-        return await DbCommandLogger.ExecuteReaderAsync(_logger, command, OpUpsertProfile,
+        var saved = await DbCommandLogger.ExecuteReaderAsync(_logger, command, OpUpsertProfile,
             async reader =>
             {
                 if (!await reader.ReadAsync(cancellationToken))
@@ -146,38 +154,21 @@ public sealed class SftpConnectionProfileRepository : ISftpConnectionProfileRepo
                 }
                 return ReadProfile(reader);
             }, cancellationToken);
-    }
 
-    public async Task<bool> TryPinHostKeyFingerprintAsync(
-        Guid id,
-        string fingerprintSha256,
-        CancellationToken cancellationToken = default)
-    {
-        const string sql = """
-            WITH pinned AS (
-                UPDATE core.sftp_connection_profiles
-                SET host_key_fingerprint_sha256 = @host_key_fingerprint_sha256,
-                    updated_at = now()
-                WHERE id = @id
-                  AND host_key_fingerprint_sha256 IS NULL
-                RETURNING 1
-            )
-            SELECT EXISTS(SELECT 1 FROM pinned);
-            """;
-
-        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
-        await using var command = new NpgsqlCommand(sql, connection);
-        command.Parameters.AddWithValue("id", id);
-        command.Parameters.AddWithValue("host_key_fingerprint_sha256", fingerprintSha256);
-
-        var pinned = await DbCommandLogger.ExecuteScalarAsync(
-            _logger,
-            command,
-            OpTryPinHostKeyFingerprint,
-            cancellationToken);
-
-        return (bool)(pinned
-            ?? throw new InvalidOperationException("Host key pin update did not return a value."));
+        await using var replaceKeys = new NpgsqlCommand("""
+            DELETE FROM core.sftp_connection_profile_trusted_host_keys WHERE profile_id = @id;
+            INSERT INTO core.sftp_connection_profile_trusted_host_keys (profile_id, fingerprint_sha256)
+            SELECT @id, unnest(@fingerprints);
+            """, connection, transaction);
+        replaceKeys.Parameters.AddWithValue("id", profile.Id);
+        replaceKeys.Parameters.AddWithValue(
+            "fingerprints",
+            NpgsqlDbType.Array | NpgsqlDbType.Varchar,
+            profile.TrustedHostKeyFingerprintsSha256.ToArray());
+        await replaceKeys.ExecuteNonQueryAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        saved.TrustedHostKeyFingerprintsSha256 = profile.TrustedHostKeyFingerprintsSha256;
+        return saved;
     }
 
     public async Task<bool> HasAnyEncryptedSecretsAsync(CancellationToken cancellationToken = default)
@@ -236,8 +227,37 @@ public sealed class SftpConnectionProfileRepository : ISftpConnectionProfileRepo
             EncryptedPassword = reader.IsDBNull(5) ? null : reader.GetString(5),
             EncryptedPrivateKey = reader.IsDBNull(6) ? null : reader.GetString(6),
             EncryptedPrivateKeyPassphrase = reader.IsDBNull(7) ? null : reader.GetString(7),
-            HostKeyFingerprintSha256 = reader.IsDBNull(8) ? null : reader.GetString(8),
             IsDefault = reader.GetBoolean(9)
         };
+    }
+
+    private static async Task LoadTrustedHostKeysAsync(
+        NpgsqlConnection connection,
+        IReadOnlyCollection<SftpConnectionProfile> profiles,
+        CancellationToken cancellationToken)
+    {
+        if (profiles.Count == 0)
+        {
+            return;
+        }
+
+        await using var command = new NpgsqlCommand("""
+            SELECT profile_id, fingerprint_sha256
+            FROM core.sftp_connection_profile_trusted_host_keys
+            WHERE profile_id = ANY(@profile_ids)
+            ORDER BY fingerprint_sha256;
+            """, connection);
+        command.Parameters.AddWithValue("profile_ids", profiles.Select(profile => profile.Id).ToArray());
+        var byId = profiles.ToDictionary(profile => profile.Id);
+        var keys = profiles.ToDictionary(profile => profile.Id, _ => new List<string>());
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            keys[reader.GetGuid(0)].Add(reader.GetString(1));
+        }
+        foreach (var (id, fingerprints) in keys)
+        {
+            byId[id].TrustedHostKeyFingerprintsSha256 = fingerprints;
+        }
     }
 }

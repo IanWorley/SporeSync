@@ -182,7 +182,7 @@ public sealed class SftpConnectionProfilesController : ControllerBase
             PrivateKey = request.PrivateKey,
             PrivateKeyPassphrase = request.PrivateKeyPassphrase,
             RemovePrivateKeyPassphrase = request.RemovePrivateKeyPassphrase,
-            HostKeyFingerprintSha256 = request.HostKeyFingerprintSha256,
+            TrustedHostKeyFingerprintsSha256 = request.TrustedHostKeyFingerprintsSha256,
             IsDefault = request.IsDefault
         };
     }
@@ -210,7 +210,7 @@ public sealed class SftpConnectionProfilesController : ControllerBase
             profile.EncryptedPassword is not null,
             profile.EncryptedPrivateKey is not null,
             profile.EncryptedPrivateKeyPassphrase is not null,
-            profile.HostKeyFingerprintSha256,
+            profile.TrustedHostKeyFingerprintsSha256,
             profile.IsDefault);
     }
 }

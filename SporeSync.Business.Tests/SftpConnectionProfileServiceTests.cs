@@ -247,7 +247,7 @@ public sealed class SftpConnectionProfileServiceTests
     }
 
     [Fact]
-    public async Task UpsertAsync_NormalizesAndStoresHostKeyFingerprint()
+    public async Task UpsertAsync_NormalizesDeduplicatesAndStoresTrustedHostKeys()
     {
         var repository = new RecordingSftpConnectionProfileRepository();
         var service = CreateService(repository, new RecordingSecretProtector());
@@ -259,17 +259,21 @@ public sealed class SftpConnectionProfileServiceTests
                 Host = "sftp.example.com",
                 Username = "sync-user",
                 Password = "password",
-                HostKeyFingerprintSha256 = "nThbg6kXUpJWGl7E1IGOCspRomTxdCARLviKw6E5SY8="
+                TrustedHostKeyFingerprintsSha256 =
+                [
+                    "nThbg6kXUpJWGl7E1IGOCspRomTxdCARLviKw6E5SY8=",
+                    "SHA256:nThbg6kXUpJWGl7E1IGOCspRomTxdCARLviKw6E5SY8"
+                ]
             });
 
         Assert.NotNull(repository.LastUpsertedProfile);
-        Assert.Equal(
+        Assert.Equal([
             "SHA256:nThbg6kXUpJWGl7E1IGOCspRomTxdCARLviKw6E5SY8",
-            repository.LastUpsertedProfile.HostKeyFingerprintSha256);
+        ], repository.LastUpsertedProfile.TrustedHostKeyFingerprintsSha256);
     }
 
     [Fact]
-    public async Task UpsertAsync_Throws_WhenHostKeyFingerprintIsInvalid()
+    public async Task UpsertAsync_Throws_WhenTrustedHostKeyIsInvalid()
     {
         var repository = new RecordingSftpConnectionProfileRepository();
         var service = CreateService(repository, new RecordingSecretProtector());
@@ -282,14 +286,14 @@ public sealed class SftpConnectionProfileServiceTests
                     Host = "sftp.example.com",
                     Username = "sync-user",
                     Password = "password",
-                    HostKeyFingerprintSha256 = "not-a-fingerprint"
+                    TrustedHostKeyFingerprintsSha256 = ["not-a-fingerprint"]
                 }));
 
         Assert.Null(repository.LastUpsertedProfile);
     }
 
     [Fact]
-    public async Task UpsertAsync_PreservesHostKeyFingerprint_WhenRequestValueIsNull()
+    public async Task UpsertAsync_PreservesTrustedHostKeys_WhenRequestValueIsNull()
     {
         var profileId = Guid.NewGuid();
         var repository = new RecordingSftpConnectionProfileRepository
@@ -302,7 +306,8 @@ public sealed class SftpConnectionProfileServiceTests
                 Port = 22,
                 Username = "sync-user",
                 EncryptedPassword = "existing-password",
-                HostKeyFingerprintSha256 = "SHA256:nThbg6kXUpJWGl7E1IGOCspRomTxdCARLviKw6E5SY8",
+                TrustedHostKeyFingerprintsSha256 =
+                    ["SHA256:nThbg6kXUpJWGl7E1IGOCspRomTxdCARLviKw6E5SY8"],
                 IsDefault = true
             }
         };
@@ -315,17 +320,17 @@ public sealed class SftpConnectionProfileServiceTests
                 Name = "existing",
                 Host = "sftp.example.com",
                 Username = "sync-user",
-                HostKeyFingerprintSha256 = null
+                TrustedHostKeyFingerprintsSha256 = null
             });
 
         Assert.NotNull(repository.LastUpsertedProfile);
-        Assert.Equal(
+        Assert.Equal([
             "SHA256:nThbg6kXUpJWGl7E1IGOCspRomTxdCARLviKw6E5SY8",
-            repository.LastUpsertedProfile.HostKeyFingerprintSha256);
+        ], repository.LastUpsertedProfile.TrustedHostKeyFingerprintsSha256);
     }
 
     [Fact]
-    public async Task UpsertAsync_ClearsHostKeyFingerprint_WhenRequestValueIsBlank()
+    public async Task UpsertAsync_ClearsTrustedHostKeys_WhenRequestCollectionIsEmpty()
     {
         var profileId = Guid.NewGuid();
         var repository = new RecordingSftpConnectionProfileRepository
@@ -338,7 +343,8 @@ public sealed class SftpConnectionProfileServiceTests
                 Port = 22,
                 Username = "sync-user",
                 EncryptedPassword = "existing-password",
-                HostKeyFingerprintSha256 = "SHA256:nThbg6kXUpJWGl7E1IGOCspRomTxdCARLviKw6E5SY8",
+                TrustedHostKeyFingerprintsSha256 =
+                    ["SHA256:nThbg6kXUpJWGl7E1IGOCspRomTxdCARLviKw6E5SY8"],
                 IsDefault = true
             }
         };
@@ -351,11 +357,11 @@ public sealed class SftpConnectionProfileServiceTests
                 Name = "existing",
                 Host = "sftp.example.com",
                 Username = "sync-user",
-                HostKeyFingerprintSha256 = " "
+                TrustedHostKeyFingerprintsSha256 = []
             });
 
         Assert.NotNull(repository.LastUpsertedProfile);
-        Assert.Null(repository.LastUpsertedProfile.HostKeyFingerprintSha256);
+        Assert.Empty(repository.LastUpsertedProfile.TrustedHostKeyFingerprintsSha256);
     }
 
     [Fact]
@@ -544,14 +550,6 @@ public sealed class SftpConnectionProfileServiceTests
             LastUpsertedProfile = profile;
             LastCancellationToken = cancellationToken;
             return Task.FromResult(profile);
-        }
-
-        public Task<bool> TryPinHostKeyFingerprintAsync(
-            Guid id,
-            string fingerprintSha256,
-            CancellationToken cancellationToken = default)
-        {
-            throw new NotSupportedException();
         }
 
         public Task<bool> HasAnyEncryptedSecretsAsync(CancellationToken cancellationToken = default)

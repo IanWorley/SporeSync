@@ -47,7 +47,7 @@ public sealed class DownloadWorkerHostedServiceTests : IDisposable
                 new ThrowingSftpClientFactory(new SshHostKeyMismatchException(
                     "sftp.example.com",
                     22,
-                    "SHA256:expected",
+                    ["SHA256:expected"],
                     "SHA256:actual")),
                 new LocalDestinationPathSandbox(Options.Create(new SporeSyncOptions
                 {

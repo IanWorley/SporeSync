@@ -110,6 +110,20 @@ For local development without Testcontainers, create a matching PostgreSQL datab
 
 Configure an SFTP connection profile and sync job through the admin UI or REST API (`/api/sftp-connection-profiles`, `/api/sftp-sync-jobs`). Trigger an immediate run with `POST /api/sftp-sync-jobs/{id}/run`. Enabled jobs are polled automatically every 10 seconds (configurable via `SporeSync:SchedulerIntervalSeconds`).
 
+### SFTP host key verification
+
+Every connection profile must contain at least one trusted SHA-256 SSH host-key
+fingerprint. Use **Fetch** in the admin profile form to observe the server's
+algorithm and fingerprint, verify that fingerprint through a separate trusted
+channel, and then save it. Fetching never trusts the key automatically. Multiple
+fingerprints may be saved during a planned rotation; remove the old fingerprint
+after the server has stopped using it.
+
+Upgrades preserve and migrate any previously pinned fingerprint. Profiles that
+did not already have one remain with an empty trust list and fail closed until an
+administrator verifies and saves a fingerprint; there is no trust-on-first-use
+compatibility mode.
+
 Worker settings in `appsettings.json`:
 
 ```json

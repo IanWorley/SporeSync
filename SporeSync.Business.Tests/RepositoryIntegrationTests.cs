@@ -696,6 +696,11 @@ public sealed class RepositoryIntegrationTests : IClassFixture<RepositoryTestcon
         var claimedTooEarly = await ClaimSpecificAsync(queueRepository, item.Id);
         Assert.Null(claimedTooEarly);
 
+        // A delayed retry does not occupy the worker or block unrelated queued work.
+        var unrelated = await SeedClaimableItemAsync(queueRepository, "/incoming/unrelated.csv");
+        var claimedUnrelated = await ClaimSpecificAsync(queueRepository, unrelated.Id);
+        Assert.NotNull(claimedUnrelated);
+
         // Fail with a past next attempt: immediately claimable again.
         await queueRepository.RecordFailureAsync(
             item.Id,

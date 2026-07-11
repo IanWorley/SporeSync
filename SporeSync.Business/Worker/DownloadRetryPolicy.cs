@@ -22,18 +22,22 @@ public sealed class DownloadRetryPolicy
         TimeSpan.FromSeconds(Math.Max(1, _options.RemoteFileStabilityWindowSeconds));
 
     /// <summary>
-    /// Exponential backoff delay for the next attempt given how many attempts have already failed:
-    /// base * 2^failedAttempts, capped at the configured maximum.
+    /// Exponential backoff delay for the next attempt given how many attempts have already failed.
+    /// Symmetric jitter is applied to base * 2^failedAttempts, then the result is clamped to the
+    /// configured minimum and maximum delay bounds.
     /// </summary>
     public TimeSpan GetRetryDelay(int failedAttempts)
     {
-        var baseDelaySeconds = Math.Max(1, _options.DownloadRetryBaseDelaySeconds);
-        var maxDelaySeconds = Math.Max(baseDelaySeconds, _options.DownloadRetryMaxDelaySeconds);
+        var minDelaySeconds = Math.Max(1, _options.DownloadRetryBaseDelaySeconds);
+        var maxDelaySeconds = Math.Max(minDelaySeconds, _options.DownloadRetryMaxDelaySeconds);
 
         // Clamp the exponent so the double cannot overflow for pathological retry counts.
         var exponent = Math.Clamp(failedAttempts, 0, 30);
-        var delaySeconds = baseDelaySeconds * Math.Pow(2, exponent);
+        var exponentialSeconds = Math.Min(minDelaySeconds * Math.Pow(2, exponent), maxDelaySeconds);
+        var jitterRatio = Math.Clamp(_options.DownloadRetryJitterRatio, 0, 1);
+        var jitterMultiplier = 1 + ((Random.Shared.NextDouble() * 2 - 1) * jitterRatio);
+        var delaySeconds = exponentialSeconds * jitterMultiplier;
 
-        return TimeSpan.FromSeconds(Math.Min(delaySeconds, maxDelaySeconds));
+        return TimeSpan.FromSeconds(Math.Clamp(delaySeconds, minDelaySeconds, maxDelaySeconds));
     }
 }

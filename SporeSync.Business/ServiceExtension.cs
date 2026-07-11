@@ -21,6 +21,9 @@ public static class ServiceExtension
             .Validate(
                 options => Path.IsPathFullyQualified(options.DestinationRootPath),
                 $"{SporeSyncOptions.SectionName}:{nameof(SporeSyncOptions.DestinationRootPath)} must be an absolute path.")
+            .Validate(
+                options => options.DownloadRetryMaxDelaySeconds >= options.DownloadRetryBaseDelaySeconds,
+                $"{SporeSyncOptions.SectionName}:{nameof(SporeSyncOptions.DownloadRetryMaxDelaySeconds)} must be greater than or equal to {nameof(SporeSyncOptions.DownloadRetryBaseDelaySeconds)}.")
             .ValidateOnStart();
         services.AddSingleton<SporeSyncMetrics>();
         services.AddSingleton<IEncryptionKeyProvider, EncryptionKeyProvider>();

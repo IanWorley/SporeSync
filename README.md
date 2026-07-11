@@ -133,11 +133,31 @@ Worker settings in `appsettings.json`:
     "DownloadPollIntervalMs": 1000,
     "SftpConnectionTimeoutSeconds": 30,
     "SftpOperationTimeoutSeconds": 300,
+    "DownloadMaxRetries": 3,
+    "DownloadRetryBaseDelaySeconds": 30,
+    "DownloadRetryMaxDelaySeconds": 900,
+    "DownloadRetryJitterRatio": 0.2,
     "RunHistoryRetentionDays": 30,
     "RetentionSweepIntervalHours": 6
   }
 }
 ```
+
+Failed downloads are retried within the same sync run. `DownloadMaxRetries` is
+the number of retries after the initial attempt. Retry delays use bounded
+exponential backoff with proportional jitter: the base delay is the lower
+bound, the maximum delay is the upper bound, and `DownloadRetryJitterRatio`
+controls random variation (for example, `0.2` means up to 20% above or below
+the exponential delay before clamping).
+
+Connection, remote I/O, interrupted transfer, and size-verification failures
+are classified as transient. Unsafe destination paths are classified as
+permanent and fail immediately without consuming retry budget. Exhausted
+transient items end in `failed` with `retry_budget_exhausted`; permanent items
+use `permanent_error`. Backoff is stored as a queue eligibility timestamp, so
+the worker remains available for unrelated items instead of sleeping. Shutdown
+cancels the normal worker poll immediately; there is no in-memory retry delay
+to hold shutdown open, and scheduled retries remain durable for the next start.
 
 ### Authentication
 

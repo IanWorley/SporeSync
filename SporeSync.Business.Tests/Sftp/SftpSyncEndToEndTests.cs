@@ -49,6 +49,10 @@ public sealed class SftpSyncEndToEndTests :
             options.SftpConnectionTimeoutSeconds = 30;
             options.SftpOperationTimeoutSeconds = 60;
             options.RemoteFileStabilityWindowSeconds = 0;
+            options.DownloadMaxRetries = 1;
+            options.DownloadRetryBaseDelaySeconds = 1;
+            options.DownloadRetryMaxDelaySeconds = 1;
+            options.DownloadRetryJitterRatio = 0.2;
         });
         services.AddSingleton<IEncryptionKeyProvider>(keyProvider);
         services.AddSingleton<ISecretProtector, SecretProtector>();
@@ -229,6 +233,71 @@ public sealed class SftpSyncEndToEndTests :
         var rotating = await CreateProfileAsync(services, "rotation", [other, observed]);
         await using var connection = await factory.ConnectAsync(rotating.Id);
         Assert.True(connection.IsConnected);
+    }
+
+    [Fact]
+    public async Task TransientFailure_RetriesInSameRun_AndEventuallyCompletes()
+    {
+        var caseRoot = $"{SftpTestcontainerFixture.RemoteRoot}/retry-success";
+        var remotePath = $"{caseRoot}/eventual.txt";
+        await _sftp.WriteFileAsync(remotePath, "initial");
+
+        using var scope = _provider.CreateScope();
+        var runRepository = scope.ServiceProvider.GetRequiredService<ISporeSyncRunRepository>();
+        var queueRepository = scope.ServiceProvider.GetRequiredService<IDownloadQueueItemRepository>();
+        var orchestrator = scope.ServiceProvider.GetRequiredService<ISyncRunOrchestrator>();
+        var worker = _provider.GetRequiredService<DownloadWorkerHostedService>();
+        var job = await CreateJobAsync(scope.ServiceProvider, caseRoot, "retry-success");
+        var run = await orchestrator.ScanAsync(job, await runRepository.TryCreateAsync(job.Id));
+
+        await _sftp.DeleteFileAsync(remotePath);
+        Assert.True(await worker.ProcessNextItemAsync(CancellationToken.None));
+
+        var afterFailure = Assert.Single((await queueRepository.GetByRunIdAsync(run.Id, new QueueItemQuery())).Items);
+        Assert.Equal("queued", afterFailure.Status);
+        Assert.Equal(1, afterFailure.RetryCount);
+        Assert.Equal("retry_scheduled", afterFailure.HandledReason);
+
+        await _sftp.WriteFileAsync(remotePath, "available after retry");
+        await Task.Delay(TimeSpan.FromMilliseconds(1100));
+        Assert.True(await worker.ProcessNextItemAsync(CancellationToken.None));
+
+        var completedItem = Assert.Single((await queueRepository.GetByRunIdAsync(run.Id, new QueueItemQuery())).Items);
+        Assert.Equal("completed", completedItem.Status);
+        Assert.Equal(1, completedItem.RetryCount);
+        Assert.Equal("completed", (await runRepository.GetByIdAsync(run.Id))!.Status);
+        Assert.Equal("available after retry", await File.ReadAllTextAsync(Path.Combine(DestinationFor("retry-success"), "eventual.txt")));
+    }
+
+    [Fact]
+    public async Task TransientFailure_ExhaustsRetryBudget_WithTerminalError()
+    {
+        var caseRoot = $"{SftpTestcontainerFixture.RemoteRoot}/retry-exhaustion";
+        var remotePath = $"{caseRoot}/missing.txt";
+        await _sftp.WriteFileAsync(remotePath, "disappearing");
+
+        using var scope = _provider.CreateScope();
+        var runRepository = scope.ServiceProvider.GetRequiredService<ISporeSyncRunRepository>();
+        var queueRepository = scope.ServiceProvider.GetRequiredService<IDownloadQueueItemRepository>();
+        var orchestrator = scope.ServiceProvider.GetRequiredService<ISyncRunOrchestrator>();
+        var worker = _provider.GetRequiredService<DownloadWorkerHostedService>();
+        var job = await CreateJobAsync(scope.ServiceProvider, caseRoot, "retry-exhaustion");
+        var run = await orchestrator.ScanAsync(job, await runRepository.TryCreateAsync(job.Id));
+
+        await _sftp.DeleteFileAsync(remotePath);
+        Assert.True(await worker.ProcessNextItemAsync(CancellationToken.None));
+        await Task.Delay(TimeSpan.FromMilliseconds(1100));
+        Assert.True(await worker.ProcessNextItemAsync(CancellationToken.None));
+
+        var failedItem = Assert.Single((await queueRepository.GetByRunIdAsync(run.Id, new QueueItemQuery())).Items);
+        Assert.Equal("failed", failedItem.Status);
+        Assert.Equal(2, failedItem.RetryCount);
+        Assert.Equal("retry_budget_exhausted", failedItem.HandledReason);
+        Assert.False(string.IsNullOrWhiteSpace(failedItem.ErrorMessage));
+
+        var completedRun = await runRepository.GetByIdAsync(run.Id);
+        Assert.Equal("completed", completedRun!.Status);
+        Assert.Equal(1, completedRun.FailedFileCount);
     }
 
     private async Task<SporeSyncJob> CreateJobAsync(

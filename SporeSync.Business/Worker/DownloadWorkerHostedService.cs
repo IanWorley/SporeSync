@@ -267,12 +267,9 @@ public sealed class DownloadWorkerHostedService : BackgroundService
                 token));
         }
 
-        return await progress.CompleteAsync(token => RecordFailureAsync(
-            queueRepository,
-            item,
-            result.ErrorMessage,
-            bytesDownloaded: null,
-            token));
+        return await progress.CompleteAsync(token => result.FailureKind == DownloadFailureKind.Permanent
+            ? RecordPermanentFailureAsync(queueRepository, item, result.ErrorMessage, bytesDownloaded: null, token)
+            : RecordFailureAsync(queueRepository, item, result.ErrorMessage, bytesDownloaded: null, token));
     }
 
     private async Task<DownloadQueueItem> ProcessGroupAsync(
@@ -293,6 +290,7 @@ public sealed class DownloadWorkerHostedService : BackgroundService
         long groupBytesDownloaded = 0;
         decimal? latestRate = null;
         var groupFailed = false;
+        var groupPermanentFailure = false;
         var groupDeferred = false;
 
         IConnectedSftpClient? connection = null;
@@ -465,6 +463,7 @@ public sealed class DownloadWorkerHostedService : BackgroundService
                 }, token));
 
                 groupFailed = true;
+                groupPermanentFailure |= leafResult.FailureKind == DownloadFailureKind.Permanent;
                 if (connection is not null)
                 {
                     await connection.DisposeAsync();
@@ -487,6 +486,16 @@ public sealed class DownloadWorkerHostedService : BackgroundService
 
         if (groupFailed)
         {
+            if (groupPermanentFailure)
+            {
+                return await RecordPermanentFailureAsync(
+                    queueRepository,
+                    groupItem,
+                    "One or more files in the group have a permanent download error.",
+                    groupBytesDownloaded,
+                    cancellationToken);
+            }
+
             // The group carries the retry budget for its subtree: failed leaves are retried on the
             // group's next claim (only non-completed leaves are re-attempted) until the budget is
             // exhausted, at which point the group is dead-lettered as terminal 'failed'.
@@ -682,6 +691,32 @@ public sealed class DownloadWorkerHostedService : BackgroundService
                 nextAttemptAt,
                 errorMessage);
         }
+
+        return updated;
+    }
+
+    private async Task<DownloadQueueItem> RecordPermanentFailureAsync(
+        IDownloadQueueItemRepository queueRepository,
+        DownloadQueueItem item,
+        string? errorMessage,
+        long? bytesDownloaded,
+        CancellationToken cancellationToken)
+    {
+        var updated = await queueRepository.UpdateProgressAsync(new UpdateDownloadQueueItemProgress
+        {
+            Id = item.Id,
+            Status = "failed",
+            BytesDownloaded = bytesDownloaded ?? item.BytesDownloaded,
+            CurrentBytesPerSecond = null,
+            ErrorMessage = errorMessage,
+            HandledReason = "permanent_error"
+        }, cancellationToken);
+
+        _logger.LogWarning(
+            "Queue item {QueueItemId} ({RemotePath}) failed permanently and will not be retried: {Error}",
+            updated.Id,
+            updated.RemotePath,
+            errorMessage);
 
         return updated;
     }

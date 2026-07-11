@@ -187,6 +187,7 @@ public sealed class DownloadWorkerHostedServiceTests : IDisposable
         services.AddSingleton(runRepository);
         services.AddSingleton<ISporeSyncJobRepository>(new SingleJobRepository(job));
         services.AddSingleton(downloader);
+        services.AddSingleton<ISftpClientFactory, SuccessfulSftpClientFactory>();
         services.AddSingleton<ISyncDashboardNotifier, NoOpNotifier>();
         services.AddSingleton<DownloadWorkerHostedService>();
         services.AddSingleton<ILogger<DownloadWorkerHostedService>>(NullLogger<DownloadWorkerHostedService>.Instance);
@@ -635,6 +636,19 @@ public sealed class DownloadWorkerHostedServiceTests : IDisposable
             _afterDownload?.Invoke();
             return Task.FromResult(new SftpDownloadResult(true, 10, 100, null));
         }
+
+        public Task<SftpDownloadResult> DownloadAsync(
+            IConnectedSftpClient client,
+            string remotePath,
+            string localPath,
+            IProgress<long>? progress = null,
+            CancellationToken cancellationToken = default)
+        {
+            DownloadedRemotePaths.Add(remotePath);
+            progress?.Report(10);
+            _afterDownload?.Invoke();
+            return Task.FromResult(new SftpDownloadResult(true, 10, 100, null));
+        }
     }
 
     private sealed class ThrowingSftpClientFactory : ISftpClientFactory
@@ -651,6 +665,27 @@ public sealed class DownloadWorkerHostedServiceTests : IDisposable
             CancellationToken cancellationToken = default)
         {
             throw _exception;
+        }
+    }
+
+    private sealed class SuccessfulSftpClientFactory : ISftpClientFactory
+    {
+        public Task<IConnectedSftpClient> ConnectAsync(
+            Guid connectionProfileId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<IConnectedSftpClient>(new FakeConnectedSftpClient());
+    }
+
+    private sealed class FakeConnectedSftpClient : IConnectedSftpClient
+    {
+        public Renci.SshNet.SftpClient Client => throw new NotSupportedException();
+
+        public bool IsConnected { get; private set; } = true;
+
+        public ValueTask DisposeAsync()
+        {
+            IsConnected = false;
+            return ValueTask.CompletedTask;
         }
     }
 

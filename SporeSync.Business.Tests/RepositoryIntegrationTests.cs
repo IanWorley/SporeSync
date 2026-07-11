@@ -1031,7 +1031,24 @@ public sealed class RepositoryIntegrationTests : IClassFixture<RepositoryTestcon
         Assert.Equal(7, syncedState["/incoming/reports/"].ChildCount);
     }
 
-+    [Fact]
+    private async Task SetAsideClaimableQueueItemsAsync()
+    {
+        const string sql = """
+            UPDATE core.download_queue_items
+            SET status = 'skipped',
+                handled_reason = 'test_cleanup',
+                completed_at = now(),
+                updated_at = now()
+            WHERE status = 'queued'
+              AND (is_group = true OR (is_group = false AND group_remote_path IS NULL));
+            """;
+
+        await using var connection = await _fixture.DataSource.OpenConnectionAsync();
+        await using var command = new Npgsql.NpgsqlCommand(sql, connection);
+        await command.ExecuteNonQueryAsync();
+    }
+
+    [Fact]
     public async Task DownloadQueueItemRepository_ClaimNext_WaitsUntilRunIsDownloading()
     {
         await SetAsideClaimableQueueItemsAsync();

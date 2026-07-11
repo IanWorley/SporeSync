@@ -26,8 +26,39 @@ public sealed class SporeSyncJobsControllerRunTests
         Assert.Equal(StatusCodes.Status409Conflict, problem.Status);
     }
 
+    [Fact]
+    public async Task Delete_ReturnsConflict_WhenActiveRunExists()
+    {
+        var controller = CreateController(DeleteSporeSyncJobStatus.ActiveRunExists);
+
+        var result = await controller.Delete(Guid.NewGuid(), CancellationToken.None);
+
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        var problem = Assert.IsType<ProblemDetails>(objectResult.Value);
+        Assert.Equal(StatusCodes.Status409Conflict, problem.Status);
+    }
+
+    [Fact]
+    public async Task Delete_ReturnsNotFound_WhenJobDoesNotExist()
+    {
+        var controller = CreateController(DeleteSporeSyncJobStatus.NotFound);
+
+        var result = await controller.Delete(Guid.NewGuid(), CancellationToken.None);
+
+        Assert.IsType<NotFoundResult>(result);
+    }
+
+    private static SporeSyncJobsController CreateController(DeleteSporeSyncJobStatus deleteStatus)
+    {
+        return new SporeSyncJobsController(
+            new FakeSporeSyncJobService { DeleteStatus = deleteStatus },
+            new FakeSyncJobRunService { Result = new SyncJobRunResult { Error = SyncJobRunError.NotFound } });
+    }
+
     private sealed class FakeSporeSyncJobService : ISporeSyncJobService
     {
+        public DeleteSporeSyncJobStatus DeleteStatus { get; init; }
+
         public Task<IReadOnlyCollection<SporeSyncJob>> GetConfiguredJobsAsync(CancellationToken cancellationToken = default)
             => Task.FromResult<IReadOnlyCollection<SporeSyncJob>>(Array.Empty<SporeSyncJob>());
 
@@ -38,7 +69,7 @@ public sealed class SporeSyncJobsControllerRunTests
             => throw new NotImplementedException();
 
         public Task<DeleteSporeSyncJobStatus> DeleteAsync(Guid id, CancellationToken cancellationToken = default)
-            => throw new NotImplementedException();
+            => Task.FromResult(DeleteStatus);
     }
 
     private sealed class FakeSyncJobRunService : ISyncJobRunService

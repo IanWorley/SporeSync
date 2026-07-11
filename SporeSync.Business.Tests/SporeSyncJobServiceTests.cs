@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using SporeSync.Business;
 using SporeSync.Business.Interface;
@@ -108,13 +109,15 @@ public sealed class SporeSyncJobServiceTests
     public async Task DeleteAsync_DeletesJob_WhenNoActiveRun()
     {
         var repository = new RecordingSporeSyncJobRepository();
-        var service = CreateService(repository);
+        var logger = new RecordingLogger<SporeSyncJobService>();
+        var service = CreateService(repository, logger: logger);
         var jobId = Guid.NewGuid();
 
         var status = await service.DeleteAsync(jobId);
 
         Assert.Equal(DeleteSporeSyncJobStatus.Deleted, status);
         Assert.Equal(jobId, repository.DeletedId);
+        Assert.Contains("Configuration audit: deleted sync job", Assert.Single(logger.Messages));
     }
 
     private static string TestDestinationRoot =>
@@ -122,7 +125,8 @@ public sealed class SporeSyncJobServiceTests
 
     private static SporeSyncJobService CreateService(
         RecordingSporeSyncJobRepository repository,
-        bool hasActiveRun = false)
+        bool hasActiveRun = false,
+        ILogger<SporeSyncJobService>? logger = null)
     {
         var sandbox = new LocalDestinationPathSandbox(Options.Create(new SporeSyncOptions
         {
@@ -132,7 +136,8 @@ public sealed class SporeSyncJobServiceTests
         return new SporeSyncJobService(
             repository,
             new FakeSporeSyncRunRepository { HasActiveRun = hasActiveRun },
-            sandbox);
+            sandbox,
+            logger);
     }
 
     private sealed class RecordingSporeSyncJobRepository : ISporeSyncJobRepository
@@ -213,6 +218,15 @@ public sealed class SporeSyncJobServiceTests
         {
             DeletedId = id;
             return Task.FromResult(true);
+        }
+
+        public async Task<SafeDeleteSporeSyncJobResult> SafeDeleteAsync(
+            Guid id,
+            CancellationToken cancellationToken = default)
+        {
+            return await DeleteAsync(id, cancellationToken)
+                ? SafeDeleteSporeSyncJobResult.Deleted
+                : SafeDeleteSporeSyncJobResult.NotFound;
         }
 
         public Task<int> CountByConnectionProfileAsync(Guid connectionProfileId, CancellationToken cancellationToken = default)

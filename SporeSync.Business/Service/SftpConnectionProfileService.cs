@@ -1,4 +1,6 @@
 using System.ComponentModel.DataAnnotations;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using SporeSync.Business.Interface;
 using SporeSync.Business.Sftp;
 using SporeSync.Domain.Interface;
@@ -11,15 +13,18 @@ public sealed class SftpConnectionProfileService : ISftpConnectionProfileService
     private readonly ISftpConnectionProfileRepository _repository;
     private readonly ISporeSyncJobRepository _jobRepository;
     private readonly ISecretProtector _secretProtector;
+    private readonly ILogger<SftpConnectionProfileService> _logger;
 
     public SftpConnectionProfileService(
         ISftpConnectionProfileRepository repository,
         ISporeSyncJobRepository jobRepository,
-        ISecretProtector secretProtector)
+        ISecretProtector secretProtector,
+        ILogger<SftpConnectionProfileService>? logger = null)
     {
         _repository = repository;
         _jobRepository = jobRepository;
         _secretProtector = secretProtector;
+        _logger = logger ?? NullLogger<SftpConnectionProfileService>.Instance;
     }
 
     public Task<IReadOnlyCollection<SftpConnectionProfile>> GetAllAsync(
@@ -130,8 +135,21 @@ public sealed class SftpConnectionProfileService : ISftpConnectionProfileService
             return DeleteSftpConnectionProfileStatus.InUse;
         }
 
-        var deleted = await _repository.DeleteAsync(id, cancellationToken);
-        return deleted ? DeleteSftpConnectionProfileStatus.Deleted : DeleteSftpConnectionProfileStatus.NotFound;
+        var result = await _repository.SafeDeleteAsync(id, cancellationToken);
+        if (result == SafeDeleteSftpConnectionProfileResult.Deleted)
+        {
+            _logger.LogInformation(
+                "Configuration audit: deleted SFTP connection profile {ProfileId} ({ProfileName}) and its stored credentials",
+                profile.Id,
+                profile.Name);
+        }
+
+        return result switch
+        {
+            SafeDeleteSftpConnectionProfileResult.Deleted => DeleteSftpConnectionProfileStatus.Deleted,
+            SafeDeleteSftpConnectionProfileResult.InUse => DeleteSftpConnectionProfileStatus.InUse,
+            _ => DeleteSftpConnectionProfileStatus.NotFound
+        };
     }
 
     private string? ProtectOptional(string? value)

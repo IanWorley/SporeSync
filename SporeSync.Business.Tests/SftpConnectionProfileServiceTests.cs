@@ -392,13 +392,21 @@ public sealed class SftpConnectionProfileServiceTests
     public async Task DeleteAsync_DeletesProfile_WhenUnused()
     {
         var repository = new RecordingSftpConnectionProfileRepository();
-        var service = CreateService(repository, new RecordingSecretProtector());
+        var logger = new RecordingLogger<SftpConnectionProfileService>();
+        var service = new SftpConnectionProfileService(
+            repository,
+            new CountingSporeSyncJobRepository(),
+            new RecordingSecretProtector(),
+            logger);
         var profileId = Guid.NewGuid();
 
         var status = await service.DeleteAsync(profileId);
 
         Assert.Equal(DeleteSftpConnectionProfileStatus.Deleted, status);
         Assert.Equal(profileId, repository.DeletedId);
+        var message = Assert.Single(logger.Messages);
+        Assert.Contains("Configuration audit: deleted SFTP connection profile", message);
+        Assert.DoesNotContain("never-log-me", message);
     }
 
     private static RecordingSftpConnectionProfileRepository RepositoryWithProfile(
@@ -458,6 +466,11 @@ public sealed class SftpConnectionProfileServiceTests
 
         public Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
+
+        public Task<SafeDeleteSporeSyncJobResult> SafeDeleteAsync(
+            Guid id,
+            CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
     }
 
     private sealed class RecordingSecretProtector : ISecretProtector
@@ -498,6 +511,7 @@ public sealed class SftpConnectionProfileServiceTests
             Host = "sftp.example.com",
             Port = 22,
             Username = "sync-user",
+            EncryptedPassword = "protected:never-log-me",
             IsDefault = true
         };
 
@@ -551,6 +565,15 @@ public sealed class SftpConnectionProfileServiceTests
         {
             DeletedId = id;
             return Task.FromResult(true);
+        }
+
+        public async Task<SafeDeleteSftpConnectionProfileResult> SafeDeleteAsync(
+            Guid id,
+            CancellationToken cancellationToken = default)
+        {
+            return await DeleteAsync(id, cancellationToken)
+                ? SafeDeleteSftpConnectionProfileResult.Deleted
+                : SafeDeleteSftpConnectionProfileResult.NotFound;
         }
     }
 }

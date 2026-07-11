@@ -617,6 +617,11 @@ public sealed class DownloadWorkerHostedServiceTests
         public Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
+        public Task<SafeDeleteSporeSyncJobResult> SafeDeleteAsync(
+            Guid id,
+            CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
         public Task<int> CountByConnectionProfileAsync(Guid connectionProfileId, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
     }

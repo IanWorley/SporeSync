@@ -198,6 +198,26 @@ public sealed class SporeSyncJobRepository : ISporeSyncJobRepository
         return await DbCommandLogger.ExecuteScalarAsync<bool>(_logger, command, OpDeleteJob, cancellationToken);
     }
 
+    public async Task<SafeDeleteSporeSyncJobResult> SafeDeleteAsync(
+        Guid id,
+        CancellationToken cancellationToken = default)
+    {
+        const string sql = "SELECT core.safe_delete_sftp_sync_job(@id);";
+
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.AddWithValue("id", id);
+
+        var result = await DbCommandLogger.ExecuteScalarAsync<string>(_logger, command, OpDeleteJob, cancellationToken);
+        return result switch
+        {
+            "deleted" => SafeDeleteSporeSyncJobResult.Deleted,
+            "not_found" => SafeDeleteSporeSyncJobResult.NotFound,
+            "active_run" => SafeDeleteSporeSyncJobResult.ActiveRunExists,
+            _ => throw new InvalidOperationException($"Unexpected safe job deletion result '{result}'.")
+        };
+    }
+
     public async Task<int> CountByConnectionProfileAsync(
         Guid connectionProfileId,
         CancellationToken cancellationToken = default)

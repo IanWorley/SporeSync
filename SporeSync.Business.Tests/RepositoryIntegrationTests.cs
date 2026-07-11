@@ -1,3 +1,4 @@
+using SporeSync.Domain.Interface;
 using SporeSync.Domain.Model;
 using SporeSync.Infrastructure.Repository;
 
@@ -1135,7 +1136,7 @@ public sealed class RepositoryIntegrationTests : IClassFixture<RepositoryTestcon
     }
 
     [Fact]
-    public async Task SftpConnectionProfileRepository_DeleteAndJobCount_WorkThroughPostgres()
+    public async Task SftpConnectionProfileRepository_SafeDelete_BlocksReferencesAndRemovesSecretRow()
     {
         var profileRepository = new SftpConnectionProfileRepository(_fixture.DataSource);
         var jobRepository = new SporeSyncJobRepository(_fixture.DataSource);
@@ -1147,13 +1148,43 @@ public sealed class RepositoryIntegrationTests : IClassFixture<RepositoryTestcon
         Assert.Equal(1, await jobRepository.CountByConnectionProfileAsync(usedProfile.Id));
         Assert.Equal(0, await jobRepository.CountByConnectionProfileAsync(unusedProfile.Id));
 
-        Assert.True(await profileRepository.DeleteAsync(unusedProfile.Id));
+        Assert.Equal(
+            SafeDeleteSftpConnectionProfileResult.InUse,
+            await profileRepository.SafeDeleteAsync(usedProfile.Id));
+        var retained = await profileRepository.GetByIdAsync(usedProfile.Id);
+        Assert.NotNull(retained);
+        Assert.NotNull(retained.EncryptedPassword);
+
+        Assert.Equal(
+            SafeDeleteSftpConnectionProfileResult.Deleted,
+            await profileRepository.SafeDeleteAsync(unusedProfile.Id));
         Assert.Null(await profileRepository.GetByIdAsync(unusedProfile.Id));
-        Assert.False(await profileRepository.DeleteAsync(unusedProfile.Id));
+        Assert.Equal(
+            SafeDeleteSftpConnectionProfileResult.NotFound,
+            await profileRepository.SafeDeleteAsync(unusedProfile.Id));
     }
 
     [Fact]
-    public async Task SporeSyncJobRepository_Delete_RemovesJobRunsAndQueueItems()
+    public async Task SporeSyncJobRepository_SafeDelete_BlocksActiveRun()
+    {
+        var profileRepository = new SftpConnectionProfileRepository(_fixture.DataSource);
+        var jobRepository = new SporeSyncJobRepository(_fixture.DataSource);
+        var runRepository = new SporeSyncRunRepository(_fixture.DataSource);
+
+        var profile = await profileRepository.UpsertAsync(CreateProfile());
+        var job = await jobRepository.UpsertAsync(CreateJob(profile.Id));
+        var run = await runRepository.CreateAsync(job.Id);
+
+        Assert.Equal(SafeDeleteSporeSyncJobResult.ActiveRunExists, await jobRepository.SafeDeleteAsync(job.Id));
+        Assert.NotNull(await jobRepository.GetByIdAsync(job.Id));
+        Assert.NotNull(await runRepository.GetByIdAsync(run.Id));
+
+        Assert.NotNull(await runRepository.CancelAsync(run.Id));
+        Assert.Equal(SafeDeleteSporeSyncJobResult.Deleted, await jobRepository.SafeDeleteAsync(job.Id));
+    }
+
+    [Fact]
+    public async Task SporeSyncJobRepository_SafeDelete_RemovesCompletedHistory()
     {
         var profileRepository = new SftpConnectionProfileRepository(_fixture.DataSource);
         var jobRepository = new SporeSyncJobRepository(_fixture.DataSource);
@@ -1164,10 +1195,10 @@ public sealed class RepositoryIntegrationTests : IClassFixture<RepositoryTestcon
         var runId = Guid.NewGuid();
         await SeedRunAsync(job.Id, runId, "completed", "/incoming/file.csv");
 
-        Assert.True(await jobRepository.DeleteAsync(job.Id));
+        Assert.Equal(SafeDeleteSporeSyncJobResult.Deleted, await jobRepository.SafeDeleteAsync(job.Id));
         Assert.Null(await jobRepository.GetByIdAsync(job.Id));
         Assert.Null(await runRepository.GetByIdAsync(runId));
-        Assert.False(await jobRepository.DeleteAsync(job.Id));
+        Assert.Equal(SafeDeleteSporeSyncJobResult.NotFound, await jobRepository.SafeDeleteAsync(job.Id));
     }
 
     [Fact]

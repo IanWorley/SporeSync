@@ -48,13 +48,20 @@ public sealed class SporeSyncOptions
     /// Number of retries allowed for a queue item after its initial download attempt.
     /// Once exhausted the item is dead-lettered as terminal 'failed'.
     /// </summary>
+    [Range(0, 100)]
     public int DownloadMaxRetries { get; set; } = 3;
 
     /// <summary>Base delay for the exponential retry backoff (base * 2^retryCount).</summary>
+    [Range(1, 86_400)]
     public int DownloadRetryBaseDelaySeconds { get; set; } = 30;
 
     /// <summary>Upper bound for the exponential retry backoff delay.</summary>
+    [Range(1, 86_400)]
     public int DownloadRetryMaxDelaySeconds { get; set; } = 900;
+
+    /// <summary>Maximum proportional jitter applied above or below each exponential delay.</summary>
+    [Range(typeof(double), "0", "1")]
+    public double DownloadRetryJitterRatio { get; set; } = 0.2;
 
     /// <summary>
     /// A remote file whose modification time is within this window is considered still

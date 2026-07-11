@@ -51,16 +51,30 @@ public sealed class DownloadRetryPolicyTests
         Assert.Equal(TimeSpan.FromSeconds(60), policy.GetRetryDelay(5));
     }
 
+    [Fact]
+    public void GetRetryDelay_WithJitter_StaysInsideConfiguredAndProportionalBounds()
+    {
+        var policy = CreatePolicy(baseDelaySeconds: 10, maxDelaySeconds: 100, jitterRatio: 0.25);
+
+        for (var sample = 0; sample < 100; sample++)
+        {
+            var delay = policy.GetRetryDelay(2);
+            Assert.InRange(delay, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(50));
+        }
+    }
+
     private static DownloadRetryPolicy CreatePolicy(
         int maxRetries = 3,
         int baseDelaySeconds = 30,
-        int maxDelaySeconds = 900)
+        int maxDelaySeconds = 900,
+        double jitterRatio = 0)
     {
         return new DownloadRetryPolicy(Options.Create(new SporeSyncOptions
         {
             DownloadMaxRetries = maxRetries,
             DownloadRetryBaseDelaySeconds = baseDelaySeconds,
-            DownloadRetryMaxDelaySeconds = maxDelaySeconds
+            DownloadRetryMaxDelaySeconds = maxDelaySeconds,
+            DownloadRetryJitterRatio = jitterRatio
         }));
     }
 }

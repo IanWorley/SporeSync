@@ -78,6 +78,42 @@ public sealed class DownloadWorkerHostedServiceTests
     }
 
     [Fact]
+    public async Task ProcessNextItem_PermanentFailure_FailsWithoutSchedulingRetry()
+    {
+        var item = CreateItem("/remote/file.txt");
+        var queueRepository = new FakeQueueRepository(item);
+        var downloader = new FakeDownloader(_ => SftpDownloadResult.PermanentFailure("unsafe destination"));
+        var worker = CreateWorker(queueRepository, downloader);
+
+        await worker.ProcessNextItemAsync(CancellationToken.None);
+
+        Assert.Empty(queueRepository.FailureCalls);
+        var update = Assert.Single(queueRepository.ProgressUpdates);
+        Assert.Equal("failed", update.Status);
+        Assert.Equal("permanent_error", update.HandledReason);
+        Assert.Equal("unsafe destination", update.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task StopAsync_CancelsPollWhileRetryRemainsScheduled()
+    {
+        var item = CreateItem("/remote/file.txt");
+        var queueRepository = new FakeQueueRepository(item);
+        var downloader = new FakeDownloader(_ => SftpDownloadResult.Failure("connection reset"));
+        var worker = CreateWorker(queueRepository, downloader);
+
+        await worker.StartAsync(CancellationToken.None);
+        for (var attempt = 0; attempt < 100 && queueRepository.FailureCalls.Count == 0; attempt++)
+        {
+            await Task.Delay(10);
+        }
+
+        Assert.Single(queueRepository.FailureCalls);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+        await worker.StopAsync(timeout.Token);
+    }
+
+    [Fact]
     public async Task ProcessNextItem_GroupWithFailedLeaf_MarksLeafFailedAndRecordsGroupFailure()
     {
         var group = CreateItem("/remote/reports/", isGroup: true, childCount: 2);
@@ -107,6 +143,23 @@ public sealed class DownloadWorkerHostedServiceTests
         Assert.Equal(group.Id, failure.Id);
         // Completed-leaf bytes are preserved on the group row while it awaits retry.
         Assert.Equal(100, failure.BytesDownloaded);
+    }
+
+    [Fact]
+    public async Task ProcessNextItem_GroupWithPermanentLeafFailure_FailsGroupWithoutRetry()
+    {
+        var group = CreateItem("/remote/reports/", isGroup: true, childCount: 1);
+        var leaf = CreateItem("/remote/reports/unsafe.txt", groupRemotePath: group.RemotePath);
+        var queueRepository = new FakeQueueRepository(group) { Leaves = [leaf] };
+        var downloader = new FakeDownloader(_ => SftpDownloadResult.PermanentFailure("unsafe destination"));
+        var worker = CreateWorker(queueRepository, downloader);
+
+        await worker.ProcessNextItemAsync(CancellationToken.None);
+
+        Assert.Empty(queueRepository.FailureCalls);
+        var groupUpdate = queueRepository.ProgressUpdates.Single(update => update.Id == group.Id);
+        Assert.Equal("failed", groupUpdate.Status);
+        Assert.Equal("permanent_error", groupUpdate.HandledReason);
     }
 
     [Fact]
@@ -238,8 +291,10 @@ public sealed class DownloadWorkerHostedServiceTests
     {
         var options = Options.Create(new SporeSyncOptions
         {
+            DownloadPollIntervalMs = 600_000,
             DownloadMaxRetries = maxRetries,
             DownloadRetryBaseDelaySeconds = baseDelaySeconds,
+            DownloadRetryJitterRatio = 0,
             RemoteFileStabilityWindowSeconds = stabilityWindowSeconds
         });
 

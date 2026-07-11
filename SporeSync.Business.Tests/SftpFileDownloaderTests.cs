@@ -36,6 +36,7 @@ public sealed class SftpFileDownloaderTests : IDisposable
             Path.Combine(_root, "..", "outside.txt"));
 
         Assert.False(result.Success);
+        Assert.Equal(DownloadFailureKind.Permanent, result.FailureKind);
         Assert.Equal(0, factory.ConnectCalls);
         Assert.Contains("configured destination root", result.ErrorMessage);
     }

@@ -121,7 +121,7 @@ public sealed class SftpFileDownloader : ISftpFileDownloader
                 "Refusing to download {RemotePath} to unsafe local path {LocalPath}",
                 remotePath,
                 localPath);
-            failure = SftpDownloadResult.Failure(ex.Message);
+            failure = SftpDownloadResult.PermanentFailure(ex.Message);
             return false;
         }
     }
@@ -347,14 +347,24 @@ public sealed record SftpDownloadResult(
     long BytesDownloaded,
     decimal? BytesPerSecond,
     string? ErrorMessage,
-    bool Deferred = false)
+    bool Deferred = false,
+    DownloadFailureKind FailureKind = DownloadFailureKind.Transient)
 {
     public static SftpDownloadResult Succeed(long bytesDownloaded, decimal? bytesPerSecond) =>
         new(true, bytesDownloaded, bytesPerSecond, null);
 
     public static SftpDownloadResult Failure(string? errorMessage) =>
-        new(false, 0, null, errorMessage);
+        new(false, 0, null, errorMessage, FailureKind: DownloadFailureKind.Transient);
+
+    public static SftpDownloadResult PermanentFailure(string? errorMessage) =>
+        new(false, 0, null, errorMessage, FailureKind: DownloadFailureKind.Permanent);
 
     public static SftpDownloadResult Defer(string reason) =>
         new(false, 0, null, reason, Deferred: true);
+}
+
+public enum DownloadFailureKind
+{
+    Transient,
+    Permanent
 }

@@ -30,6 +30,10 @@ public sealed class SporeSyncOptionsValidationTests
     [InlineData("SporeSync:DownloadLeaseSeconds", "0")]
     [InlineData("SporeSync:RunScanLeaseSeconds", "0")]
     [InlineData("SporeSync:RecoverySweepIntervalSeconds", "0")]
+    [InlineData("SporeSync:DownloadMaxRetries", "-1")]
+    [InlineData("SporeSync:DownloadRetryBaseDelaySeconds", "0")]
+    [InlineData("SporeSync:DownloadRetryMaxDelaySeconds", "0")]
+    [InlineData("SporeSync:DownloadRetryJitterRatio", "1.1")]
     [InlineData("SporeSync:RunHistoryRetentionDays", "-1")]
     [InlineData("SporeSync:RetentionSweepIntervalHours", "0")]
     public void OutOfRangeValue_FailsValidation(string key, string value)
@@ -61,6 +65,18 @@ public sealed class SporeSyncOptionsValidationTests
         Assert.Equal(0, options.Value.RunHistoryRetentionDays);
     }
 
+    [Fact]
+    public void RetryMaximumBelowBaseDelay_FailsValidation()
+    {
+        var options = ResolveOptions(new Dictionary<string, string?>
+        {
+            ["SporeSync:DownloadRetryBaseDelaySeconds"] = "30",
+            ["SporeSync:DownloadRetryMaxDelaySeconds"] = "10"
+        });
+
+        Assert.Throws<OptionsValidationException>(() => options.Value);
+    }
+
     private static IOptions<SporeSyncOptions> ResolveOptions(Dictionary<string, string?> settings)
     {
         var configuration = new ConfigurationBuilder()
@@ -73,7 +89,10 @@ public sealed class SporeSyncOptionsValidationTests
             .ValidateDataAnnotations()
             .Validate(
                 options => Path.IsPathFullyQualified(options.DestinationRootPath),
-                "DestinationRootPath must be an absolute path.");
+                "DestinationRootPath must be an absolute path.")
+            .Validate(
+                options => options.DownloadRetryMaxDelaySeconds >= options.DownloadRetryBaseDelaySeconds,
+                "DownloadRetryMaxDelaySeconds must not be below DownloadRetryBaseDelaySeconds.");
 
         return services.BuildServiceProvider().GetRequiredService<IOptions<SporeSyncOptions>>();
     }

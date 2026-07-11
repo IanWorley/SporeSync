@@ -7,6 +7,7 @@ SporeSync is an ASP.NET Core application with a React/Vite single-page app for m
 - ASP.NET Core web API and static SPA hosting
 - React, TypeScript, Vite, TanStack Router, and TanStack Query frontend
 - SignalR dashboard updates
+- Single-admin cookie authentication for the API, SPA, and SignalR hub (see [docs/authentication.md](docs/authentication.md))
 - PostgreSQL persistence with FluentMigrator migrations
 - Real SFTP sync worker: scheduled job polling, incremental scan/enqueue, serial download to local filesystem
 - Backend-driven first-child opaque folder grouping: large directories appear as a small number of logical rows in the dashboard with subtree aggregates (see specs/folder-grouping-implementation-plan.html and specs/grouping-rules.md)
@@ -105,6 +106,22 @@ Worker settings in `appsettings.json`:
   }
 }
 ```
+
+### Authentication
+
+The app is protected by a single admin login (cookie sessions) covering the
+REST API, the SPA, and the `/hubs/dashboard` SignalR hub. Authentication is
+enabled by default outside Development and the app refuses to start until an
+admin credential is configured:
+
+```bash
+# Generate a PBKDF2 hash for Auth:PasswordHash / Auth__PasswordHash
+dotnet run --project SporeSync.Web/SporeSync.Web.csproj -- hash-password
+```
+
+`appsettings.Development.json` disables authentication so local development
+works without a login. See [docs/authentication.md](docs/authentication.md)
+for all settings, the login flow, and deployment examples.
 
 ## Common Commands
 

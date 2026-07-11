@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-router";
 import { api } from "../api/client";
 import { queryKeys } from "../api/queryKeys";
+import type { AuthSession } from "../api/types";
 import { AppShell } from "../components/AppShell";
 import { SectionHeader } from "../components/SectionHeader";
 import { StatusBadge } from "../components/StatusBadge";
@@ -19,17 +20,55 @@ import {
   SettingsPage,
 } from "./AdminPages";
 import { DashboardPage } from "./DashboardPage";
+import { LoginPage } from "./LoginPage";
 
 interface RouterContext {
   queryClient: QueryClient;
 }
 
-const rootRoute = createRootRouteWithContext<RouterContext>()({
+async function ensureSession(queryClient: QueryClient): Promise<AuthSession> {
+  try {
+    return await queryClient.ensureQueryData({
+      queryKey: queryKeys.session,
+      queryFn: api.session,
+      staleTime: 60_000,
+    });
+  } catch {
+    // If session discovery fails (e.g. backend briefly unreachable), render
+    // the app anyway; the server still rejects unauthenticated API calls,
+    // and those 401s route back to /login.
+    return { authRequired: false, authenticated: true, username: null };
+  }
+}
+
+const rootRoute = createRootRouteWithContext<RouterContext>()({});
+
+const loginRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/login",
+  beforeLoad: async ({ context }) => {
+    const session = await ensureSession(context.queryClient);
+    if (!session.authRequired || session.authenticated) {
+      throw redirect({ to: "/dashboard" });
+    }
+  },
+  component: LoginPage,
+});
+
+const appRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  id: "app",
+  beforeLoad: async ({ context }) => {
+    const session = await ensureSession(context.queryClient);
+    if (session.authRequired && !session.authenticated) {
+      throw redirect({ to: "/login" });
+    }
+  },
   component: AppShell,
 });
 
 const indexRoute = createRoute({
-  getParentRoute: () => rootRoute,
+  getParentRoute: () => appRoute,
   path: "/",
   beforeLoad: () => {
     throw redirect({ to: "/dashboard" });
@@ -37,70 +76,73 @@ const indexRoute = createRoute({
 });
 
 const dashboardRoute = createRoute({
-  getParentRoute: () => rootRoute,
+  getParentRoute: () => appRoute,
   path: "/dashboard",
   component: DashboardPage,
 });
 
 const dashboardRunRoute = createRoute({
-  getParentRoute: () => rootRoute,
+  getParentRoute: () => appRoute,
   path: "/dashboard/runs/$runId",
   component: DashboardPage,
 });
 
 const runsRoute = createRoute({
-  getParentRoute: () => rootRoute,
+  getParentRoute: () => appRoute,
   path: "/runs",
   component: RunsPage,
 });
 
 const runDetailRoute = createRoute({
-  getParentRoute: () => rootRoute,
+  getParentRoute: () => appRoute,
   path: "/runs/$runId",
   component: DashboardPage,
 });
 
 const jobsRoute = createRoute({
-  getParentRoute: () => rootRoute,
+  getParentRoute: () => appRoute,
   path: "/jobs",
   component: JobsPage,
 });
 
 const profilesRoute = createRoute({
-  getParentRoute: () => rootRoute,
+  getParentRoute: () => appRoute,
   path: "/profiles",
   component: ProfilesPage,
 });
 
 const settingsRoute = createRoute({
-  getParentRoute: () => rootRoute,
+  getParentRoute: () => appRoute,
   path: "/settings",
   component: SettingsPage,
 });
 
 const logsRoute = createRoute({
-  getParentRoute: () => rootRoute,
+  getParentRoute: () => appRoute,
   path: "/logs",
   component: LogsPage,
 });
 
 const aboutRoute = createRoute({
-  getParentRoute: () => rootRoute,
+  getParentRoute: () => appRoute,
   path: "/about",
   component: AboutPage,
 });
 
 export const routeTree = rootRoute.addChildren([
-  indexRoute,
-  dashboardRoute,
-  dashboardRunRoute,
-  runsRoute,
-  runDetailRoute,
-  jobsRoute,
-  profilesRoute,
-  settingsRoute,
-  logsRoute,
-  aboutRoute,
+  loginRoute,
+  appRoute.addChildren([
+    indexRoute,
+    dashboardRoute,
+    dashboardRunRoute,
+    runsRoute,
+    runDetailRoute,
+    jobsRoute,
+    profilesRoute,
+    settingsRoute,
+    logsRoute,
+    aboutRoute,
+  ]),
 ]);
 
 function RunsPage() {

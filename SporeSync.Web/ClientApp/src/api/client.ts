@@ -1,4 +1,5 @@
 import type {
+  AuthSession,
   DeleteQueueItemFileResponse,
   DownloadQueueItem,
   PagedResponse,
@@ -19,6 +20,24 @@ export interface PageQuery {
   pageSize?: number;
 }
 
+export class ApiError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+  }
+}
+
+/**
+ * A 401 outside the auth endpoints means the session expired or was never
+ * established, so the SPA should navigate to the login page. Auth endpoints
+ * are excluded because a failed login already surfaces its own error.
+ */
+export function shouldRedirectToLogin(status: number, path: string) {
+  return status === 401 && !path.startsWith("/api/auth/");
+}
+
 export async function fetchJson<T>(
   path: string,
   init?: RequestInit,
@@ -33,8 +52,18 @@ export async function fetchJson<T>(
   });
 
   if (!response.ok) {
+    if (
+      shouldRedirectToLogin(response.status, path) &&
+      typeof window !== "undefined"
+    ) {
+      window.location.assign("/login");
+    }
+
     const message = await response.text();
-    throw new Error(message || `Request failed with ${response.status}`);
+    throw new ApiError(
+      message || `Request failed with ${response.status}`,
+      response.status,
+    );
   }
 
   return response.json() as Promise<T>;
@@ -58,6 +87,13 @@ export function toQueryString(query: PageQuery = {}) {
 }
 
 export const api = {
+  session: () => fetchJson<AuthSession>("/api/auth/session"),
+  login: (username: string, password: string) =>
+    fetchJson<AuthSession>("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username, password }),
+    }),
+  logout: () => fetchJson<AuthSession>("/api/auth/logout", { method: "POST" }),
   status: () => fetchJson<StatusResponse>("/api/status"),
   runs: (query?: PageQuery) =>
     fetchJson<PagedResponse<SporeSyncRun>>(

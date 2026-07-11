@@ -96,6 +96,12 @@ export interface UpsertSftpConnectionProfile {
   isDefault: boolean;
 }
 
+export interface AuthSession {
+  authRequired: boolean;
+  authenticated: boolean;
+  username: string | null;
+}
+
 export interface StatusResponse {
   status: string;
   environment: string;

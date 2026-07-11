@@ -49,6 +49,8 @@ services:
     environment:
       ASPNETCORE_URLS: http://+:8080
       ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=SporeSync;Username=sporesync;Password=change-this-database-password
+      Auth__Username: admin
+      Auth__PasswordHash: "change-this-to-a-generated-password-hash"
       Security__EncryptionKeyPath: /var/lib/sporesync/secrets/encryption.key
       SporeSync__DestinationRootPath: /downloads
       SporeSync__SchedulerIntervalSeconds: 10
@@ -83,6 +85,12 @@ volumes:
 Change both database password values to the same strong password before starting
 the stack. If you built the image locally, replace the `web.image` value with
 `sporesync-web:local`.
+
+Set `Auth__PasswordHash` to a hash generated with
+`dotnet run --project SporeSync.Web/SporeSync.Web.csproj -- hash-password`;
+the container refuses to start without an admin credential. See
+[`authentication.md`](authentication.md) for the full authentication
+configuration, including how to disable login on a trusted network.
 
 ## Start the stack
 
@@ -132,3 +140,49 @@ Database migrations run automatically during web startup.
   Docker host and container network can resolve and reach those hosts.
 - When running behind a reverse proxy, terminate TLS at the proxy and forward
   traffic to the web container on port `8080`.
+
+## TLS reverse proxy headers
+
+If a production reverse proxy terminates TLS and forwards HTTP to the web
+container, enable forwarded headers so SporeSync sees the original HTTPS scheme
+and client IP address. This is required for `Secure` auth cookies, login rate
+limiting, and audit logs to behave as if the request reached the app directly
+over HTTPS.
+
+Do not enable forwarded headers without also configuring the trusted proxy IP
+or network. The app rejects that configuration at startup because otherwise a
+client could spoof `X-Forwarded-For` or `X-Forwarded-Proto`.
+
+Example for a reverse proxy on an explicit Docker network:
+
+```yaml
+services:
+  web:
+    environment:
+      ForwardedHeaders__Enabled: "true"
+      ForwardedHeaders__KnownNetworks__0: "172.30.80.0/24"
+      ForwardedHeaders__ForwardLimit: "1"
+    networks:
+      - sporesync-edge
+      - default
+
+networks:
+  sporesync-edge:
+    ipam:
+      config:
+        - subnet: 172.30.80.0/24
+```
+
+Use `ForwardedHeaders__KnownProxies__0` instead of `KnownNetworks` when the
+reverse proxy has a stable single IP address, for example:
+
+```yaml
+environment:
+  ForwardedHeaders__Enabled: "true"
+  ForwardedHeaders__KnownProxies__0: "172.30.80.10"
+  ForwardedHeaders__ForwardLimit: "1"
+```
+
+Configure the proxy to send `X-Forwarded-For` and `X-Forwarded-Proto`. Trust
+only the Docker subnet or proxy address that can connect directly to the web
+container.

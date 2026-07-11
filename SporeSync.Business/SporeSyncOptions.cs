@@ -37,6 +37,10 @@ public sealed class SporeSyncOptions
     [Range(1, 86_400)]
     public int RunScanLeaseSeconds { get; set; } = 1800;
 
+    /// <summary>Maximum number of manual scans waiting for the background worker.</summary>
+    [Range(1, 10_000)]
+    public int ManualRunQueueCapacity { get; set; } = 32;
+
     /// <summary>
     /// Interval between periodic recovery sweeps (stale item requeue and orphaned
     /// run reaping).

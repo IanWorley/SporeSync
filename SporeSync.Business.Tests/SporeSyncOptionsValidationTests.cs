@@ -29,6 +29,7 @@ public sealed class SporeSyncOptionsValidationTests
     [InlineData("SporeSync:SftpOperationTimeoutSeconds", "-5")]
     [InlineData("SporeSync:DownloadLeaseSeconds", "0")]
     [InlineData("SporeSync:RunScanLeaseSeconds", "0")]
+    [InlineData("SporeSync:ManualRunQueueCapacity", "0")]
     [InlineData("SporeSync:RecoverySweepIntervalSeconds", "0")]
     [InlineData("SporeSync:DownloadMaxRetries", "-1")]
     [InlineData("SporeSync:DownloadRetryBaseDelaySeconds", "0")]

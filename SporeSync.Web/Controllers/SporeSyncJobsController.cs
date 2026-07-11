@@ -113,6 +113,10 @@ public sealed class SporeSyncJobsController : ControllerBase
                 statusCode: StatusCodes.Status409Conflict,
                 title: "Run already active.",
                 detail: "Job already has an active run."),
+            SyncJobRunError.QueueSaturated => Problem(
+                statusCode: StatusCodes.Status429TooManyRequests,
+                title: "Manual run queue is full.",
+                detail: "Try the request again after an existing manual scan starts."),
             _ => Accepted(SyncDashboardNotifier.ToRunResponse(result.Run!))
         };
     }

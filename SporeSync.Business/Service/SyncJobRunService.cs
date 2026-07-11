@@ -9,20 +9,20 @@ public sealed class SyncJobRunService : ISyncJobRunService
 {
     private readonly ISporeSyncJobRepository _jobRepository;
     private readonly ISporeSyncRunRepository _runRepository;
-    private readonly ISyncRunOrchestrator _orchestrator;
+    private readonly IManualRunQueue _manualRunQueue;
     private readonly ISyncDashboardNotifier _notifier;
     private readonly SporeSyncOptions _options;
 
     public SyncJobRunService(
         ISporeSyncJobRepository jobRepository,
         ISporeSyncRunRepository runRepository,
-        ISyncRunOrchestrator orchestrator,
+        IManualRunQueue manualRunQueue,
         ISyncDashboardNotifier notifier,
         IOptions<SporeSyncOptions> options)
     {
         _jobRepository = jobRepository;
         _runRepository = runRepository;
-        _orchestrator = orchestrator;
+        _manualRunQueue = manualRunQueue;
         _notifier = notifier;
         _options = options.Value;
     }
@@ -42,28 +42,24 @@ public sealed class SyncJobRunService : ISyncJobRunService
             return new SyncJobRunResult { Error = SyncJobRunError.Disabled };
         }
 
-        // Creation is atomic: null means another caller (scheduler or a concurrent
-        // manual trigger) created an active run first.
-        var run = await _runRepository.TryCreateAsync(jobId, _options.RunScanLeaseSeconds, cancellationToken);
-        if (run is null)
+        if (!_manualRunQueue.TryReserve(out var reservation))
         {
-            return new SyncJobRunResult { Error = SyncJobRunError.ActiveRunExists };
+            return new SyncJobRunResult { Error = SyncJobRunError.QueueSaturated };
         }
 
-        await _notifier.NotifyRunUpdatedAsync(run, cancellationToken);
-
-        _ = Task.Run(async () =>
+        using (reservation)
         {
-            try
+            // Creation is atomic: null means another caller (scheduler or a concurrent
+            // manual trigger) created an active run first.
+            var run = await _runRepository.TryCreateAsync(jobId, _options.RunScanLeaseSeconds, cancellationToken);
+            if (run is null)
             {
-                await _orchestrator.ScanAsync(job, run, CancellationToken.None);
+                return new SyncJobRunResult { Error = SyncJobRunError.ActiveRunExists };
             }
-            catch
-            {
-                // Errors are persisted on the run by the orchestrator.
-            }
-        }, CancellationToken.None);
 
-        return new SyncJobRunResult { Run = run };
+            reservation!.Enqueue(new ManualRunWorkItem(jobId, run.Id));
+            await _notifier.NotifyRunUpdatedAsync(run, cancellationToken);
+            return new SyncJobRunResult { Run = run };
+        }
     }
 }

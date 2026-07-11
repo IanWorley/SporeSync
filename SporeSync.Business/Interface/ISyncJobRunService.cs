@@ -6,7 +6,8 @@ public enum SyncJobRunError
 {
     NotFound,
     Disabled,
-    ActiveRunExists
+    ActiveRunExists,
+    QueueSaturated
 }
 
 public sealed class SyncJobRunResult

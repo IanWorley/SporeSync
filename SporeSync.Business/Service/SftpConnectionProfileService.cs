@@ -63,9 +63,9 @@ public sealed class SftpConnectionProfileService : ISftpConnectionProfileService
             EncryptedPassword = encryptedPassword,
             EncryptedPrivateKey = encryptedPrivateKey,
             EncryptedPrivateKeyPassphrase = encryptedPrivateKeyPassphrase,
-            HostKeyFingerprintSha256 = ResolveHostKeyFingerprint(
-                profile.HostKeyFingerprintSha256,
-                existingProfile?.HostKeyFingerprintSha256),
+            TrustedHostKeyFingerprintsSha256 = ResolveHostKeyFingerprints(
+                profile.TrustedHostKeyFingerprintsSha256,
+                existingProfile?.TrustedHostKeyFingerprintsSha256),
             IsDefault = profile.IsDefault
         };
 
@@ -105,18 +105,19 @@ public sealed class SftpConnectionProfileService : ISftpConnectionProfileService
         return (null, privateKey, passphrase);
     }
 
-    private static string? ResolveHostKeyFingerprint(string? requested, string? existing)
+    private static IReadOnlyList<string> ResolveHostKeyFingerprints(
+        IReadOnlyList<string>? requested,
+        IReadOnlyList<string>? existing)
     {
-        // Null preserves the stored pin; an explicit blank clears it (re-enabling
-        // trust-on-first-use); any other value replaces the pin after normalization.
         if (requested is null)
         {
-            return existing;
+            return existing ?? [];
         }
 
-        return string.IsNullOrWhiteSpace(requested)
-            ? null
-            : SshHostKeyFingerprint.Normalize(requested);
+        return requested
+            .Select(SshHostKeyFingerprint.Normalize)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
     }
 
     public async Task<DeleteSftpConnectionProfileStatus> DeleteAsync(

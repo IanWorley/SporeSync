@@ -60,6 +60,7 @@ public sealed class SftpSyncEndToEndTests :
         services.AddScoped<ISporeSyncRunRepository, SporeSyncRunRepository>();
         services.AddScoped<IDownloadQueueItemRepository, DownloadQueueItemRepository>();
         services.AddScoped<ISftpClientFactory, SftpClientFactory>();
+        services.AddScoped<ISshHostKeyScanner, SshHostKeyScanner>();
         services.AddScoped<RealSftpDirectoryScanner>();
         services.AddScoped<ISftpFileDownloader, SftpFileDownloader>();
         services.AddSingleton<DownloadRetryPolicy>();
@@ -201,25 +202,40 @@ public sealed class SftpSyncEndToEndTests :
         Assert.Equal("keep me", await File.ReadAllTextAsync(Path.Combine(destination, "keep.txt")));
     }
 
+    [Fact]
+    public async Task HostKeyVerification_FailsClosedAndSupportsRotation()
+    {
+        using var scope = _provider.CreateScope();
+        var services = scope.ServiceProvider;
+        var factory = services.GetRequiredService<ISftpClientFactory>();
+        var observed = (await services.GetRequiredService<ISshHostKeyScanner>()
+            .ScanAsync(_sftp.Host, _sftp.Port)).FingerprintSha256;
+        const string other = "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+
+        foreach (var trusted in new IReadOnlyList<string>[] { [], [other] })
+        {
+            var profile = await CreateProfileAsync(services, "rejected", trusted);
+            var exception = await Assert.ThrowsAsync<SshHostKeyMismatchException>(
+                () => factory.ConnectAsync(profile.Id));
+            Assert.Equal(_sftp.Host, exception.Host);
+            Assert.Equal(observed, exception.ActualFingerprint);
+            Assert.DoesNotContain(SftpTestcontainerFixture.Password, exception.Message);
+        }
+
+        var rotating = await CreateProfileAsync(services, "rotation", [other, observed]);
+        await using var connection = await factory.ConnectAsync(rotating.Id);
+        Assert.True(connection.IsConnected);
+    }
+
     private async Task<SporeSyncJob> CreateJobAsync(
         IServiceProvider services,
         string sourcePath,
         string caseName)
     {
-        var profileRepository = services.GetRequiredService<ISftpConnectionProfileRepository>();
         var jobRepository = services.GetRequiredService<ISporeSyncJobRepository>();
-        var protector = services.GetRequiredService<ISecretProtector>();
-
-        var profile = await profileRepository.UpsertAsync(new SftpConnectionProfile
-        {
-            Id = Guid.NewGuid(),
-            Name = $"sftp-e2e-{caseName}-{Guid.NewGuid():N}",
-            Host = _sftp.Host,
-            Port = _sftp.Port,
-            Username = SftpTestcontainerFixture.Username,
-            EncryptedPassword = protector.Protect(SftpTestcontainerFixture.Password),
-            IsDefault = false
-        });
+        var observed = (await services.GetRequiredService<ISshHostKeyScanner>()
+            .ScanAsync(_sftp.Host, _sftp.Port)).FingerprintSha256;
+        var profile = await CreateProfileAsync(services, caseName, [observed]);
 
         return await jobRepository.UpsertAsync(new UpsertSporeSyncJob
         {
@@ -230,6 +246,26 @@ public sealed class SftpSyncEndToEndTests :
             PollingIntervalSeconds = 120,
             IsEnabled = true
         });
+    }
+
+    private async Task<SftpConnectionProfile> CreateProfileAsync(
+        IServiceProvider services,
+        string caseName,
+        IReadOnlyList<string> trustedHostKeys)
+    {
+        return await services.GetRequiredService<ISftpConnectionProfileRepository>().UpsertAsync(
+            new SftpConnectionProfile
+            {
+                Id = Guid.NewGuid(),
+                Name = $"sftp-e2e-{caseName}-{Guid.NewGuid():N}",
+                Host = _sftp.Host,
+                Port = _sftp.Port,
+                Username = SftpTestcontainerFixture.Username,
+                EncryptedPassword = services.GetRequiredService<ISecretProtector>()
+                    .Protect(SftpTestcontainerFixture.Password),
+                TrustedHostKeyFingerprintsSha256 = trustedHostKeys,
+                IsDefault = false
+            });
     }
 
     private string DestinationFor(string caseName) => Path.Combine(_destinationRoot, caseName);

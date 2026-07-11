@@ -83,7 +83,7 @@ export interface SftpConnectionProfile {
   hasPassword: boolean;
   hasPrivateKey: boolean;
   hasPrivateKeyPassphrase: boolean;
-  hostKeyFingerprintSha256: string | null;
+  trustedHostKeyFingerprintsSha256: string[];
   isDefault: boolean;
 }
 
@@ -97,8 +97,8 @@ export interface UpsertSftpConnectionProfile {
   privateKey?: string | null;
   privateKeyPassphrase?: string | null;
   removePrivateKeyPassphrase: boolean;
-  // Null preserves the stored pin; an empty string clears it (trust-on-first-use).
-  hostKeyFingerprintSha256?: string | null;
+  // Null preserves stored fingerprints; an empty array makes connections fail closed.
+  trustedHostKeyFingerprintsSha256?: string[] | null;
   isDefault: boolean;
 }
 

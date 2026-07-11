@@ -831,8 +831,8 @@ function ProfileForm({
   const [privateKeyPassphrase, setPrivateKeyPassphrase] = useState("");
   const [removePrivateKeyPassphrase, setRemovePrivateKeyPassphrase] =
     useState(false);
-  const [hostKeyFingerprint, setHostKeyFingerprint] = useState(
-    profile?.hostKeyFingerprintSha256 ?? "",
+  const [hostKeyFingerprints, setHostKeyFingerprints] = useState(
+    profile?.trustedHostKeyFingerprintsSha256.join("\n") ?? "",
   );
   const [isDefault, setIsDefault] = useState(profile?.isDefault ?? true);
   const preservesSelectedCredential =
@@ -840,7 +840,11 @@ function ProfileForm({
   const scanMutation = useMutation({
     mutationFn: () => api.scanHostKey(host.trim(), port),
     onSuccess: (result) => {
-      setHostKeyFingerprint(result.fingerprintSha256);
+      setHostKeyFingerprints((current) =>
+        [...current.split(/\s+/).filter(Boolean), result.fingerprintSha256]
+          .filter((value, index, values) => values.indexOf(value) === index)
+          .join("\n"),
+      );
     },
   });
   const validation = useMemo(() => {
@@ -890,9 +894,9 @@ function ProfileForm({
               ? privateKeyPassphrase
               : null,
             removePrivateKeyPassphrase,
-            // The form always knows the current pin, so submit it verbatim;
-            // an empty value clears the pin and re-enables trust-on-first-use.
-            hostKeyFingerprintSha256: hostKeyFingerprint.trim(),
+            trustedHostKeyFingerprintsSha256: hostKeyFingerprints
+              .split(/\s+/)
+              .filter(Boolean),
             isDefault,
           });
         }
@@ -1036,13 +1040,13 @@ function ProfileForm({
           </>
         )}
         <div className="md:col-span-2">
-          <Field label="Pinned host key fingerprint (SHA-256)">
+          <Field label="Trusted host key fingerprints (SHA-256, one per line)">
             <div className="flex gap-2">
-              <input
-                className={`${inputClass} font-mono text-xs`}
-                placeholder="SHA256:…  (blank = trust and pin on first connection)"
-                value={hostKeyFingerprint}
-                onChange={(event) => setHostKeyFingerprint(event.target.value)}
+              <textarea
+                className={`${inputClass} min-h-20 py-2 font-mono text-xs`}
+                placeholder="SHA256:…"
+                value={hostKeyFingerprints}
+                onChange={(event) => setHostKeyFingerprints(event.target.value)}
               />
               <Button
                 type="button"
@@ -1068,10 +1072,10 @@ function ProfileForm({
             </p>
           )}
           <p className="mt-2 text-xs text-muted-foreground">
-            Connections are rejected when the server key does not match the
-            pinned fingerprint. Leave blank to pin automatically on first
-            connection; clear the field if the server host key legitimately
-            changed.
+            Connections are rejected unless the server key matches one of these
+            fingerprints. A blank list rejects every connection. During
+            rotation, keep both old and new fingerprints until the old key is
+            retired.
           </p>
         </div>
         <label className="flex items-center gap-2 pt-6 text-sm">
@@ -1185,7 +1189,7 @@ function SecretIndicators({ profile }: { profile: SftpConnectionProfile }) {
     { label: "Key", enabled: profile.hasPrivateKey },
     { label: "Passphrase", enabled: profile.hasPrivateKeyPassphrase },
   ];
-  const hostKeyPinned = Boolean(profile.hostKeyFingerprintSha256);
+  const hostKeyPinned = profile.trustedHostKeyFingerprintsSha256.length > 0;
   return (
     <div className="flex flex-wrap gap-1">
       {items.map((item) => (
@@ -1200,8 +1204,8 @@ function SecretIndicators({ profile }: { profile: SftpConnectionProfile }) {
       <span
         title={
           hostKeyPinned
-            ? `Pinned host key: ${profile.hostKeyFingerprintSha256}`
-            : "Host key not pinned yet; it will be pinned on first connection."
+            ? `Trusted host keys: ${profile.trustedHostKeyFingerprintsSha256.join(", ")}`
+            : "No trusted host key; connections are blocked."
         }
         className={
           hostKeyPinned

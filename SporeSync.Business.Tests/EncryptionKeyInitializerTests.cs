@@ -210,14 +210,6 @@ public sealed class EncryptionKeyInitializerTests
             throw new NotSupportedException();
         }
 
-        public Task<bool> TryPinHostKeyFingerprintAsync(
-            Guid id,
-            string fingerprintSha256,
-            CancellationToken cancellationToken = default)
-        {
-            throw new NotSupportedException();
-        }
-
         public Task<bool> HasAnyEncryptedSecretsAsync(CancellationToken cancellationToken = default)
         {
             return Task.FromResult(HasEncryptedSecrets);

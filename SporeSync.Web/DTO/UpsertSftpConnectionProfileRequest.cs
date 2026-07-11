@@ -29,7 +29,6 @@ public sealed record UpsertSftpConnectionProfileRequest(
 
     bool RemovePrivateKeyPassphrase = false,
 
-    [param: MaxLength(100)]
-    string? HostKeyFingerprintSha256 = null,
+    IReadOnlyList<string>? TrustedHostKeyFingerprintsSha256 = null,
 
     bool IsDefault = true);

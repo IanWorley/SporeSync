@@ -9,17 +9,17 @@ public sealed class SshHostKeyMismatchException : Exception
     public SshHostKeyMismatchException(
         string host,
         int port,
-        string expectedFingerprint,
+        IReadOnlyCollection<string> trustedFingerprints,
         string actualFingerprint)
         : base(
             $"SSH host key verification failed for {host}:{port}. " +
-            $"The server presented key fingerprint '{actualFingerprint}' but the connection profile has " +
-            $"'{expectedFingerprint}' pinned. This can indicate a man-in-the-middle attack or a legitimate " +
-            "host key rotation. If the change is expected, update or clear the pinned fingerprint on the profile.")
+            $"The server presented key fingerprint '{actualFingerprint}', which is not trusted by the connection profile. " +
+            "This can indicate a man-in-the-middle attack or a legitimate host key rotation. " +
+            "Verify the key through a trusted channel before updating the profile.")
     {
         Host = host;
         Port = port;
-        ExpectedFingerprint = expectedFingerprint;
+        TrustedFingerprints = trustedFingerprints;
         ActualFingerprint = actualFingerprint;
     }
 
@@ -27,7 +27,7 @@ public sealed class SshHostKeyMismatchException : Exception
 
     public int Port { get; }
 
-    public string ExpectedFingerprint { get; }
+    public IReadOnlyCollection<string> TrustedFingerprints { get; }
 
     public string ActualFingerprint { get; }
 }

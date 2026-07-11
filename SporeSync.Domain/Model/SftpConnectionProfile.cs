@@ -19,11 +19,10 @@ public sealed class SftpConnectionProfile
     public string? EncryptedPrivateKeyPassphrase { get; init; }
 
     /// <summary>
-    /// Pinned SSH host key fingerprint in canonical "SHA256:&lt;base64&gt;" form.
-    /// When set, connections are rejected unless the server presents a matching key.
-    /// When null, the fingerprint is captured and pinned on first use.
+    /// Trusted SSH host key fingerprints in canonical "SHA256:&lt;base64&gt;" form.
+    /// Connections are rejected unless the server presents one of these keys.
     /// </summary>
-    public string? HostKeyFingerprintSha256 { get; init; }
+    public IReadOnlyList<string> TrustedHostKeyFingerprintsSha256 { get; set; } = [];
 
     public bool IsDefault { get; init; }
 }

@@ -296,6 +296,34 @@ public sealed class ChangeDetectorTests
     }
 
     [Fact]
+    public void DetectChanges_UnchangedPermanentlyFailedGroup_OnLaterScanStaysDeadLettered()
+    {
+        var modifiedAt = DateTimeOffset.Parse("2026-05-28T12:00:00Z");
+        var detector = new ChangeDetector();
+        var group = new ScannedRemoteEntry("/remote/reports/", "/data/reports/", true, 100, 1, null, modifiedAt);
+        var leaf = new ScannedRemoteEntry(
+            "/remote/reports/unsafe.txt",
+            "/data/reports/unsafe.txt",
+            false,
+            100,
+            0,
+            group.RemotePath,
+            modifiedAt);
+        var scan = new FirstLevelScanResult([group], [leaf], 100, 1, 0);
+        var synced = new Dictionary<string, SyncedRemoteState>(StringComparer.Ordinal)
+        {
+            [group.RemotePath] = FailedState(group.RemotePath, modifiedAt, 100, childCount: 1),
+            [leaf.RemotePath] = FailedState(leaf.RemotePath, modifiedAt, 100)
+        };
+
+        var result = detector.DetectChanges(scan, synced);
+
+        Assert.Empty(result.EntriesToEnqueue);
+        Assert.Empty(result.EntriesToCarryForward);
+        Assert.Equal(0, result.EnqueuedVisibleCount);
+    }
+
+    [Fact]
     public void DetectChanges_UnchangedFailedEntry_StaysDeadLettered()
     {
         // A dead-lettered ('failed') item must not be auto-requeued while the remote file is
@@ -448,6 +476,20 @@ public sealed class ChangeDetectorTests
             ChildCount = childCount
         };
     }
+
+    private static SyncedRemoteState FailedState(
+        string remotePath,
+        DateTimeOffset? modifiedAt,
+        long fileSizeBytes,
+        int childCount = 0) =>
+        new()
+        {
+            RemotePath = remotePath,
+            RemoteModifiedAt = modifiedAt,
+            FileSizeBytes = fileSizeBytes,
+            Status = "failed",
+            ChildCount = childCount
+        };
 
     private static FirstLevelScanResult CreateScan(params ScannedRemoteEntry[] visible)
     {

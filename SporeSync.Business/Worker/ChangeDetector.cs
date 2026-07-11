@@ -132,7 +132,8 @@ public sealed class ChangeDetector : IChangeDetector
             return true;
         }
 
-        if (!IsCompleted(existing.Status))
+        if (!IsCompleted(existing.Status)
+            && !string.Equals(existing.Status, "failed", StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }

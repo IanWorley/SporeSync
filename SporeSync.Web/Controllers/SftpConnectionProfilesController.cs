@@ -143,12 +143,32 @@ public sealed class SftpConnectionProfilesController : ControllerBase
         };
     }
 
-    [HttpPost("{id:guid}/test")]
+    [HttpPost("test")]
     public async Task<ActionResult<SftpConnectionTestResponse>> Test(
-        Guid id,
+        TestSftpConnectionRequest request,
         CancellationToken cancellationToken)
     {
-        var result = await _connectionTestService.TestAsync(id, cancellationToken);
+        SftpConnectionTestResult result;
+        try
+        {
+            result = await _connectionTestService.TestAsync(new SftpConnectionTestRequest
+            {
+                ProfileId = request.ProfileId,
+                Host = request.Host,
+                Port = request.Port,
+                Username = request.Username,
+                Password = request.Password,
+                PrivateKey = request.PrivateKey,
+                PrivateKeyPassphrase = request.PrivateKeyPassphrase,
+                HostKeyFingerprintSha256 = request.HostKeyFingerprintSha256,
+                SourcePath = request.SourcePath
+            }, cancellationToken);
+        }
+        catch (FormatException ex)
+        {
+            return ValidationProblem(ex.Message);
+        }
+
         if (!result.ProfileFound)
         {
             return NotFound();
@@ -156,7 +176,8 @@ public sealed class SftpConnectionProfilesController : ControllerBase
 
         return Ok(new SftpConnectionTestResponse(
             result.Success,
-            result.Success ? "Connection succeeded." : result.ErrorMessage,
+            result.FailureType,
+            result.Message,
             result.DurationMs));
     }
 

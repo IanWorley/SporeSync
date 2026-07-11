@@ -79,6 +79,9 @@ shell history.
 
 The cookie is issued with `HttpOnly`, `SameSite=Lax`, and `Secure` when the
 request arrives over HTTPS. Terminate TLS in front of the app in production.
+When TLS terminates at a reverse proxy, configure trusted forwarded headers as
+described in [`docker-compose-deployment.md`](docker-compose-deployment.md) so
+the app sees the original HTTPS scheme.
 
 ## Local development
 

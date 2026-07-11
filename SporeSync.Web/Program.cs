@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Threading.RateLimiting;
 using FluentMigrator.Runner;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using Scalar.AspNetCore;
 using SporeSync.Business;
@@ -13,6 +14,7 @@ using SporeSync.Web;
 using SporeSync.Web.Auth;
 using SporeSync.Web.Controllers;
 using SporeSync.Web.Hubs;
+using SporeSync.Web.Security;
 
 if (args is ["hash-password", ..])
 {
@@ -36,6 +38,16 @@ if (args is ["hash-password", ..])
 var builder = WebApplication.CreateBuilder(args);
 
 var testcontainerDatabase = await TestcontainerDatabase.StartIfEnabledAsync(builder.Configuration);
+
+var forwardedHeaderSettings =
+    builder.Configuration.GetSection(ForwardedHeaderSettings.SectionName).Get<ForwardedHeaderSettings>()
+    ?? new ForwardedHeaderSettings();
+forwardedHeaderSettings.Validate();
+
+if (forwardedHeaderSettings.Enabled)
+{
+    builder.Services.Configure<ForwardedHeadersOptions>(forwardedHeaderSettings.Configure);
+}
 
 var authOptions = builder.Configuration.GetSection(AuthOptions.SectionName).Get<AuthOptions>() ?? new AuthOptions();
 authOptions.Validate();
@@ -111,6 +123,11 @@ if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi("/openapi/{documentName}.json");
     app.MapScalarApiReference(options => options.WithTitle("SporeSync API"));
+}
+
+if (forwardedHeaderSettings.Enabled)
+{
+    app.UseForwardedHeaders();
 }
 
 app.UseHttpsRedirection();

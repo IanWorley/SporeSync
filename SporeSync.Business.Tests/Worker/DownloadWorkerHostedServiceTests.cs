@@ -395,7 +395,6 @@ public sealed class DownloadWorkerHostedServiceTests
             => Task.FromResult<DownloadQueueItem?>(null);
 
         public Task<IReadOnlyList<DownloadQueueItem>> RequeueStaleAsync(
-            bool ignoreLeases,
             CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
@@ -624,7 +623,6 @@ public sealed class DownloadWorkerHostedServiceTests
             => Task.FromResult(true);
 
         public Task<IReadOnlyList<SporeSyncRun>> ReapOrphanedAsync(
-            bool ignoreLeases,
             CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 

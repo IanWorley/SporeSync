@@ -12,9 +12,10 @@ namespace SporeSync.Business.Worker;
 /// * requeues claimed queue items whose lease expired (crashed/hung worker);
 /// * reaps orphaned runs (queued/scanning runs with an expired lease are failed,
 ///   downloading runs with no pending items are finalized as completed).
-/// Runs once at startup — before the scheduler and download worker start, and
-/// ignoring leases since no in-process work can be in flight yet — and then
-/// periodically while the host is running.
+/// Runs once at startup — before this instance's scheduler and download worker
+/// start — and then periodically while the host is running. Every sweep honors
+/// leases because another application instance may still own the work. A crashed
+/// process's work is therefore recovered once its last renewable lease expires.
 /// </summary>
 public sealed class QueueRecoveryHostedService : BackgroundService
 {
@@ -38,7 +39,7 @@ public sealed class QueueRecoveryHostedService : BackgroundService
         // claiming work (hosted services start sequentially in registration order).
         try
         {
-            await SweepAsync(ignoreLeases: true, cancellationToken);
+            await SweepAsync(cancellationToken);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -65,7 +66,7 @@ public sealed class QueueRecoveryHostedService : BackgroundService
 
             try
             {
-                await SweepAsync(ignoreLeases: false, stoppingToken);
+                await SweepAsync(stoppingToken);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -74,14 +75,14 @@ public sealed class QueueRecoveryHostedService : BackgroundService
         }
     }
 
-    public async Task SweepAsync(bool ignoreLeases, CancellationToken cancellationToken)
+    public async Task SweepAsync(CancellationToken cancellationToken)
     {
         using var scope = _scopeFactory.CreateScope();
         var queueRepository = scope.ServiceProvider.GetRequiredService<IDownloadQueueItemRepository>();
         var runRepository = scope.ServiceProvider.GetRequiredService<ISporeSyncRunRepository>();
         var notifier = scope.ServiceProvider.GetRequiredService<ISyncDashboardNotifier>();
 
-        var requeuedItems = await queueRepository.RequeueStaleAsync(ignoreLeases, cancellationToken);
+        var requeuedItems = await queueRepository.RequeueStaleAsync(cancellationToken);
         if (requeuedItems.Count > 0)
         {
             _logger.LogWarning(
@@ -105,7 +106,7 @@ public sealed class QueueRecoveryHostedService : BackgroundService
             }
         }
 
-        var reapedRuns = await runRepository.ReapOrphanedAsync(ignoreLeases, cancellationToken);
+        var reapedRuns = await runRepository.ReapOrphanedAsync(cancellationToken);
         if (reapedRuns.Count > 0)
         {
             _logger.LogWarning(

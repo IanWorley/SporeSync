@@ -110,32 +110,18 @@ public sealed class ReliabilityIntegrationTests : IClassFixture<RepositoryTestco
         Assert.NotNull(claimed);
 
         // Lease is still valid: the periodic sweep must not touch the item.
-        var untouched = await _queueRepository.RequeueStaleAsync(ignoreLeases: false);
+        var untouched = await _queueRepository.RequeueStaleAsync();
         Assert.DoesNotContain(untouched, requeued => requeued.Id == item.Id);
 
         await BackdateItemLeaseAsync(item.Id);
 
-        var requeued = await _queueRepository.RequeueStaleAsync(ignoreLeases: false);
+        var requeued = await _queueRepository.RequeueStaleAsync();
         var recovered = Assert.Single(requeued, r => r.Id == item.Id);
         Assert.Equal("queued", recovered.Status);
         Assert.Equal(claimed!.RetryCount + 1, recovered.RetryCount);
         Assert.Equal(0, recovered.BytesDownloaded);
         Assert.Null(recovered.ErrorMessage);
         Assert.Null(recovered.StartedAt);
-    }
-
-    [Fact]
-    public async Task RequeueStale_IgnoringLeases_RequeuesActiveClaims()
-    {
-        var job = await CreateJobAsync();
-        var run = await CreateRunAsync(job.Id, status: "downloading");
-        var item = await UpsertItemAsync(job.Id, run.Id, "/incoming/startup.bin");
-
-        Assert.NotNull(await ClaimForJobAsync(job.Id));
-
-        var requeued = await _queueRepository.RequeueStaleAsync(ignoreLeases: true);
-        var recovered = Assert.Single(requeued, r => r.Id == item.Id);
-        Assert.Equal("queued", recovered.Status);
     }
 
     [Fact]
@@ -172,7 +158,7 @@ public sealed class ReliabilityIntegrationTests : IClassFixture<RepositoryTestco
         Assert.True(await _queueRepository.RenewLeaseAsync(item.Id, LeaseSeconds));
 
         // The renewed lease protects the item from the periodic sweep.
-        var requeued = await _queueRepository.RequeueStaleAsync(ignoreLeases: false);
+        var requeued = await _queueRepository.RequeueStaleAsync();
         Assert.DoesNotContain(requeued, r => r.Id == item.Id);
     }
 
@@ -189,12 +175,12 @@ public sealed class ReliabilityIntegrationTests : IClassFixture<RepositoryTestco
         });
 
         // Lease still valid: run must survive the periodic sweep.
-        var untouched = await _runRepository.ReapOrphanedAsync(ignoreLeases: false);
+        var untouched = await _runRepository.ReapOrphanedAsync();
         Assert.DoesNotContain(untouched, reaped => reaped.Id == run.Id);
 
         await BackdateRunLeaseAsync(run.Id);
 
-        var reapedRuns = await _runRepository.ReapOrphanedAsync(ignoreLeases: false);
+        var reapedRuns = await _runRepository.ReapOrphanedAsync();
         var reaped = Assert.Single(reapedRuns, r => r.Id == run.Id);
         Assert.Equal("failed", reaped.Status);
         Assert.NotNull(reaped.ErrorMessage);
@@ -222,7 +208,7 @@ public sealed class ReliabilityIntegrationTests : IClassFixture<RepositoryTestco
             Options.Create(new SporeSyncOptions()),
             NullLogger<QueueRecoveryHostedService>.Instance);
 
-        await service.SweepAsync(ignoreLeases: false, CancellationToken.None);
+        await service.SweepAsync(CancellationToken.None);
 
         var persisted = await _runRepository.GetByIdAsync(run.Id);
         Assert.Equal("scanning", persisted!.Status);
@@ -256,7 +242,7 @@ public sealed class ReliabilityIntegrationTests : IClassFixture<RepositoryTestco
             BytesDownloaded = 100
         });
 
-        var reapedRuns = await _runRepository.ReapOrphanedAsync(ignoreLeases: false);
+        var reapedRuns = await _runRepository.ReapOrphanedAsync();
         var reaped = Assert.Single(reapedRuns, r => r.Id == run.Id);
         Assert.Equal("completed", reaped.Status);
         Assert.Equal(1, reaped.CompletedFileCount);
@@ -324,7 +310,7 @@ public sealed class ReliabilityIntegrationTests : IClassFixture<RepositoryTestco
     }
 
     [Fact]
-    public async Task RecoverySweep_RequeuesStaleItems_AndReapsOrphanedRuns()
+    public async Task RecoverySweep_HonorsLeases_RecoversInterruptedWork_AndIsIdempotent()
     {
         var job = await CreateJobAsync();
         var run = await CreateRunAsync(job.Id, status: "downloading");
@@ -336,13 +322,44 @@ public sealed class ReliabilityIntegrationTests : IClassFixture<RepositoryTestco
         var orphanedScanJob = await CreateJobAsync();
         var orphanedScanRun = await CreateRunAsync(orphanedScanJob.Id, status: "scanning");
 
-        // Simulate a process crash: startup sweep runs with ignoreLeases: true.
+        var terminalJob = await CreateJobAsync();
+        var terminalRun = await CreateRunAsync(terminalJob.Id, status: "downloading");
+        var terminalItem = await UpsertItemAsync(terminalJob.Id, terminalRun.Id, "/incoming/done.bin");
+        Assert.NotNull(await ClaimForJobAsync(terminalJob.Id));
+        terminalItem = await _queueRepository.UpdateProgressAsync(new UpdateDownloadQueueItemProgress
+        {
+            Id = terminalItem.Id,
+            Status = "completed",
+            BytesDownloaded = terminalItem.FileSizeBytes
+        });
+        terminalRun = await _runRepository.UpdateStatusAsync(new UpdateSporeSyncRunStatus
+        {
+            Id = terminalRun.Id,
+            Status = "completed"
+        });
+
+        var notifier = new RecordingNotifier();
         var service = new QueueRecoveryHostedService(
-            BuildScopeFactory(),
+            BuildScopeFactory(notifier),
             Options.Create(new SporeSyncOptions()),
             NullLogger<QueueRecoveryHostedService>.Instance);
 
-        await service.SweepAsync(ignoreLeases: true, CancellationToken.None);
+        // A concurrent instance may still own both leases, so startup recovery
+        // must leave them alone until their renewable leases expire.
+        await service.SweepAsync(CancellationToken.None);
+        Assert.Equal("downloading", (await _queueRepository.GetByIdAsync(item.Id))!.Status);
+        Assert.Equal("scanning", (await _runRepository.GetByIdAsync(orphanedScanRun.Id))!.Status);
+        Assert.DoesNotContain(notifier.QueueItems, updated => updated.Id == item.Id);
+        Assert.DoesNotContain(notifier.Runs, updated => updated.Id == orphanedScanRun.Id);
+        Assert.Equal("completed", (await _queueRepository.GetByIdAsync(terminalItem.Id))!.Status);
+        Assert.Equal("completed", (await _runRepository.GetByIdAsync(terminalRun.Id))!.Status);
+        Assert.DoesNotContain(notifier.QueueItems, updated => updated.Id == terminalItem.Id);
+        Assert.DoesNotContain(notifier.Runs, updated => updated.Id == terminalRun.Id);
+
+        // Simulate the former owners disappearing without renewing their leases.
+        await BackdateItemLeaseAsync(item.Id);
+        await BackdateRunLeaseAsync(orphanedScanRun.Id);
+        await service.SweepAsync(CancellationToken.None);
 
         var recoveredItem = await _queueRepository.GetByIdAsync(item.Id);
         Assert.Equal("queued", recoveredItem!.Status);
@@ -350,6 +367,17 @@ public sealed class ReliabilityIntegrationTests : IClassFixture<RepositoryTestco
 
         var reapedRun = await _runRepository.GetByIdAsync(orphanedScanRun.Id);
         Assert.Equal("failed", reapedRun!.Status);
+        Assert.Contains(notifier.QueueItems, updated => updated.Id == item.Id && updated.Status == "queued");
+        Assert.Contains(notifier.Runs, updated => updated.Id == orphanedScanRun.Id && updated.Status == "failed");
+
+        var queueNotificationCount = notifier.QueueItems.Count;
+        var runNotificationCount = notifier.Runs.Count;
+        await service.SweepAsync(CancellationToken.None);
+        var afterSecondSweep = await _queueRepository.GetByIdAsync(item.Id);
+        Assert.Equal("queued", afterSecondSweep!.Status);
+        Assert.Equal(recoveredItem.RetryCount, afterSecondSweep.RetryCount);
+        Assert.Equal(queueNotificationCount, notifier.QueueItems.Count);
+        Assert.Equal(runNotificationCount, notifier.Runs.Count);
 
         // The interrupted download run keeps its requeued item and stays claimable.
         var downloadRun = await _runRepository.GetByIdAsync(run.Id);
@@ -359,12 +387,12 @@ public sealed class ReliabilityIntegrationTests : IClassFixture<RepositoryTestco
         Assert.Equal(item.Id, reclaimed!.Id);
     }
 
-    private IServiceScopeFactory BuildScopeFactory()
+    private IServiceScopeFactory BuildScopeFactory(ISyncDashboardNotifier? notifier = null)
     {
         var services = new ServiceCollection();
         services.AddSingleton<IDownloadQueueItemRepository>(_queueRepository);
         services.AddSingleton<ISporeSyncRunRepository>(_runRepository);
-        services.AddSingleton<ISyncDashboardNotifier, NoopNotifier>();
+        services.AddSingleton(notifier ?? new NoopNotifier());
 
         return services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
     }
@@ -376,6 +404,26 @@ public sealed class ReliabilityIntegrationTests : IClassFixture<RepositoryTestco
 
         public Task NotifyQueueItemUpdatedAsync(DownloadQueueItem item, CancellationToken cancellationToken = default)
             => Task.CompletedTask;
+    }
+
+    private sealed class RecordingNotifier : ISyncDashboardNotifier
+    {
+        public List<SporeSyncRun> Runs { get; } = [];
+        public List<DownloadQueueItem> QueueItems { get; } = [];
+
+        public Task NotifyRunUpdatedAsync(SporeSyncRun run, CancellationToken cancellationToken = default)
+        {
+            Runs.Add(run);
+            return Task.CompletedTask;
+        }
+
+        public Task NotifyQueueItemUpdatedAsync(
+            DownloadQueueItem item,
+            CancellationToken cancellationToken = default)
+        {
+            QueueItems.Add(item);
+            return Task.CompletedTask;
+        }
     }
 
     private async Task<SporeSyncJob> CreateJobAsync()

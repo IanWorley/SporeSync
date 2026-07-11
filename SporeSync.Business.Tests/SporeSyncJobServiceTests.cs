@@ -268,7 +268,6 @@ public sealed class SporeSyncJobServiceTests
             => throw new NotSupportedException();
 
         public Task<IReadOnlyList<SporeSyncRun>> ReapOrphanedAsync(
-            bool ignoreLeases,
             CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 

@@ -317,6 +317,22 @@ public sealed class DownloadWorkerHostedServiceTests
             return Task.FromResult(item);
         }
 
+        public Task<DownloadQueueItem?> ClaimGroupLeafAsync(
+            Guid id,
+            Guid runId,
+            string groupRemotePath,
+            int leaseSeconds,
+            CancellationToken cancellationToken = default)
+        {
+            var leaf = Leaves.FirstOrDefault(leaf =>
+                leaf.Id == id
+                && leaf.SyncRunId == runId
+                && leaf.GroupRemotePath == groupRemotePath
+                && string.Equals(leaf.Status, "queued", StringComparison.OrdinalIgnoreCase));
+
+            return Task.FromResult(leaf);
+        }
+
         public Task<bool> RenewLeaseAsync(Guid id, int leaseSeconds, CancellationToken cancellationToken = default)
             => Task.FromResult(true);
 

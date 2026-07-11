@@ -138,12 +138,25 @@ public sealed class DownloadWorkerHostedService : BackgroundService
             await notifier.NotifyQueueItemUpdatedAsync(partial, token);
         }, cancellationToken);
 
-        var result = await downloader.DownloadAsync(
-            job.ConnectionProfileId,
-            item.RemotePath,
-            item.DestinationPath,
-            progress,
-            cancellationToken);
+        SftpDownloadResult result;
+        try
+        {
+            result = await downloader.DownloadAsync(
+                job.ConnectionProfileId,
+                item.RemotePath,
+                item.DestinationPath,
+                progress,
+                cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(
+                ex,
+                "Download setup failed for {RemotePath} in job {JobId}",
+                item.RemotePath,
+                job.Id);
+            result = new SftpDownloadResult(false, 0, null, ex.Message);
+        }
 
         RecordDownloadResult(job.Id, item.RemotePath, result);
 
@@ -208,12 +221,25 @@ public sealed class DownloadWorkerHostedService : BackgroundService
                 await notifier.NotifyQueueItemUpdatedAsync(groupPartial, token);
             }, cancellationToken);
 
-            var leafResult = await downloader.DownloadAsync(
-                job.ConnectionProfileId,
-                leaf.RemotePath,
-                leaf.DestinationPath,
-                leafProgress,
-                cancellationToken);
+            SftpDownloadResult leafResult;
+            try
+            {
+                leafResult = await downloader.DownloadAsync(
+                    job.ConnectionProfileId,
+                    leaf.RemotePath,
+                    leaf.DestinationPath,
+                    leafProgress,
+                    cancellationToken);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Download setup failed for {RemotePath} in job {JobId}",
+                    leaf.RemotePath,
+                    job.Id);
+                leafResult = new SftpDownloadResult(false, 0, null, ex.Message);
+            }
 
             RecordDownloadResult(job.Id, leaf.RemotePath, leafResult);
 

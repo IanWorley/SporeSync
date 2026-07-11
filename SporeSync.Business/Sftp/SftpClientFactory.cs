@@ -142,28 +142,26 @@ public sealed class SftpClientFactory : ISftpClientFactory
     {
         try
         {
-            await _profileRepository.UpsertAsync(
-                new SftpConnectionProfile
-                {
-                    Id = profile.Id,
-                    Name = profile.Name,
-                    Host = profile.Host,
-                    Port = profile.Port,
-                    Username = profile.Username,
-                    EncryptedPassword = profile.EncryptedPassword,
-                    EncryptedPrivateKey = profile.EncryptedPrivateKey,
-                    EncryptedPrivateKeyPassphrase = profile.EncryptedPrivateKeyPassphrase,
-                    HostKeyFingerprintSha256 = fingerprint,
-                    IsDefault = profile.IsDefault
-                },
+            var pinned = await _profileRepository.TryPinHostKeyFingerprintAsync(
+                profile.Id,
+                fingerprint,
                 cancellationToken);
 
-            _logger.LogWarning(
-                "Pinned SSH host key fingerprint {Fingerprint} for SFTP host {Host}:{Port} on first use (profile '{ProfileName}'). Future connections will be rejected if the host key changes.",
-                fingerprint,
-                profile.Host,
-                profile.Port,
-                profile.Name);
+            if (pinned)
+            {
+                _logger.LogWarning(
+                    "Pinned SSH host key fingerprint {Fingerprint} for SFTP host {Host}:{Port} on first use (profile '{ProfileName}'). Future connections will be rejected if the host key changes.",
+                    fingerprint,
+                    profile.Host,
+                    profile.Port,
+                    profile.Name);
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "Skipped first-use host key pin for SFTP profile '{ProfileName}' because the profile was already pinned or no longer exists.",
+                    profile.Name);
+            }
         }
         catch (Exception ex)
         {

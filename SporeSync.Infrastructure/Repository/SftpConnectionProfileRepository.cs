@@ -12,6 +12,7 @@ public sealed class SftpConnectionProfileRepository : ISftpConnectionProfileRepo
     private const string OpGetAllProfiles = "GetAllProfiles";
     private const string OpGetProfileById = "GetProfileById";
     private const string OpUpsertProfile = "UpsertProfile";
+    private const string OpTryPinHostKeyFingerprint = "TryPinHostKeyFingerprint";
     private const string OpHasAnyEncryptedSecrets = "HasAnyEncryptedSecrets";
 
     private readonly NpgsqlDataSource _dataSource;
@@ -144,6 +145,38 @@ public sealed class SftpConnectionProfileRepository : ISftpConnectionProfileRepo
                 }
                 return ReadProfile(reader);
             }, cancellationToken);
+    }
+
+    public async Task<bool> TryPinHostKeyFingerprintAsync(
+        Guid id,
+        string fingerprintSha256,
+        CancellationToken cancellationToken = default)
+    {
+        const string sql = """
+            WITH pinned AS (
+                UPDATE core.sftp_connection_profiles
+                SET host_key_fingerprint_sha256 = @host_key_fingerprint_sha256,
+                    updated_at = now()
+                WHERE id = @id
+                  AND host_key_fingerprint_sha256 IS NULL
+                RETURNING 1
+            )
+            SELECT EXISTS(SELECT 1 FROM pinned);
+            """;
+
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.AddWithValue("id", id);
+        command.Parameters.AddWithValue("host_key_fingerprint_sha256", fingerprintSha256);
+
+        var pinned = await DbCommandLogger.ExecuteScalarAsync(
+            _logger,
+            command,
+            OpTryPinHostKeyFingerprint,
+            cancellationToken);
+
+        return (bool)(pinned
+            ?? throw new InvalidOperationException("Host key pin update did not return a value."));
     }
 
     public async Task<bool> HasAnyEncryptedSecretsAsync(CancellationToken cancellationToken = default)

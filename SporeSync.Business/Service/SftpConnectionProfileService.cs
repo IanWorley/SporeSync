@@ -45,15 +45,8 @@ public sealed class SftpConnectionProfileService : ISftpConnectionProfileService
             existingProfile = await _repository.GetByIdAsync(id, cancellationToken);
         }
 
-        var encryptedPassword = ProtectOptional(profile.Password) ?? existingProfile?.EncryptedPassword;
-        var encryptedPrivateKey = ProtectOptional(profile.PrivateKey) ?? existingProfile?.EncryptedPrivateKey;
-        var encryptedPrivateKeyPassphrase = ProtectOptional(profile.PrivateKeyPassphrase)
-            ?? existingProfile?.EncryptedPrivateKeyPassphrase;
-
-        if (string.IsNullOrWhiteSpace(encryptedPassword) && string.IsNullOrWhiteSpace(encryptedPrivateKey))
-        {
-            throw new ValidationException("An SFTP password or private key is required.");
-        }
+        var (encryptedPassword, encryptedPrivateKey, encryptedPrivateKeyPassphrase) =
+            ResolveAuthentication(profile, existingProfile);
 
         var protectedProfile = new SftpConnectionProfile
         {
@@ -72,6 +65,39 @@ public sealed class SftpConnectionProfileService : ISftpConnectionProfileService
         };
 
         return await _repository.UpsertAsync(protectedProfile, cancellationToken);
+    }
+
+    private (string? Password, string? PrivateKey, string? Passphrase) ResolveAuthentication(
+        UpsertSftpConnectionProfile requested,
+        SftpConnectionProfile? existing)
+    {
+        if (requested.AuthenticationMethod == SftpAuthenticationMethod.Password)
+        {
+            var password = ProtectOptional(requested.Password) ?? existing?.EncryptedPassword;
+            if (string.IsNullOrWhiteSpace(password))
+            {
+                throw new ValidationException("A password is required for password authentication.");
+            }
+
+            return (password, null, null);
+        }
+
+        if (requested.AuthenticationMethod != SftpAuthenticationMethod.PrivateKey)
+        {
+            throw new ValidationException("A supported SFTP authentication method is required.");
+        }
+
+        var privateKey = ProtectOptional(requested.PrivateKey) ?? existing?.EncryptedPrivateKey;
+        if (string.IsNullOrWhiteSpace(privateKey))
+        {
+            throw new ValidationException("A private key is required for private key authentication.");
+        }
+
+        var passphrase = requested.RemovePrivateKeyPassphrase
+            ? null
+            : ProtectOptional(requested.PrivateKeyPassphrase) ?? existing?.EncryptedPrivateKeyPassphrase;
+
+        return (null, privateKey, passphrase);
     }
 
     private static string? ResolveHostKeyFingerprint(string? requested, string? existing)

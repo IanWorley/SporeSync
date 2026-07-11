@@ -177,11 +177,24 @@ public sealed class SftpConnectionProfilesController : ControllerBase
             Host = request.Host,
             Port = request.Port,
             Username = request.Username,
+            AuthenticationMethod = ParseAuthenticationMethod(request.AuthenticationMethod),
             Password = request.Password,
             PrivateKey = request.PrivateKey,
             PrivateKeyPassphrase = request.PrivateKeyPassphrase,
+            RemovePrivateKeyPassphrase = request.RemovePrivateKeyPassphrase,
             HostKeyFingerprintSha256 = request.HostKeyFingerprintSha256,
             IsDefault = request.IsDefault
+        };
+    }
+
+    private static SftpAuthenticationMethod ParseAuthenticationMethod(string value)
+    {
+        return value switch
+        {
+            "password" => SftpAuthenticationMethod.Password,
+            "privateKey" => SftpAuthenticationMethod.PrivateKey,
+            _ => throw new ValidationException(
+                "Authentication method must be either 'password' or 'privateKey'.")
         };
     }
 
@@ -193,6 +206,7 @@ public sealed class SftpConnectionProfilesController : ControllerBase
             profile.Host,
             profile.Port,
             profile.Username,
+            profile.EncryptedPrivateKey is not null ? "privateKey" : "password",
             profile.EncryptedPassword is not null,
             profile.EncryptedPrivateKey is not null,
             profile.EncryptedPrivateKeyPassphrase is not null,

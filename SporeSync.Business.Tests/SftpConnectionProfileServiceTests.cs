@@ -9,7 +9,7 @@ namespace SporeSync.Business.Tests;
 public sealed class SftpConnectionProfileServiceTests
 {
     [Fact]
-    public async Task UpsertAsync_Throws_WhenPasswordAndPrivateKeyAreMissing()
+    public async Task UpsertAsync_Throws_WhenSelectedPasswordIsMissing()
     {
         var repository = new RecordingSftpConnectionProfileRepository();
         var secretProtector = new RecordingSecretProtector();
@@ -25,13 +25,13 @@ public sealed class SftpConnectionProfileServiceTests
         var exception = await Assert.ThrowsAsync<ValidationException>(
             () => service.UpsertAsync(profile));
 
-        Assert.Equal("An SFTP password or private key is required.", exception.Message);
+        Assert.Equal("A password is required for password authentication.", exception.Message);
         Assert.Null(repository.LastUpsertedProfile);
         Assert.Empty(secretProtector.ProtectedValues);
     }
 
     [Fact]
-    public async Task UpsertAsync_ProtectsSecretsAndPersistsProfile()
+    public async Task UpsertAsync_ProtectsPrivateKeySecretsAndPersistsProfile()
     {
         var repository = new RecordingSftpConnectionProfileRepository();
         var secretProtector = new RecordingSecretProtector();
@@ -46,7 +46,7 @@ public sealed class SftpConnectionProfileServiceTests
                 Host = "sftp.example.com",
                 Port = 2222,
                 Username = "sync-user",
-                Password = "password-1",
+                AuthenticationMethod = SftpAuthenticationMethod.PrivateKey,
                 PrivateKey = "private-key",
                 PrivateKeyPassphrase = "passphrase",
                 IsDefault = false
@@ -59,11 +59,11 @@ public sealed class SftpConnectionProfileServiceTests
         Assert.Equal("sftp.example.com", repository.LastUpsertedProfile.Host);
         Assert.Equal(2222, repository.LastUpsertedProfile.Port);
         Assert.Equal("sync-user", repository.LastUpsertedProfile.Username);
-        Assert.Equal("protected:password-1", repository.LastUpsertedProfile.EncryptedPassword);
+        Assert.Null(repository.LastUpsertedProfile.EncryptedPassword);
         Assert.Equal("protected:private-key", repository.LastUpsertedProfile.EncryptedPrivateKey);
         Assert.Equal("protected:passphrase", repository.LastUpsertedProfile.EncryptedPrivateKeyPassphrase);
         Assert.False(repository.LastUpsertedProfile.IsDefault);
-        Assert.Equal(["password-1", "private-key", "passphrase"], secretProtector.ProtectedValues);
+        Assert.Equal(["private-key", "passphrase"], secretProtector.ProtectedValues);
     }
 
     [Fact]
@@ -92,7 +92,7 @@ public sealed class SftpConnectionProfileServiceTests
     }
 
     [Fact]
-    public async Task UpsertAsync_PreservesExistingSecrets_WhenEditingWithoutReplacement()
+    public async Task UpsertAsync_PreservesExistingPassword_WhenEditingWithoutReplacement()
     {
         var profileId = Guid.NewGuid();
         var repository = new RecordingSftpConnectionProfileRepository
@@ -105,8 +105,6 @@ public sealed class SftpConnectionProfileServiceTests
                 Port = 22,
                 Username = "old-user",
                 EncryptedPassword = "existing-password",
-                EncryptedPrivateKey = "existing-key",
-                EncryptedPrivateKeyPassphrase = "existing-passphrase",
                 IsDefault = true
             }
         };
@@ -122,16 +120,130 @@ public sealed class SftpConnectionProfileServiceTests
                 Port = 2222,
                 Username = "new-user",
                 Password = "",
-                PrivateKey = " ",
-                PrivateKeyPassphrase = null,
                 IsDefault = false
             });
 
         Assert.NotNull(repository.LastUpsertedProfile);
         Assert.Equal("existing-password", repository.LastUpsertedProfile.EncryptedPassword);
+        Assert.Null(repository.LastUpsertedProfile.EncryptedPrivateKey);
+        Assert.Null(repository.LastUpsertedProfile.EncryptedPrivateKeyPassphrase);
+        Assert.Empty(secretProtector.ProtectedValues);
+    }
+
+    [Fact]
+    public async Task UpsertAsync_SwitchesPrivateKeyToPassword_AndClearsIncompatibleSecrets()
+    {
+        var profileId = Guid.NewGuid();
+        var repository = RepositoryWithProfile(profileId, password: null, privateKey: "existing-key", passphrase: "existing-passphrase");
+        var protector = new RecordingSecretProtector();
+
+        await CreateService(repository, protector).UpsertAsync(new UpsertSftpConnectionProfile
+        {
+            Id = profileId,
+            Name = "updated",
+            Host = "sftp.example.com",
+            Username = "sync-user",
+            AuthenticationMethod = SftpAuthenticationMethod.Password,
+            Password = "new-password"
+        });
+
+        Assert.NotNull(repository.LastUpsertedProfile);
+        Assert.Equal("protected:new-password", repository.LastUpsertedProfile.EncryptedPassword);
+        Assert.Null(repository.LastUpsertedProfile.EncryptedPrivateKey);
+        Assert.Null(repository.LastUpsertedProfile.EncryptedPrivateKeyPassphrase);
+        Assert.Equal(["new-password"], protector.ProtectedValues);
+    }
+
+    [Fact]
+    public async Task UpsertAsync_SwitchesPasswordToPrivateKey_AndClearsPassword()
+    {
+        var profileId = Guid.NewGuid();
+        var repository = RepositoryWithProfile(profileId, password: "existing-password", privateKey: null);
+        var protector = new RecordingSecretProtector();
+
+        await CreateService(repository, protector).UpsertAsync(new UpsertSftpConnectionProfile
+        {
+            Id = profileId,
+            Name = "updated",
+            Host = "sftp.example.com",
+            Username = "sync-user",
+            AuthenticationMethod = SftpAuthenticationMethod.PrivateKey,
+            PrivateKey = "new-key",
+            PrivateKeyPassphrase = "new-passphrase"
+        });
+
+        Assert.NotNull(repository.LastUpsertedProfile);
+        Assert.Null(repository.LastUpsertedProfile.EncryptedPassword);
+        Assert.Equal("protected:new-key", repository.LastUpsertedProfile.EncryptedPrivateKey);
+        Assert.Equal("protected:new-passphrase", repository.LastUpsertedProfile.EncryptedPrivateKeyPassphrase);
+        Assert.Equal(["new-key", "new-passphrase"], protector.ProtectedValues);
+    }
+
+    [Fact]
+    public async Task UpsertAsync_PreservesPrivateKeyAndPassphrase_WhenReplacementInputsAreBlank()
+    {
+        var profileId = Guid.NewGuid();
+        var repository = RepositoryWithProfile(profileId, password: null, privateKey: "existing-key", passphrase: "existing-passphrase");
+        var protector = new RecordingSecretProtector();
+
+        await CreateService(repository, protector).UpsertAsync(new UpsertSftpConnectionProfile
+        {
+            Id = profileId,
+            Name = "updated",
+            Host = "sftp.example.com",
+            Username = "sync-user",
+            AuthenticationMethod = SftpAuthenticationMethod.PrivateKey,
+            PrivateKey = " ",
+            PrivateKeyPassphrase = ""
+        });
+
+        Assert.NotNull(repository.LastUpsertedProfile);
+        Assert.Null(repository.LastUpsertedProfile.EncryptedPassword);
         Assert.Equal("existing-key", repository.LastUpsertedProfile.EncryptedPrivateKey);
         Assert.Equal("existing-passphrase", repository.LastUpsertedProfile.EncryptedPrivateKeyPassphrase);
-        Assert.Empty(secretProtector.ProtectedValues);
+        Assert.Empty(protector.ProtectedValues);
+    }
+
+    [Fact]
+    public async Task UpsertAsync_RemovesPrivateKeyPassphrase_WhenExplicitlyRequested()
+    {
+        var profileId = Guid.NewGuid();
+        var repository = RepositoryWithProfile(profileId, password: null, privateKey: "existing-key", passphrase: "existing-passphrase");
+
+        await CreateService(repository, new RecordingSecretProtector()).UpsertAsync(new UpsertSftpConnectionProfile
+        {
+            Id = profileId,
+            Name = "updated",
+            Host = "sftp.example.com",
+            Username = "sync-user",
+            AuthenticationMethod = SftpAuthenticationMethod.PrivateKey,
+            RemovePrivateKeyPassphrase = true
+        });
+
+        Assert.NotNull(repository.LastUpsertedProfile);
+        Assert.Equal("existing-key", repository.LastUpsertedProfile.EncryptedPrivateKey);
+        Assert.Null(repository.LastUpsertedProfile.EncryptedPrivateKeyPassphrase);
+    }
+
+    [Fact]
+    public async Task UpsertAsync_DoesNotClearExistingCredential_WhenReplacementForNewMethodIsBlank()
+    {
+        var profileId = Guid.NewGuid();
+        var repository = RepositoryWithProfile(profileId, password: null, privateKey: "existing-key");
+
+        var exception = await Assert.ThrowsAsync<ValidationException>(() =>
+            CreateService(repository, new RecordingSecretProtector()).UpsertAsync(new UpsertSftpConnectionProfile
+            {
+                Id = profileId,
+                Name = "updated",
+                Host = "sftp.example.com",
+                Username = "sync-user",
+                AuthenticationMethod = SftpAuthenticationMethod.Password,
+                Password = " "
+            }));
+
+        Assert.Equal("A password is required for password authentication.", exception.Message);
+        Assert.Null(repository.LastUpsertedProfile);
     }
 
     [Fact]
@@ -287,6 +399,29 @@ public sealed class SftpConnectionProfileServiceTests
 
         Assert.Equal(DeleteSftpConnectionProfileStatus.Deleted, status);
         Assert.Equal(profileId, repository.DeletedId);
+    }
+
+    private static RecordingSftpConnectionProfileRepository RepositoryWithProfile(
+        Guid id,
+        string? password,
+        string? privateKey,
+        string? passphrase = null)
+    {
+        return new RecordingSftpConnectionProfileRepository
+        {
+            ProfileById = new SftpConnectionProfile
+            {
+                Id = id,
+                Name = "existing",
+                Host = "sftp.example.com",
+                Port = 22,
+                Username = "sync-user",
+                EncryptedPassword = password,
+                EncryptedPrivateKey = privateKey,
+                EncryptedPrivateKeyPassphrase = passphrase,
+                IsDefault = true
+            }
+        };
     }
 
     private static SftpConnectionProfileService CreateService(

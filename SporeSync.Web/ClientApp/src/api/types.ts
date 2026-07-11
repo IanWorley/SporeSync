@@ -79,6 +79,7 @@ export interface SftpConnectionProfile {
   host: string;
   port: number;
   username: string;
+  authenticationMethod: "password" | "privateKey";
   hasPassword: boolean;
   hasPrivateKey: boolean;
   hasPrivateKeyPassphrase: boolean;
@@ -91,9 +92,11 @@ export interface UpsertSftpConnectionProfile {
   host: string;
   port: number;
   username: string;
+  authenticationMethod: "password" | "privateKey";
   password?: string | null;
   privateKey?: string | null;
   privateKeyPassphrase?: string | null;
+  removePrivateKeyPassphrase: boolean;
   // Null preserves the stored pin; an empty string clears it (trust-on-first-use).
   hostKeyFingerprintSha256?: string | null;
   isDefault: boolean;

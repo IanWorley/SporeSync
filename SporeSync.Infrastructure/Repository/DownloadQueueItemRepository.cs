@@ -16,6 +16,7 @@ public sealed class DownloadQueueItemRepository : IDownloadQueueItemRepository
     private const string OpUpsertQueueItem = "UpsertQueueItem";
     private const string OpGetSyncedRemoteState = "GetSyncedRemoteState";
     private const string OpClaimNextQueueItem = "ClaimNextQueueItem";
+    private const string OpClaimGroupLeaf = "ClaimGroupLeaf";
     private const string OpUpdateQueueItemProgress = "UpdateQueueItemProgress";
     private const string OpMarkRemoteDeletedItems = "MarkRemoteDeletedItems";
     private const string OpRequeueFailedItems = "RequeueFailedItems";
@@ -439,6 +440,76 @@ public sealed class DownloadQueueItemRepository : IDownloadQueueItemRepository
         command.Parameters.AddWithValue("lease_seconds", leaseSeconds);
 
         return await DbCommandLogger.ExecuteReaderAsync(_logger, command, OpClaimNextQueueItem,
+            async reader =>
+            {
+                if (!await reader.ReadAsync(cancellationToken))
+                {
+                    return null;
+                }
+                return ReadItem(reader);
+            }, cancellationToken);
+    }
+
+    public async Task<DownloadQueueItem?> ClaimGroupLeafAsync(
+        Guid id,
+        Guid runId,
+        string groupRemotePath,
+        int leaseSeconds,
+        CancellationToken cancellationToken = default)
+    {
+        const string sql = """
+            WITH claimed AS (
+                UPDATE core.download_queue_items qi
+                SET status = 'downloading',
+                    started_at = COALESCE(qi.started_at, now()),
+                    updated_at = now(),
+                    lease_expires_at = now() + make_interval(secs => @lease_seconds),
+                    current_bytes_per_second = NULL,
+                    handled_reason = NULL,
+                    error_message = NULL
+                WHERE qi.id = @id
+                  AND qi.sync_run_id = @run_id
+                  AND qi.group_remote_path = @group_remote_path
+                  AND qi.is_group = false
+                  AND qi.status = 'queued'
+                  AND EXISTS (
+                      SELECT 1
+                      FROM core.sftp_sync_runs r
+                      WHERE r.id = @run_id
+                        AND r.status = 'downloading')
+                RETURNING qi.*
+            )
+            SELECT id,
+                   job_id,
+                   sync_run_id,
+                   remote_path,
+                   destination_path,
+                   file_size_bytes,
+                   remote_modified_at,
+                   status,
+                   bytes_downloaded,
+                   current_bytes_per_second,
+                   retry_count,
+                   handled_reason,
+                   error_message,
+                   queued_at,
+                   started_at,
+                   completed_at,
+                   updated_at,
+                   is_group,
+                   group_remote_path,
+                   child_count
+            FROM claimed;
+            """;
+
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.AddWithValue("id", id);
+        command.Parameters.AddWithValue("run_id", runId);
+        command.Parameters.AddWithValue("group_remote_path", groupRemotePath);
+        command.Parameters.AddWithValue("lease_seconds", leaseSeconds);
+
+        return await DbCommandLogger.ExecuteReaderAsync(_logger, command, OpClaimGroupLeaf,
             async reader =>
             {
                 if (!await reader.ReadAsync(cancellationToken))

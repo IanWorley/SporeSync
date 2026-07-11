@@ -339,6 +339,34 @@ public sealed class DownloadWorkerHostedService : BackgroundService
                     }
                 }
 
+                if (string.Equals(currentLeaf.Status, "queued", StringComparison.OrdinalIgnoreCase))
+                {
+                    var claimedLeaf = await queueRepository.ClaimGroupLeafAsync(
+                        currentLeaf.Id,
+                        groupItem.SyncRunId.Value,
+                        groupItem.RemotePath,
+                        _options.DownloadLeaseSeconds,
+                        cancellationToken);
+
+                    if (claimedLeaf is null)
+                    {
+                        if (await IsRunCancelledAsync(groupItem.SyncRunId.Value, runRepository, cancellationToken))
+                        {
+                            return await MarkGroupCancelledAsync(groupItem, queueRepository, groupBytesDownloaded, cancellationToken);
+                        }
+
+                        var refreshedLeaf = await queueRepository.GetByIdAsync(leaf.Id, cancellationToken);
+                        if (string.Equals(refreshedLeaf?.HandledReason, "run_cancelled", StringComparison.OrdinalIgnoreCase))
+                        {
+                            return await MarkGroupCancelledAsync(groupItem, queueRepository, groupBytesDownloaded, cancellationToken);
+                        }
+
+                        continue;
+                    }
+
+                    currentLeaf = claimedLeaf;
+                }
+
                 var completedBeforeLeaf = groupBytesDownloaded;
                 var leafProgress = new FireAndForgetDownloadProgress(async (bytes, token) =>
                 {

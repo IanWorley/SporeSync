@@ -45,6 +45,17 @@ public interface IDownloadQueueItemRepository
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Claims a queued internal group leaf only while its run is still downloading.
+    /// Returns <c>null</c> when the run was cancelled or the leaf is no longer queued.
+    /// </summary>
+    Task<DownloadQueueItem?> ClaimGroupLeafAsync(
+        Guid id,
+        Guid runId,
+        string groupRemotePath,
+        int leaseSeconds,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Renews the lease of a claimed item. Returns <c>false</c> when the item is no
     /// longer in the 'downloading' status (e.g. requeued by the recovery sweep).
     /// </summary>

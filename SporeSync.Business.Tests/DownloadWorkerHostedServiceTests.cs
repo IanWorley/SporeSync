@@ -106,6 +106,46 @@ public sealed class DownloadWorkerHostedServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ProcessNextItemAsync_DoesNotDownloadLeaf_WhenRunCancelledAfterLeafRefresh()
+    {
+        var runId = Guid.NewGuid();
+        var job = CreateJob(Guid.NewGuid(), Guid.NewGuid(), "/local");
+        var now = DateTimeOffset.UtcNow;
+        var group = CreateItem(job.Id, runId, "/remote/show/", "/local/show", "queued", now, isGroup: true, childCount: 2, fileSizeBytes: 20);
+        var completedLeaf = CreateItem(job.Id, runId, "/remote/show/one.txt", "/local/show/one.txt", "completed", now, fileSizeBytes: 10, groupRemotePath: group.RemotePath);
+        var secondLeaf = CreateItem(job.Id, runId, "/remote/show/two.txt", "/local/show/two.txt", "queued", now, fileSizeBytes: 10, groupRemotePath: group.RemotePath);
+
+        var runRepository = new RecordingRunRepository(CreateRun(runId, job.Id, "downloading"));
+        var queueRepository = new RecordingQueueRepository(group, [completedLeaf, secondLeaf]);
+        var cancelledAfterRefresh = false;
+        queueRepository.AfterGetById = id =>
+        {
+            if (id != secondLeaf.Id || cancelledAfterRefresh)
+            {
+                return;
+            }
+
+            cancelledAfterRefresh = true;
+            queueRepository.CancelQueuedItems(runId);
+            runRepository.CancelRun();
+        };
+
+        var downloader = new SuccessfulDownloader();
+        await using var provider = CreateProvider(job, queueRepository, runRepository, downloader);
+        var worker = provider.GetRequiredService<DownloadWorkerHostedService>();
+
+        Assert.True(await worker.ProcessNextItemAsync(CancellationToken.None));
+
+        Assert.Empty(downloader.DownloadedRemotePaths);
+        Assert.Equal("skipped", queueRepository.Item(secondLeaf.Id).Status);
+        Assert.Equal("run_cancelled", queueRepository.Item(secondLeaf.Id).HandledReason);
+        Assert.Equal("skipped", queueRepository.Item(group.Id).Status);
+        Assert.Equal("run_cancelled", queueRepository.Item(group.Id).HandledReason);
+        Assert.Equal("cancelled", runRepository.RecalculatedStatus);
+        Assert.False(runRepository.CompletedRun);
+    }
+
+    [Fact]
     public async Task ProcessNextItemAsync_DoesNotCompleteGroup_WhenRunCancelledAfterFinalLeaf()
     {
         var runId = Guid.NewGuid();
@@ -300,6 +340,8 @@ public sealed class DownloadWorkerHostedServiceTests : IDisposable
 
         public List<UpdateDownloadQueueItemProgress> Updates { get; } = [];
 
+        public Action<Guid>? AfterGetById { get; set; }
+
         public DownloadQueueItem Item(Guid id) => _items[id];
 
         public void CancelQueuedItems(Guid runId)
@@ -327,6 +369,26 @@ public sealed class DownloadWorkerHostedServiceTests : IDisposable
             return Task.FromResult<DownloadQueueItem?>(claimed);
         }
 
+        public Task<DownloadQueueItem?> ClaimGroupLeafAsync(
+            Guid id,
+            Guid runId,
+            string groupRemotePath,
+            int leaseSeconds,
+            CancellationToken cancellationToken = default)
+        {
+            if (!_items.TryGetValue(id, out var item)
+                || item.SyncRunId != runId
+                || item.GroupRemotePath != groupRemotePath
+                || !string.Equals(item.Status, "queued", StringComparison.OrdinalIgnoreCase))
+            {
+                return Task.FromResult<DownloadQueueItem?>(null);
+            }
+
+            var claimed = CopyWith(item, status: "downloading");
+            _items[id] = claimed;
+            return Task.FromResult<DownloadQueueItem?>(claimed);
+        }
+
         public Task<bool> RenewLeaseAsync(Guid id, int leaseSeconds, CancellationToken cancellationToken = default)
             => Task.FromResult(_items.ContainsKey(id));
 
@@ -345,7 +407,11 @@ public sealed class DownloadWorkerHostedServiceTests : IDisposable
             => Task.FromResult<IReadOnlyList<DownloadQueueItem>>(_leafIds.Select(id => _items[id]).ToList());
 
         public Task<DownloadQueueItem?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
-            => Task.FromResult(_items.GetValueOrDefault(id));
+        {
+            var item = _items.GetValueOrDefault(id);
+            AfterGetById?.Invoke(id);
+            return Task.FromResult(item);
+        }
 
         public Task<DownloadQueueItem> UpdateProgressAsync(
             UpdateDownloadQueueItemProgress update,

@@ -74,13 +74,14 @@ public sealed class SftpClientFactory : ISftpClientFactory
         };
 
         var trustedFingerprints = profile.TrustedHostKeyFingerprintsSha256;
-        string? presentedFingerprint = null;
+        string? untrustedFingerprint = null;
 
         client.HostKeyReceived += (_, e) =>
         {
-            presentedFingerprint = SshHostKeyFingerprint.Normalize(e.FingerPrintSHA256);
+            var presentedFingerprint = SshHostKeyFingerprint.Normalize(e.FingerPrintSHA256);
             e.CanTrust = trustedFingerprints.Any(
                 trusted => SshHostKeyFingerprint.Matches(trusted, presentedFingerprint));
+            untrustedFingerprint = e.CanTrust ? null : presentedFingerprint;
         };
 
         try
@@ -91,19 +92,19 @@ public sealed class SftpClientFactory : ISftpClientFactory
         {
             client.Dispose();
 
-            if (presentedFingerprint is not null)
+            if (untrustedFingerprint is not null)
             {
                 var mismatch = new SshHostKeyMismatchException(
                     profile.Host,
                     profile.Port,
                     trustedFingerprints,
-                    presentedFingerprint);
+                    untrustedFingerprint);
                 _logger.LogError(
                     mismatch,
                     "Rejected SFTP host {Host}:{Port}: observed host key fingerprint {ObservedFingerprint} is not trusted",
                     profile.Host,
                     profile.Port,
-                    presentedFingerprint);
+                    untrustedFingerprint);
                 throw mismatch;
             }
 

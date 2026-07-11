@@ -203,7 +203,7 @@ public sealed class SftpSyncEndToEndTests :
     }
 
     [Fact]
-    public async Task HostKeyVerification_FailsClosedAndSupportsRotation()
+    public async Task HostKeyVerification_FailsClosedSupportsRotationAndPreservesAuthFailures()
     {
         using var scope = _provider.CreateScope();
         var services = scope.ServiceProvider;
@@ -211,6 +211,10 @@ public sealed class SftpSyncEndToEndTests :
         var observed = (await services.GetRequiredService<ISshHostKeyScanner>()
             .ScanAsync(_sftp.Host, _sftp.Port)).FingerprintSha256;
         const string other = "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+
+        var badCredentials = await CreateProfileAsync(services, "bad-auth", [observed], "wrong-password");
+        await Assert.ThrowsAsync<Renci.SshNet.Common.SshAuthenticationException>(
+            () => factory.ConnectAsync(badCredentials.Id));
 
         foreach (var trusted in new IReadOnlyList<string>[] { [], [other] })
         {
@@ -251,7 +255,8 @@ public sealed class SftpSyncEndToEndTests :
     private async Task<SftpConnectionProfile> CreateProfileAsync(
         IServiceProvider services,
         string caseName,
-        IReadOnlyList<string> trustedHostKeys)
+        IReadOnlyList<string> trustedHostKeys,
+        string password = SftpTestcontainerFixture.Password)
     {
         return await services.GetRequiredService<ISftpConnectionProfileRepository>().UpsertAsync(
             new SftpConnectionProfile
@@ -262,7 +267,7 @@ public sealed class SftpSyncEndToEndTests :
                 Port = _sftp.Port,
                 Username = SftpTestcontainerFixture.Username,
                 EncryptedPassword = services.GetRequiredService<ISecretProtector>()
-                    .Protect(SftpTestcontainerFixture.Password),
+                    .Protect(password),
                 TrustedHostKeyFingerprintsSha256 = trustedHostKeys,
                 IsDefault = false
             });

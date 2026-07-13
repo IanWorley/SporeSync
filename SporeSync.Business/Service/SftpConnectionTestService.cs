@@ -40,8 +40,9 @@ public sealed class SftpConnectionTestService : ISftpConnectionTestService
             return new SftpConnectionTestResult { ProfileFound = false };
         }
 
+        var canReuseStoredCredentials = IsStoredEndpoint(request, stored);
         var (encryptedPassword, encryptedPrivateKey, encryptedPrivateKeyPassphrase) =
-            ResolveAuthentication(request, stored);
+            ResolveAuthentication(request, stored, canReuseStoredCredentials);
         var profile = new SftpConnectionProfile
         {
             Id = stored?.Id ?? Guid.Empty,
@@ -52,7 +53,10 @@ public sealed class SftpConnectionTestService : ISftpConnectionTestService
             EncryptedPassword = encryptedPassword,
             EncryptedPrivateKey = encryptedPrivateKey,
             EncryptedPrivateKeyPassphrase = encryptedPrivateKeyPassphrase,
-            HostKeyFingerprintSha256 = ResolveFingerprint(request.HostKeyFingerprintSha256, stored),
+            HostKeyFingerprintSha256 = ResolveFingerprint(
+                request.HostKeyFingerprintSha256,
+                stored,
+                canReuseStoredCredentials),
             IsDefault = false
         };
 
@@ -133,30 +137,44 @@ public sealed class SftpConnectionTestService : ISftpConnectionTestService
 
     private (string? Password, string? PrivateKey, string? Passphrase) ResolveAuthentication(
         SftpConnectionTestRequest requested,
-        SftpConnectionProfile? stored)
+        SftpConnectionProfile? stored,
+        bool canReuseStoredCredentials)
     {
         if (requested.AuthenticationMethod == SftpAuthenticationMethod.Password)
         {
-            return (Protect(requested.Password) ?? stored?.EncryptedPassword, null, null);
+            return (
+                Protect(requested.Password) ?? (canReuseStoredCredentials ? stored?.EncryptedPassword : null),
+                null,
+                null);
         }
 
         return (
             null,
-            Protect(requested.PrivateKey) ?? stored?.EncryptedPrivateKey,
+            Protect(requested.PrivateKey) ?? (canReuseStoredCredentials ? stored?.EncryptedPrivateKey : null),
             requested.RemovePrivateKeyPassphrase
                 ? null
-                : Protect(requested.PrivateKeyPassphrase) ?? stored?.EncryptedPrivateKeyPassphrase);
+                : Protect(requested.PrivateKeyPassphrase) ??
+                  (canReuseStoredCredentials ? stored?.EncryptedPrivateKeyPassphrase : null));
     }
 
-    private static string? ResolveFingerprint(string? requested, SftpConnectionProfile? stored)
+    private static bool IsStoredEndpoint(
+        SftpConnectionTestRequest requested,
+        SftpConnectionProfile? stored) =>
+        stored is not null &&
+        string.Equals(requested.Host.Trim(), stored.Host.Trim(), StringComparison.OrdinalIgnoreCase) &&
+        requested.Port == stored.Port &&
+        string.Equals(requested.Username.Trim(), stored.Username.Trim(), StringComparison.Ordinal);
+
+    private static string? ResolveFingerprint(
+        string? requested,
+        SftpConnectionProfile? stored,
+        bool preserveStoredFingerprint)
     {
-        if (requested is null)
+        if (string.IsNullOrWhiteSpace(requested))
         {
-            return stored?.HostKeyFingerprintSha256;
+            return preserveStoredFingerprint ? stored?.HostKeyFingerprintSha256 : null;
         }
 
-        return string.IsNullOrWhiteSpace(requested)
-            ? null
-            : SshHostKeyFingerprint.Normalize(requested);
+        return SshHostKeyFingerprint.Normalize(requested);
     }
 }

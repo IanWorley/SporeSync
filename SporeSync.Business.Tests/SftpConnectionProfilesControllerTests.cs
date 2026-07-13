@@ -48,6 +48,20 @@ public sealed class SftpConnectionProfilesControllerTests
     }
 
     [Fact]
+    public async Task Test_ReturnsValidationProblem_WhenAuthenticationMethodIsInvalid()
+    {
+        var controller = CreateController();
+
+        var result = await controller.Test(TestRequest(authenticationMethod: "unsupported"), CancellationToken.None);
+
+        var objectResult = Assert.IsType<ObjectResult>(result.Result);
+        var problem = Assert.IsType<ValidationProblemDetails>(objectResult.Value);
+        Assert.Equal(
+            "Authentication method must be either 'password' or 'privateKey'.",
+            problem.Errors[string.Empty].Single());
+    }
+
+    [Fact]
     public async Task Test_ReturnsSuccessResponse_WhenConnectionSucceeds()
     {
         var controller = CreateController(
@@ -149,12 +163,12 @@ public sealed class SftpConnectionProfilesControllerTests
             removePassphrase);
     }
 
-    private static TestSftpConnectionRequest TestRequest() => new(
+    private static TestSftpConnectionRequest TestRequest(string authenticationMethod = "password") => new(
         null,
         "sftp.example.test",
         22,
         "user",
-        "password",
+        authenticationMethod,
         "password",
         null,
         null,

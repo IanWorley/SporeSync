@@ -255,6 +255,35 @@ public sealed class DownloadWorkerHostedServiceTests
     }
 
     [Fact]
+    public async Task ProcessNextItem_GroupLeafDownload_RenewsLeafLeaseBeforeRecoverySweep()
+    {
+        var group = CreateItem("/remote/reports/", isGroup: true, childCount: 1);
+        var leaf = CreateItem("/remote/reports/large.bin", groupRemotePath: group.RemotePath, status: "queued");
+        var queueRepository = new FakeQueueRepository(group)
+        {
+            Leaves = [leaf]
+        };
+        var downloader = new BlockingDownloader();
+        var worker = CreateWorker(queueRepository, downloader, downloadLeaseSeconds: 1);
+        var recovery = new QueueRecoveryHostedService(
+            BuildRecoveryScopeFactory(queueRepository),
+            Options.Create(new SporeSyncOptions()),
+            NullLogger<QueueRecoveryHostedService>.Instance);
+
+        var processing = worker.ProcessNextItemAsync(CancellationToken.None);
+        await downloader.WaitUntilStartedAsync();
+
+        // The sweep occurs after the original one-second leaf lease expired.
+        await Task.Delay(TimeSpan.FromMilliseconds(1500));
+        await recovery.SweepAsync(CancellationToken.None);
+
+        Assert.DoesNotContain(leaf.Id, queueRepository.RequeuedIds);
+
+        downloader.Complete(SftpDownloadResult.Succeed(100, 50));
+        Assert.True(await processing);
+    }
+
+    [Fact]
     public async Task ProcessNextItem_GroupConnectFailure_MarksLeavesFailedAndRecordsGroupFailure()
     {
         var group = CreateItem("/remote/reports/", isGroup: true, fileSizeBytes: 300, childCount: 2);
@@ -283,10 +312,11 @@ public sealed class DownloadWorkerHostedServiceTests
 
     private static DownloadWorkerHostedService CreateWorker(
         FakeQueueRepository queueRepository,
-        FakeDownloader downloader,
+        ISftpFileDownloader downloader,
         int maxRetries = 3,
         int baseDelaySeconds = 30,
         int stabilityWindowSeconds = 15,
+        int downloadLeaseSeconds = 300,
         CountingSftpClientFactory? clientFactory = null)
     {
         var options = Options.Create(new SporeSyncOptions
@@ -295,7 +325,8 @@ public sealed class DownloadWorkerHostedServiceTests
             DownloadMaxRetries = maxRetries,
             DownloadRetryBaseDelaySeconds = baseDelaySeconds,
             DownloadRetryJitterRatio = 0,
-            RemoteFileStabilityWindowSeconds = stabilityWindowSeconds
+            RemoteFileStabilityWindowSeconds = stabilityWindowSeconds,
+            DownloadLeaseSeconds = downloadLeaseSeconds
         });
 
         var services = new ServiceCollection();
@@ -313,6 +344,15 @@ public sealed class DownloadWorkerHostedServiceTests
             new SporeSyncMetrics(),
             new DownloadRetryPolicy(options),
             NullLogger<DownloadWorkerHostedService>.Instance);
+    }
+
+    private static IServiceScopeFactory BuildRecoveryScopeFactory(FakeQueueRepository queueRepository)
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<IDownloadQueueItemRepository>(queueRepository);
+        services.AddSingleton<ISporeSyncRunRepository>(new FakeRunRepository());
+        services.AddSingleton<ISyncDashboardNotifier>(new FakeNotifier());
+        return services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
     }
 
     private static DownloadQueueItem CreateItem(
@@ -351,6 +391,7 @@ public sealed class DownloadWorkerHostedServiceTests
     private sealed class FakeQueueRepository : IDownloadQueueItemRepository
     {
         private DownloadQueueItem? _claimable;
+        private readonly Dictionary<Guid, DateTimeOffset> _leaseExpiresAt = [];
 
         public FakeQueueRepository(DownloadQueueItem claimable)
         {
@@ -365,10 +406,17 @@ public sealed class DownloadWorkerHostedServiceTests
 
         public List<DeferCall> DeferCalls { get; } = [];
 
+        public List<Guid> RequeuedIds { get; } = [];
+
         public Task<DownloadQueueItem?> ClaimNextAsync(int leaseSeconds, CancellationToken cancellationToken = default)
         {
             var item = _claimable;
             _claimable = null;
+            if (item is not null)
+            {
+                _leaseExpiresAt[item.Id] = DateTimeOffset.UtcNow.AddSeconds(leaseSeconds);
+            }
+
             return Task.FromResult(item);
         }
 
@@ -385,18 +433,51 @@ public sealed class DownloadWorkerHostedServiceTests
                 && leaf.GroupRemotePath == groupRemotePath
                 && string.Equals(leaf.Status, "queued", StringComparison.OrdinalIgnoreCase));
 
+            if (leaf is not null)
+            {
+                _leaseExpiresAt[leaf.Id] = DateTimeOffset.UtcNow.AddSeconds(leaseSeconds);
+            }
+
             return Task.FromResult(leaf);
         }
 
         public Task<bool> RenewLeaseAsync(Guid id, int leaseSeconds, CancellationToken cancellationToken = default)
-            => Task.FromResult(true);
+        {
+            if (!_leaseExpiresAt.ContainsKey(id))
+            {
+                return Task.FromResult(false);
+            }
+
+            _leaseExpiresAt[id] = DateTimeOffset.UtcNow.AddSeconds(leaseSeconds);
+            return Task.FromResult(true);
+        }
 
         public Task<DownloadQueueItem?> ReleaseAsync(Guid id, CancellationToken cancellationToken = default)
             => Task.FromResult<DownloadQueueItem?>(null);
 
         public Task<IReadOnlyList<DownloadQueueItem>> RequeueStaleAsync(
             CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
+        {
+            var staleIds = _leaseExpiresAt
+                .Where(entry => entry.Value <= DateTimeOffset.UtcNow)
+                .Select(entry => entry.Key)
+                .ToArray();
+            var requeued = new List<DownloadQueueItem>();
+
+            foreach (var id in staleIds)
+            {
+                var leaf = Leaves.FirstOrDefault(item => item.Id == id);
+                if (leaf is not null)
+                {
+                    RequeuedIds.Add(id);
+                    requeued.Add(leaf);
+                }
+
+                _leaseExpiresAt.Remove(id);
+            }
+
+            return Task.FromResult<IReadOnlyList<DownloadQueueItem>>(requeued);
+        }
 
         public Task<IReadOnlyList<DownloadQueueItem>> GetLeavesForGroupAsync(
             Guid runId,
@@ -532,6 +613,42 @@ public sealed class DownloadWorkerHostedServiceTests
         }
     }
 
+    private sealed class BlockingDownloader : ISftpFileDownloader
+    {
+        private readonly TaskCompletionSource _started = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<SftpDownloadResult> _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task WaitUntilStartedAsync() => _started.Task;
+
+        public void Complete(SftpDownloadResult result) => _completion.TrySetResult(result);
+
+        public Task<SftpDownloadResult> DownloadAsync(
+            Guid connectionProfileId,
+            string remotePath,
+            string localPath,
+            CancellationToken cancellationToken = default)
+            => DownloadAsync(connectionProfileId, remotePath, localPath, progress: null, cancellationToken);
+
+        public Task<SftpDownloadResult> DownloadAsync(
+            Guid connectionProfileId,
+            string remotePath,
+            string localPath,
+            IProgress<long>? progress,
+            CancellationToken cancellationToken = default)
+        {
+            _started.TrySetResult();
+            return _completion.Task;
+        }
+
+        public Task<SftpDownloadResult> DownloadAsync(
+            IConnectedSftpClient connection,
+            string remotePath,
+            string localPath,
+            IProgress<long>? progress = null,
+            CancellationToken cancellationToken = default)
+            => DownloadAsync(ProfileId, remotePath, localPath, progress, cancellationToken);
+    }
+
     private sealed class CountingSftpClientFactory : ISftpClientFactory
     {
         public int ConnectCalls { get; private set; }
@@ -624,7 +741,7 @@ public sealed class DownloadWorkerHostedServiceTests
 
         public Task<IReadOnlyList<SporeSyncRun>> ReapOrphanedAsync(
             CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
+            => Task.FromResult<IReadOnlyList<SporeSyncRun>>([]);
 
         public Task<int> RetryFailedItemsAsync(Guid runId, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();

@@ -170,6 +170,10 @@ public sealed class SftpConnectionProfilesController : ControllerBase
         {
             return ValidationProblem(ex.Message);
         }
+        catch (ValidationException ex)
+        {
+            return InvalidProfileRequest(ex);
+        }
 
         if (!result.ProfileFound)
         {

@@ -1196,7 +1196,7 @@ public sealed class RepositoryIntegrationTests : IClassFixture<RepositoryTestcon
 
         var profile = await profileRepository.UpsertAsync(CreateProfile());
         var job = await jobRepository.UpsertAsync(CreateJob(profile.Id));
-        var run = await runRepository.TryCreateAsync(job.Id);
+        var run = Assert.IsType<SporeSyncRun>(await runRepository.TryCreateAsync(job.Id));
 
         var scanning = await runRepository.AdvanceScanStatusAsync(new UpdateSporeSyncRunStatus
         {

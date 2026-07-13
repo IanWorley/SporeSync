@@ -392,6 +392,11 @@ public sealed class DownloadWorkerHostedService : BackgroundService
                 }, cancellationToken);
 
                 SftpDownloadResult leafResult;
+                using var leafRenewalCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                var leafLeaseRenewalTask = RenewLeaseWhileProcessingAsync(
+                    queueRepository,
+                    currentLeaf.Id,
+                    leafRenewalCts.Token);
                 try
                 {
                     if (connection is not null && !connection.IsConnected)
@@ -416,6 +421,11 @@ public sealed class DownloadWorkerHostedService : BackgroundService
                         currentLeaf.RemotePath,
                         job.Id);
                     leafResult = SftpDownloadResult.Failure(ex.Message);
+                }
+                finally
+                {
+                    leafRenewalCts.Cancel();
+                    await leafLeaseRenewalTask;
                 }
 
                 RecordDownloadResult(job.Id, currentLeaf.RemotePath, leafResult);

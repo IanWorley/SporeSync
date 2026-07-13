@@ -244,7 +244,8 @@ export function ProfilesPage() {
         username: profile.username,
         authenticationMethod: profile.authenticationMethod,
         removePrivateKeyPassphrase: false,
-        hostKeyFingerprintSha256: profile.hostKeyFingerprintSha256,
+        trustedHostKeyFingerprintsSha256:
+          profile.trustedHostKeyFingerprintsSha256,
       }),
     onSuccess: (result, profile) => {
       setTestResults((results) => ({

@@ -248,7 +248,8 @@ public sealed class SftpSyncEndToEndTests :
         var orchestrator = scope.ServiceProvider.GetRequiredService<ISyncRunOrchestrator>();
         var worker = _provider.GetRequiredService<DownloadWorkerHostedService>();
         var job = await CreateJobAsync(scope.ServiceProvider, caseRoot, "retry-success");
-        var run = await orchestrator.ScanAsync(job, await runRepository.TryCreateAsync(job.Id));
+        var queuedRun = Assert.IsType<SporeSyncRun>(await runRepository.TryCreateAsync(job.Id));
+        var run = await orchestrator.ScanAsync(job, queuedRun);
 
         await _sftp.DeleteFileAsync(remotePath);
         Assert.True(await worker.ProcessNextItemAsync(CancellationToken.None));
@@ -282,7 +283,8 @@ public sealed class SftpSyncEndToEndTests :
         var orchestrator = scope.ServiceProvider.GetRequiredService<ISyncRunOrchestrator>();
         var worker = _provider.GetRequiredService<DownloadWorkerHostedService>();
         var job = await CreateJobAsync(scope.ServiceProvider, caseRoot, "retry-exhaustion");
-        var run = await orchestrator.ScanAsync(job, await runRepository.TryCreateAsync(job.Id));
+        var queuedRun = Assert.IsType<SporeSyncRun>(await runRepository.TryCreateAsync(job.Id));
+        var run = await orchestrator.ScanAsync(job, queuedRun);
 
         await _sftp.DeleteFileAsync(remotePath);
         Assert.True(await worker.ProcessNextItemAsync(CancellationToken.None));

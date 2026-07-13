@@ -66,6 +66,82 @@ public sealed class SftpConnectionTestServiceTests
         }
     }
 
+    [Fact]
+    public async Task ExistingProfile_WithDifferentEndpoint_DoesNotReuseStoredPassword()
+    {
+        var keyProvider = new EncryptionKeyProvider();
+        keyProvider.Initialize(RandomNumberGenerator.GetBytes(32));
+        var protector = new SecretProtector(keyProvider);
+        var stored = new SftpConnectionProfile
+        {
+            Id = Guid.NewGuid(),
+            Name = "stored",
+            Host = "sftp.example.test",
+            Port = 22,
+            Username = "sync-user",
+            EncryptedPassword = protector.Protect("stored-password"),
+            IsDefault = false
+        };
+        var factory = new CapturingSftpClientFactory();
+        var service = new SftpConnectionTestService(
+            new FakeProfileRepository(stored),
+            factory,
+            protector,
+            NullLogger<SftpConnectionTestService>.Instance);
+
+        var result = await service.TestAsync(new SftpConnectionTestRequest
+        {
+            ProfileId = stored.Id,
+            Host = "attacker.example.test",
+            Port = stored.Port,
+            Username = stored.Username,
+            AuthenticationMethod = SftpAuthenticationMethod.Password
+        });
+
+        Assert.False(result.Success);
+        Assert.Equal("authentication", result.FailureType);
+        Assert.Null(factory.Profile);
+    }
+
+    [Fact]
+    public async Task ExistingProfile_WithBlankFingerprint_PreservesStoredFingerprint()
+    {
+        var keyProvider = new EncryptionKeyProvider();
+        keyProvider.Initialize(RandomNumberGenerator.GetBytes(32));
+        var protector = new SecretProtector(keyProvider);
+        const string fingerprint = "SHA256:stored-fingerprint";
+        var stored = new SftpConnectionProfile
+        {
+            Id = Guid.NewGuid(),
+            Name = "stored",
+            Host = "sftp.example.test",
+            Port = 22,
+            Username = "sync-user",
+            EncryptedPassword = protector.Protect("stored-password"),
+            HostKeyFingerprintSha256 = fingerprint,
+            IsDefault = false
+        };
+        var factory = new CapturingSftpClientFactory();
+        var service = new SftpConnectionTestService(
+            new FakeProfileRepository(stored),
+            factory,
+            protector,
+            NullLogger<SftpConnectionTestService>.Instance);
+
+        await service.TestAsync(new SftpConnectionTestRequest
+        {
+            ProfileId = stored.Id,
+            Host = stored.Host,
+            Port = stored.Port,
+            Username = stored.Username,
+            AuthenticationMethod = SftpAuthenticationMethod.Password,
+            HostKeyFingerprintSha256 = ""
+        });
+
+        Assert.NotNull(factory.Profile);
+        Assert.Equal(fingerprint, factory.Profile.HostKeyFingerprintSha256);
+    }
+
     private sealed class CapturingSftpClientFactory : ISftpClientFactory
     {
         public SftpConnectionProfile? Profile { get; private set; }

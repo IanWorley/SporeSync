@@ -24,8 +24,12 @@ public sealed class SftpConnectionTestIntegrationTests : IClassFixture<SftpTestc
     public async Task UnsavedConfiguration_ConnectsAndChecksSourcePath()
     {
         var (service, _) = CreateService();
+        var fingerprint = await TrustedFingerprintAsync();
 
-        var result = await TestAsync(service, PasswordRequest(SftpTestcontainerFixture.Password, "/upload"));
+        var result = await TestAsync(service, PasswordRequest(
+            SftpTestcontainerFixture.Password,
+            "/upload",
+            fingerprint));
 
         Assert.True(result.Success);
         Assert.Null(result.FailureType);
@@ -35,14 +39,16 @@ public sealed class SftpConnectionTestIntegrationTests : IClassFixture<SftpTestc
     public async Task Failures_AreCategorizedWithoutReturningServerExceptionDetails()
     {
         var (service, _) = CreateService();
+        var fingerprint = await TrustedFingerprintAsync();
 
-        var authentication = await TestAsync(service, PasswordRequest("wrong-password"));
+        var authentication = await TestAsync(service, PasswordRequest("wrong-password", fingerprint: fingerprint));
         var hostKey = await TestAsync(service, PasswordRequest(
             SftpTestcontainerFixture.Password,
             fingerprint: "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"));
         var path = await TestAsync(service, PasswordRequest(
             SftpTestcontainerFixture.Password,
-            "/upload/does-not-exist"));
+            "/upload/does-not-exist",
+            fingerprint));
 
         Assert.Equal("authentication", authentication.FailureType);
         Assert.Equal("host_key", hostKey.FailureType);
@@ -55,6 +61,7 @@ public sealed class SftpConnectionTestIntegrationTests : IClassFixture<SftpTestc
     {
         var (service, repository) = CreateService();
         var protector = repository.Protector;
+        var fingerprint = await TrustedFingerprintAsync();
         var profile = new SftpConnectionProfile
         {
             Id = Guid.NewGuid(),
@@ -63,13 +70,18 @@ public sealed class SftpConnectionTestIntegrationTests : IClassFixture<SftpTestc
             Port = _sftp.Port,
             Username = SftpTestcontainerFixture.Username,
             EncryptedPassword = protector.Protect(SftpTestcontainerFixture.Password),
+            TrustedHostKeyFingerprintsSha256 = [fingerprint],
             IsDefault = false
         };
         repository.Profile = profile;
 
-        var reused = await TestAsync(service, PasswordRequest(null, profileId: profile.Id));
+        var reused = await TestAsync(service, PasswordRequest(
+            null,
+            fingerprint: fingerprint,
+            profileId: profile.Id));
         var replacement = await TestAsync(service, PasswordRequest(
             SftpTestcontainerFixture.Password,
+            fingerprint: fingerprint,
             profileId: profile.Id));
 
         Assert.True(reused.Success);
@@ -100,6 +112,15 @@ public sealed class SftpConnectionTestIntegrationTests : IClassFixture<SftpTestc
         Assert.False(result.Success);
         Assert.Equal("connection", result.FailureType);
         Assert.Equal("The SFTP connection or operation timed out.", result.Message);
+    }
+
+    private async Task<string> TrustedFingerprintAsync()
+    {
+        var scanner = new SshHostKeyScanner(
+            Options.Create(new SporeSyncOptions { SftpConnectionTimeoutSeconds = 10 }),
+            NullLogger<SshHostKeyScanner>.Instance);
+
+        return (await scanner.ScanAsync(_sftp.Host, _sftp.Port)).FingerprintSha256;
     }
 
     private async Task<SftpConnectionTestResult> TestAsync(

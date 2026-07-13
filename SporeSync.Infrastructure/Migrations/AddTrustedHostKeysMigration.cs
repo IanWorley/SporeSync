@@ -2,7 +2,7 @@ using FluentMigrator;
 
 namespace SporeSync.Infrastructure.Migrations;
 
-[Migration(202607110009)]
+[Migration(202607110010)]
 public sealed class AddTrustedHostKeysMigration : Migration
 {
     public override void Up()

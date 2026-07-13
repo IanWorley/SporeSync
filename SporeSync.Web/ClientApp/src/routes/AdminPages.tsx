@@ -892,13 +892,16 @@ function ProfileForm({
   }, [
     authenticationMethod,
     host,
-    name,
     password,
     port,
     preservesSelectedCredential,
     privateKey,
     username,
   ]);
+  const validation = useMemo(() => {
+    if (!name.trim()) return "Name is required.";
+    return connectionValidation;
+  }, [connectionValidation, name]);
 
   return (
     <form

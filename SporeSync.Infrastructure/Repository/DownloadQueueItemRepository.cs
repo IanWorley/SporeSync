@@ -471,7 +471,7 @@ public sealed class DownloadQueueItemRepository : IDownloadQueueItemRepository
                   AND qi.sync_run_id = @run_id
                   AND qi.group_remote_path = @group_remote_path
                   AND qi.is_group = false
-                  AND qi.status = 'queued'
+                  AND qi.status IN ('queued', 'failed')
                   AND EXISTS (
                       SELECT 1
                       FROM core.sftp_sync_runs r

@@ -327,8 +327,20 @@ public sealed class DownloadWorkerHostedService : BackgroundService
                     continue;
                 }
 
+                // A reclaimed group may observe a child which is still actively
+                // leased by another worker. This worker owns only the group, not
+                // that child, so it must not renew, download, or terminal-update
+                // it. Release the reclaimed group for a later pass instead of
+                // falsely completing the group around the active child.
+                if (string.Equals(currentLeaf.Status, "downloading", StringComparison.OrdinalIgnoreCase))
+                {
+                    return await queueRepository.ReleaseAsync(groupItem.Id, cancellationToken)
+                        ?? throw new InvalidOperationException(
+                            $"Group queue item '{groupItem.Id}' was no longer claimed while deferring to its active child.");
+                }
+
                 if (!string.Equals(currentLeaf.Status, "queued", StringComparison.OrdinalIgnoreCase)
-                    && !string.Equals(currentLeaf.Status, "downloading", StringComparison.OrdinalIgnoreCase))
+                    && !string.Equals(currentLeaf.Status, "failed", StringComparison.OrdinalIgnoreCase))
                 {
                     if (!string.Equals(currentLeaf.Status, "failed", StringComparison.OrdinalIgnoreCase))
                     {
@@ -337,7 +349,8 @@ public sealed class DownloadWorkerHostedService : BackgroundService
                     }
                 }
 
-                if (string.Equals(currentLeaf.Status, "queued", StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(currentLeaf.Status, "queued", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(currentLeaf.Status, "failed", StringComparison.OrdinalIgnoreCase))
                 {
                     var claimedLeaf = await queueRepository.ClaimGroupLeafAsync(
                         currentLeaf.Id,

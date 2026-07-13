@@ -310,6 +310,46 @@ public sealed class ReliabilityIntegrationTests : IClassFixture<RepositoryTestco
     }
 
     [Fact]
+    public async Task ReclaimedGroup_CannotClaimOrRenewAnotherWorkersLiveLeaf()
+    {
+        var job = await CreateJobAsync();
+        var run = await CreateRunAsync(job.Id, status: "downloading");
+        var items = await _queueRepository.UpsertManyAsync(
+        [
+            NewUpsert(job.Id, run.Id, "/incoming/show", isGroup: true, childCount: 1),
+            NewUpsert(job.Id, run.Id, "/incoming/show/episode.mkv", groupRemotePath: "/incoming/show")
+        ]);
+        var group = Assert.Single(items, item => item.IsGroup);
+        var leaf = Assert.Single(items, item => !item.IsGroup);
+
+        // Worker A claims both the parent and the child before it stops
+        // renewing only the parent lease.
+        var claimedGroupByWorkerA = await ClaimForJobAsync(job.Id);
+        Assert.Equal(group.Id, claimedGroupByWorkerA!.Id);
+        var claimedLeafByWorkerA = await _queueRepository.ClaimGroupLeafAsync(
+            leaf.Id,
+            run.Id,
+            group.RemotePath,
+            LeaseSeconds);
+        Assert.NotNull(claimedLeafByWorkerA);
+
+        // Recovery may reclaim the expired parent while the child's lease is
+        // still live on Worker A.
+        await BackdateItemLeaseAsync(group.Id);
+        var requeued = await _queueRepository.RequeueStaleAsync();
+        Assert.Contains(requeued, item => item.Id == group.Id);
+        var claimedGroupByWorkerB = await ClaimForJobAsync(job.Id);
+        Assert.Equal(group.Id, claimedGroupByWorkerB!.Id);
+
+        Assert.True(await _queueRepository.RenewLeaseAsync(leaf.Id, LeaseSeconds));
+        Assert.Null(await _queueRepository.ClaimGroupLeafAsync(
+            leaf.Id,
+            run.Id,
+            group.RemotePath,
+            LeaseSeconds));
+    }
+
+    [Fact]
     public async Task RecoverySweep_HonorsLeases_RecoversInterruptedWork_AndIsIdempotent()
     {
         var job = await CreateJobAsync();

@@ -284,6 +284,32 @@ public sealed class DownloadWorkerHostedServiceTests
     }
 
     [Fact]
+    public async Task ProcessNextItem_ReclaimedGroup_LeavesAnotherWorkersLiveLeafAlone()
+    {
+        // Worker A still owns this child. Worker B reclaimed only the parent
+        // after its lease expired, so it must not renew, download, or complete
+        // the child on Worker A's behalf.
+        var reclaimedGroup = CreateItem("/remote/reports/", isGroup: true, childCount: 1);
+        var liveLeafOwnedByWorkerA = CreateItem(
+            "/remote/reports/large.bin",
+            groupRemotePath: reclaimedGroup.RemotePath,
+            status: "downloading");
+        var queueRepository = new FakeQueueRepository(reclaimedGroup)
+        {
+            Leaves = [liveLeafOwnedByWorkerA]
+        };
+        var downloader = new FakeDownloader(_ => SftpDownloadResult.Succeed(100, 50));
+        var workerB = CreateWorker(queueRepository, downloader);
+
+        var processed = await workerB.ProcessNextItemAsync(CancellationToken.None);
+
+        Assert.True(processed);
+        Assert.Empty(downloader.RequestedPaths);
+        Assert.DoesNotContain(queueRepository.ProgressUpdates, update => update.Id == liveLeafOwnedByWorkerA.Id);
+        Assert.Equal([reclaimedGroup.Id], queueRepository.ReleasedIds);
+    }
+
+    [Fact]
     public async Task ProcessNextItem_GroupConnectFailure_MarksLeavesFailedAndRecordsGroupFailure()
     {
         var group = CreateItem("/remote/reports/", isGroup: true, fileSizeBytes: 300, childCount: 2);
@@ -360,7 +386,7 @@ public sealed class DownloadWorkerHostedServiceTests
         bool isGroup = false,
         int childCount = 0,
         string? groupRemotePath = null,
-        string status = "downloading",
+        string status = "queued",
         long bytesDownloaded = 0,
         int retryCount = 0,
         long fileSizeBytes = 100)
@@ -408,6 +434,8 @@ public sealed class DownloadWorkerHostedServiceTests
 
         public List<Guid> RequeuedIds { get; } = [];
 
+        public List<Guid> ReleasedIds { get; } = [];
+
         public Task<DownloadQueueItem?> ClaimNextAsync(int leaseSeconds, CancellationToken cancellationToken = default)
         {
             var item = _claimable;
@@ -431,7 +459,8 @@ public sealed class DownloadWorkerHostedServiceTests
                 leaf.Id == id
                 && leaf.SyncRunId == runId
                 && leaf.GroupRemotePath == groupRemotePath
-                && string.Equals(leaf.Status, "queued", StringComparison.OrdinalIgnoreCase));
+                && (string.Equals(leaf.Status, "queued", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(leaf.Status, "failed", StringComparison.OrdinalIgnoreCase)));
 
             if (leaf is not null)
             {
@@ -453,7 +482,10 @@ public sealed class DownloadWorkerHostedServiceTests
         }
 
         public Task<DownloadQueueItem?> ReleaseAsync(Guid id, CancellationToken cancellationToken = default)
-            => Task.FromResult<DownloadQueueItem?>(null);
+        {
+            ReleasedIds.Add(id);
+            return Task.FromResult<DownloadQueueItem?>(CreateResult(id, "queued", 0));
+        }
 
         public Task<IReadOnlyList<DownloadQueueItem>> RequeueStaleAsync(
             CancellationToken cancellationToken = default)

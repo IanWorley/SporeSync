@@ -174,6 +174,7 @@ public sealed class SftpConnectionProfilesControllerTests
         null,
         false,
         null,
+        null,
         null);
 
     private sealed class FakeHostKeyScanner : ISshHostKeyScanner

@@ -13,4 +13,5 @@ public sealed record TestSftpConnectionRequest(
     string? PrivateKeyPassphrase,
     bool RemovePrivateKeyPassphrase,
     [param: MaxLength(100)] string? HostKeyFingerprintSha256,
+    IReadOnlyList<string>? TrustedHostKeyFingerprintsSha256,
     [param: MaxLength(2000)] string? SourcePath);

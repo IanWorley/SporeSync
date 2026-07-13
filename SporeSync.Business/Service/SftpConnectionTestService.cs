@@ -53,8 +53,9 @@ public sealed class SftpConnectionTestService : ISftpConnectionTestService
             EncryptedPassword = encryptedPassword,
             EncryptedPrivateKey = encryptedPrivateKey,
             EncryptedPrivateKeyPassphrase = encryptedPrivateKeyPassphrase,
-            HostKeyFingerprintSha256 = ResolveFingerprint(
+            TrustedHostKeyFingerprintsSha256 = ResolveFingerprints(
                 request.HostKeyFingerprintSha256,
+                request.TrustedHostKeyFingerprintsSha256,
                 stored,
                 canReuseStoredCredentials),
             IsDefault = false
@@ -165,16 +166,27 @@ public sealed class SftpConnectionTestService : ISftpConnectionTestService
         requested.Port == stored.Port &&
         string.Equals(requested.Username.Trim(), stored.Username.Trim(), StringComparison.Ordinal);
 
-    private static string? ResolveFingerprint(
+    private static IReadOnlyList<string> ResolveFingerprints(
         string? requested,
+        IReadOnlyList<string>? requestedTrusted,
         SftpConnectionProfile? stored,
         bool preserveStoredFingerprint)
     {
-        if (string.IsNullOrWhiteSpace(requested))
+        if (requestedTrusted is not null)
         {
-            return preserveStoredFingerprint ? stored?.HostKeyFingerprintSha256 : null;
+            return requestedTrusted
+                .Where(fingerprint => !string.IsNullOrWhiteSpace(fingerprint))
+                .Select(SshHostKeyFingerprint.Normalize)
+                .ToArray();
         }
 
-        return SshHostKeyFingerprint.Normalize(requested);
+        if (string.IsNullOrWhiteSpace(requested))
+        {
+            return preserveStoredFingerprint
+                ? stored?.TrustedHostKeyFingerprintsSha256 ?? []
+                : [];
+        }
+
+        return [SshHostKeyFingerprint.Normalize(requested)];
     }
 }

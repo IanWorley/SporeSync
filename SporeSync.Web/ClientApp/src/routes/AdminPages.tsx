@@ -871,8 +871,9 @@ function ProfileForm({
           ? privateKeyPassphrase
           : null,
         removePrivateKeyPassphrase,
-        hostKeyFingerprintSha256:
-          hostKeyFingerprints.split(/\s+/).filter(Boolean)[0] ?? "",
+        trustedHostKeyFingerprintsSha256: hostKeyFingerprints
+          .split(/\s+/)
+          .filter(Boolean),
         sourcePath: sourcePath.trim() ? sourcePath.trim() : null,
       }),
   });
@@ -1071,7 +1072,6 @@ function ProfileForm({
           </>
         )}
         <div className="md:col-span-2">
-          <Field label="Trusted host key fingerprints (SHA-256, one per line)">
           <Field label="Source path to check (optional)">
             <input
               className={inputClass}

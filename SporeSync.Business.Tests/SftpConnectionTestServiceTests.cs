@@ -118,7 +118,7 @@ public sealed class SftpConnectionTestServiceTests
             Port = 22,
             Username = "sync-user",
             EncryptedPassword = protector.Protect("stored-password"),
-            HostKeyFingerprintSha256 = fingerprint,
+            TrustedHostKeyFingerprintsSha256 = [fingerprint],
             IsDefault = false
         };
         var factory = new CapturingSftpClientFactory();
@@ -139,7 +139,7 @@ public sealed class SftpConnectionTestServiceTests
         });
 
         Assert.NotNull(factory.Profile);
-        Assert.Equal(fingerprint, factory.Profile.HostKeyFingerprintSha256);
+        Assert.Equal([fingerprint], factory.Profile.TrustedHostKeyFingerprintsSha256);
     }
 
     private sealed class CapturingSftpClientFactory : ISftpClientFactory

@@ -132,6 +132,7 @@ export interface TestSftpConnectionRequest {
   privateKeyPassphrase?: string | null;
   removePrivateKeyPassphrase: boolean;
   hostKeyFingerprintSha256?: string | null;
+  trustedHostKeyFingerprintsSha256?: string[] | null;
   sourcePath?: string | null;
 }
 

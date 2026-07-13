@@ -163,6 +163,7 @@ public sealed class SftpConnectionProfilesController : ControllerBase
                 PrivateKeyPassphrase = request.PrivateKeyPassphrase,
                 RemovePrivateKeyPassphrase = request.RemovePrivateKeyPassphrase,
                 HostKeyFingerprintSha256 = request.HostKeyFingerprintSha256,
+                TrustedHostKeyFingerprintsSha256 = request.TrustedHostKeyFingerprintsSha256,
                 SourcePath = request.SourcePath
             }, cancellationToken);
         }

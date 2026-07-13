@@ -14,6 +14,7 @@ public sealed class SftpConnectionTestRequest
     public string? PrivateKeyPassphrase { get; init; }
     public bool RemovePrivateKeyPassphrase { get; init; }
     public string? HostKeyFingerprintSha256 { get; init; }
+    public IReadOnlyList<string>? TrustedHostKeyFingerprintsSha256 { get; init; }
     public string? SourcePath { get; init; }
 }
 

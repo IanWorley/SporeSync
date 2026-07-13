@@ -189,5 +189,10 @@ public sealed class SftpConnectionTestIntegrationTests : IClassFixture<SftpTestc
 
         public Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default) =>
             Task.FromResult(false);
+
+        public Task<SafeDeleteSftpConnectionProfileResult> SafeDeleteAsync(
+            Guid id,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(SafeDeleteSftpConnectionProfileResult.NotFound);
     }
 }

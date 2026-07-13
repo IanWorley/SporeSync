@@ -1,3 +1,5 @@
+using SporeSync.Domain.Model;
+
 namespace SporeSync.Business.Interface;
 
 public sealed class SftpConnectionTestRequest
@@ -6,9 +8,11 @@ public sealed class SftpConnectionTestRequest
     public required string Host { get; init; }
     public int Port { get; init; }
     public required string Username { get; init; }
+    public SftpAuthenticationMethod AuthenticationMethod { get; init; }
     public string? Password { get; init; }
     public string? PrivateKey { get; init; }
     public string? PrivateKeyPassphrase { get; init; }
+    public bool RemovePrivateKeyPassphrase { get; init; }
     public string? HostKeyFingerprintSha256 { get; init; }
     public string? SourcePath { get; init; }
 }

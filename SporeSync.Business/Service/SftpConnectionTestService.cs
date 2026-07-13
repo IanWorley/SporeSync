@@ -40,6 +40,8 @@ public sealed class SftpConnectionTestService : ISftpConnectionTestService
             return new SftpConnectionTestResult { ProfileFound = false };
         }
 
+        var (encryptedPassword, encryptedPrivateKey, encryptedPrivateKeyPassphrase) =
+            ResolveAuthentication(request, stored);
         var profile = new SftpConnectionProfile
         {
             Id = stored?.Id ?? Guid.Empty,
@@ -47,10 +49,9 @@ public sealed class SftpConnectionTestService : ISftpConnectionTestService
             Host = request.Host.Trim(),
             Port = request.Port,
             Username = request.Username.Trim(),
-            EncryptedPassword = Protect(request.Password) ?? stored?.EncryptedPassword,
-            EncryptedPrivateKey = Protect(request.PrivateKey) ?? stored?.EncryptedPrivateKey,
-            EncryptedPrivateKeyPassphrase = Protect(request.PrivateKeyPassphrase)
-                ?? stored?.EncryptedPrivateKeyPassphrase,
+            EncryptedPassword = encryptedPassword,
+            EncryptedPrivateKey = encryptedPrivateKey,
+            EncryptedPrivateKeyPassphrase = encryptedPrivateKeyPassphrase,
             HostKeyFingerprintSha256 = ResolveFingerprint(request.HostKeyFingerprintSha256, stored),
             IsDefault = false
         };
@@ -129,6 +130,23 @@ public sealed class SftpConnectionTestService : ISftpConnectionTestService
 
     private string? Protect(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : _secretProtector.Protect(value);
+
+    private (string? Password, string? PrivateKey, string? Passphrase) ResolveAuthentication(
+        SftpConnectionTestRequest requested,
+        SftpConnectionProfile? stored)
+    {
+        if (requested.AuthenticationMethod == SftpAuthenticationMethod.Password)
+        {
+            return (Protect(requested.Password) ?? stored?.EncryptedPassword, null, null);
+        }
+
+        return (
+            null,
+            Protect(requested.PrivateKey) ?? stored?.EncryptedPrivateKey,
+            requested.RemovePrivateKeyPassphrase
+                ? null
+                : Protect(requested.PrivateKeyPassphrase) ?? stored?.EncryptedPrivateKeyPassphrase);
+    }
 
     private static string? ResolveFingerprint(string? requested, SftpConnectionProfile? stored)
     {

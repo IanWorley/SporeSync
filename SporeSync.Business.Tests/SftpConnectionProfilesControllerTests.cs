@@ -155,8 +155,10 @@ public sealed class SftpConnectionProfilesControllerTests
         22,
         "user",
         "password",
+        "password",
         null,
         null,
+        false,
         null,
         null);
 

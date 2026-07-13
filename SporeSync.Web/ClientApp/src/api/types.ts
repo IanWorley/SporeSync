@@ -126,9 +126,11 @@ export interface TestSftpConnectionRequest {
   host: string;
   port: number;
   username: string;
+  authenticationMethod: "password" | "privateKey";
   password?: string | null;
   privateKey?: string | null;
   privateKeyPassphrase?: string | null;
+  removePrivateKeyPassphrase: boolean;
   hostKeyFingerprintSha256?: string | null;
   sourcePath?: string | null;
 }

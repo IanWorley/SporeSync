@@ -242,6 +242,8 @@ export function ProfilesPage() {
         host: profile.host,
         port: profile.port,
         username: profile.username,
+        authenticationMethod: profile.authenticationMethod,
+        removePrivateKeyPassphrase: false,
         hostKeyFingerprintSha256: profile.hostKeyFingerprintSha256,
       }),
     onSuccess: (result, profile) => {
@@ -862,11 +864,13 @@ function ProfileForm({
         host: host.trim(),
         port,
         username: username.trim(),
+        authenticationMethod,
         password: password.trim() ? password : null,
         privateKey: privateKey.trim() ? privateKey : null,
         privateKeyPassphrase: privateKeyPassphrase.trim()
           ? privateKeyPassphrase
           : null,
+        removePrivateKeyPassphrase,
         hostKeyFingerprintSha256:
           hostKeyFingerprints.split(/\s+/).filter(Boolean)[0] ?? "",
         sourcePath: sourcePath.trim() ? sourcePath.trim() : null,

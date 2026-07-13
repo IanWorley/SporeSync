@@ -157,9 +157,11 @@ public sealed class SftpConnectionProfilesController : ControllerBase
                 Host = request.Host,
                 Port = request.Port,
                 Username = request.Username,
+                AuthenticationMethod = ParseAuthenticationMethod(request.AuthenticationMethod),
                 Password = request.Password,
                 PrivateKey = request.PrivateKey,
                 PrivateKeyPassphrase = request.PrivateKeyPassphrase,
+                RemovePrivateKeyPassphrase = request.RemovePrivateKeyPassphrase,
                 HostKeyFingerprintSha256 = request.HostKeyFingerprintSha256,
                 SourcePath = request.SourcePath
             }, cancellationToken);

@@ -2,8 +2,9 @@
 
 SporeSync is being rebuilt around the [starting brief](docs/plan.md).
 The implementation includes a dependency-free Python remote scanner and a
-Kotlin/Spring Boot backend with SSH inventory discovery. Downloads and the
-dashboard are subsequent slices in the plan.
+Kotlin/Spring Boot backend with SSH inventory discovery and a minimal
+Vite/React/TypeScript frontend. Downloads and dashboard features are subsequent
+slices in the plan.
 
 ## Build and test the backend
 
@@ -96,6 +97,59 @@ its consuming feature. Missing values return `null`; malformed values propagate
 parser errors. Use strict parsers (such as `String::toBooleanStrict`) to reject
 invalid input. Settings are application-wide; no user accounts or settings HTTP
 API are introduced yet.
+
+## Frontend development and production assets
+
+Use Node.js 22.12+ (Node 24 recommended) and npm. Install once:
+
+```bash
+cd frontend
+npm ci
+npm run dev
+```
+
+Open `http://127.0.0.1:5173`. Run the backend separately from `backend/` with
+`elide run -fDEV` and the database environment variables described above.
+Vite forwards `/api` and `/api/*` to `http://127.0.0.1:8080`, preserving the path.
+React calls relative URLs such as `/api/status`, so no CORS configuration is needed.
+Vite handles frontend hot updates; Kotlin still needs `elide build -fDEV`.
+To use another backend port, set `BACKEND_URL=http://127.0.0.1:9090 npm run dev`
+(and set `SERVER_PORT=9090` for the backend). `BACKEND_URL` is only proxy configuration,
+not a browser-exposed variable. It can also go in `frontend/.env.local`.
+
+Tailwind CSS 4 runs through the official `@tailwindcss/vite` plugin.
+`frontend/src/styles.css` imports Tailwind, and React components use utility classes
+directly. Vite handles CSS hot updates and emits the production stylesheet into
+`dist/assets/` for Spring to serve. No separate Tailwind CLI or PostCSS setup is needed.
+
+For a production frontend build:
+
+```bash
+cd frontend
+npm run build
+cd ../backend
+elide build
+elide run
+```
+
+`npm run build` type-checks and writes `frontend/dist/`. Spring serves its
+`index.html` at `/` and hashed assets at `/assets/*`; `/api/*` stays on the backend.
+Visit `http://127.0.0.1:8080` with Vite stopped to verify this mode.
+Elide and Vite remain separate build steps. Generated files are ignored by Git.
+
+When deploying, ship the contents of `frontend/dist/` alongside the backend and
+its configuration/dependencies. The default static directory is
+`../frontend/dist/` relative to `backend/`. Override it with
+`SPORESYNC_STATIC_LOCATION=file:/absolute/path/to/dist/` (include the trailing slash).
+These files are not embedded in a JAR; Elide packaging remains deferred.
+Rebuild after frontend changes and restart the backend if the build directory
+was absent at startup. `npm run preview` previews only the frontend bundle;
+use Spring to verify production API integration.
+
+There is no client-side router or deep-link fallback yet. Unknown paths, including
+missing API endpoints and assets, return 404. Add explicit UI route handling when
+screens need it. Backend tests use temporary static fixtures and do not require
+Node or an existing frontend build.
 
 ## Run the scanner
 

@@ -2,8 +2,8 @@
 
 SporeSync is being rebuilt. Read `docs/plan.md` for scope and unresolved choices.
 The implementation includes a Python scanner, Kotlin/Spring Boot SSH inventory,
-and a minimal Vite/React/TypeScript frontend. Dashboard and transfer features
-remain pending. Elide is the
+durable SFTP downloads, scheduled discovery, and a Vite/React/TypeScript dashboard.
+Elide is the
 backend build tool; do not substitute another build tool. See
 `docs/backend-build.md` for verified compatibility and limitations.
 Prefer simple, typed interfaces and named constants for policies.
@@ -23,6 +23,9 @@ and the local scanner path remain external. See README for setup and migration.
 - Scanner changes: `python3 -m unittest discover -s tests -v`.
 - SSH or fixture changes: also run
   `SPORESYNC_SSH_TEST=1 python3 -m unittest discover -s tests -v` (requires Docker).
+- Runtime/recovery changes: after building frontend and backend, run
+  `python3 scripts/verify-runtime.py` from the root (Elide on PATH, Docker and
+  ssh-keygen required). It kills only its own disposable backend process.
 - Report commands and results; never present skipped integration tests as passed.
 - Update this file and README when setup or testing commands change.
 

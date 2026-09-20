@@ -601,7 +601,7 @@ class BackendIntegrationTest {
             )
             .build()
     val response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString())
-    assertEquals(202, response.statusCode(), response.body())
+    assertEquals(HTTP_ACCEPTED, response.statusCode(), response.body())
     val job = jsonMapper.readValue(response.body(), DownloadJob::class.java)
     assertEquals(JobState.QUEUED, job.state)
     worker.tick()
@@ -629,12 +629,12 @@ class BackendIntegrationTest {
     val job = jobs.enqueue(transferSpec(false))
     dataSource.connection.use { connection ->
       connection.createStatement().use { statement ->
-        statement.execute("SELECT pg_advisory_lock(1397772114)")
+        statement.execute("SELECT pg_advisory_lock($WORKER_LOCK_ID)")
         try {
           DownloadWorker(dataSource, jobs, downloader, false).tick()
           assertEquals(JobState.QUEUED, jobs.find(job.id)?.state)
         } finally {
-          statement.execute("SELECT pg_advisory_unlock(1397772114)")
+          statement.execute("SELECT pg_advisory_unlock($WORKER_LOCK_ID)")
         }
       }
     }
@@ -677,6 +677,101 @@ class BackendIntegrationTest {
     assertEquals(snapshot, discovery.state().inventory)
   }
 
+  @Test
+  fun `configured destination may use a filesystem alias`() {
+    val spec = transferSpec(true)
+    val alias = temporary.resolve("destination-alias")
+    Files.createSymbolicLink(alias, Path.of(spec.settings.destination))
+    downloader.transfer(
+        spec.copy(settings = spec.settings.copy(destination = alias.toString())),
+        {},
+    ) {
+      false
+    }
+    assertEquals("sample\n", Files.readString(alias.resolve(spec.entry.path)))
+  }
+
+  @Test
+  fun `smaller remote file never truncates a longer local file`() {
+    val spec = transferSpec(false)
+    val target = Path.of(spec.settings.destination).resolve(spec.entry.path)
+    Files.createDirectories(target.parent)
+    Files.writeString(target, "sample\nextra")
+    assertEquals(
+        "LOCAL_CONFLICT",
+        assertThrows(DownloadFailure::class.java) {
+              downloader.transfer(spec, {}) { false }
+            }
+            .code,
+    )
+    assertEquals("sample\nextra", Files.readString(target))
+  }
+
+  @Test
+  fun `remote growth resumes verified final content`() {
+    val source = "/growth-source"
+    ssh.execInContainer("mkdir", "-p", source)
+    ssh.execInContainer("sh", "-c", "printf first > $source/file")
+    settings.set(SshSettingKeys.SOURCE, source)
+    val destination = Files.createTempDirectory(temporary, "growth").toRealPath().toString()
+    val config = configuration.read().copy(destination = destination)
+    val first = DownloadSpec(config, inventory.scan().entries.single())
+    downloader.transfer(first, {}) { false }
+    ssh.execInContainer("sh", "-c", "printf second >> $source/file")
+    val grown = first.copy(entry = inventory.scan().entries.single())
+    downloader.transfer(grown, {}) { false }
+    assertEquals("firstsecond", Files.readString(Path.of(destination).resolve("file")))
+  }
+
+  @Test
+  fun `remote replacement during transfer prevents completion`() {
+    val source = "/replacement-source"
+    ssh.execInContainer("mkdir", "-p", source)
+    ssh.execInContainer("sh", "-c", "printf original > $source/file")
+    settings.set(SshSettingKeys.SOURCE, source)
+    val destination = Files.createTempDirectory(temporary, "replacement").toRealPath().toString()
+    val spec =
+        DownloadSpec(
+            configuration.read().copy(destination = destination, temporaryFiles = true),
+            inventory.scan().entries.single(),
+        )
+    assertEquals(
+        "REMOTE_CHANGED",
+        assertThrows(DownloadFailure::class.java) {
+              downloader.transfer(
+                  spec,
+                  { ssh.execInContainer("sh", "-c", "printf replaced > $source/file") },
+              ) {
+                false
+              }
+            }
+            .code,
+    )
+    assertTrue(!Files.exists(Path.of(destination).resolve("file")))
+  }
+
+  @Test
+  fun `cancelled queued job cannot be started by a racing worker`() {
+    val job = jobs.enqueue(jobSpec("cancel-before-start.txt"))
+    jobs.cancel(job.id)
+    assertEquals(false, jobs.start(job.id))
+    assertEquals(JobState.CANCELLED, jobs.find(job.id)?.state)
+  }
+
+  @Test
+  fun `connection failures stop retrying after the configured attempt limit`() {
+    jobs.list().forEach { jobs.cancel(it.id) }
+    val spec = transferSpec(false)
+    java.net.ServerSocket(0).use { unavailable ->
+      val job = jobs.enqueue(spec.copy(settings = spec.settings.copy(port = unavailable.localPort)))
+      // A listening non-SSH socket times out; use its port after closure for immediate refusal.
+      unavailable.close()
+      repeat(MAX_DOWNLOAD_ATTEMPTS) { worker.tick() }
+      assertEquals(JobState.FAILED, jobs.find(job.id)?.state)
+      assertEquals(MAX_DOWNLOAD_ATTEMPTS, jobs.find(job.id)?.attempts)
+    }
+  }
+
   private fun transferSpec(temporaryMode: Boolean): DownloadSpec {
     val destination = Files.createTempDirectory(temporary, "downloads").toRealPath().toString()
     val settings =
@@ -717,6 +812,7 @@ class BackendIntegrationTest {
     private const val BAD_GATEWAY = 502
     private const val SPECIAL_SOURCE = "/seed 日本語 ' ; literal"
     private const val POSTGRES_IMAGE = "postgres:17.6-alpine"
+    private const val HTTP_ACCEPTED = 202
     private const val HTTP_BAD_REQUEST = 400
     private const val HTTP_OK = 200
     private const val HTTP_NOT_FOUND = 404

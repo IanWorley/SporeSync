@@ -82,12 +82,11 @@ class DownloadJobs(private val jdbc: JdbcTemplate, private val mapper: JsonMappe
           )
           .firstOrNull()
 
-  fun start(id: String) {
-    jdbc.update(
-        "UPDATE download_jobs SET state = 'RUNNING', attempts = attempts + 1, error = NULL, updated_at = now() WHERE id = ? AND state = 'QUEUED'",
-        id,
-    )
-  }
+  fun start(id: String): Boolean =
+      jdbc.update(
+          "UPDATE download_jobs SET state = 'RUNNING', attempts = attempts + 1, error = NULL, updated_at = now() WHERE id = ? AND state = 'QUEUED'",
+          id,
+      ) == 1
 
   fun progress(id: String, bytes: Long) {
     jdbc.update(

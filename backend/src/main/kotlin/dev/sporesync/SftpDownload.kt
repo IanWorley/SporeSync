@@ -25,9 +25,10 @@ class SftpDownload(private val credentials: SshSettings) {
     spec.settings.validate()
     val entry = spec.entry
     require(entry.type == EntryType.file)
-    val root = Path.of(spec.settings.destination).normalize()
-    Files.createDirectories(root)
-    require(root.toRealPath() == root) { "Destination must not contain symlinks" }
+    val configuredRoot = Path.of(spec.settings.destination).normalize()
+    Files.createDirectories(configuredRoot)
+    // Resolve the explicitly configured root once; only descendants must be link-free.
+    val root = configuredRoot.toRealPath()
     val target = safeTarget(root, entry.path)
     val lockPath = safeTarget(root, "$STAGING_DIRECTORY/worker.lock", internal = true)
     FileChannel.open(lockPath, CREATE, WRITE, NOFOLLOW_LINKS).use { lockChannel ->

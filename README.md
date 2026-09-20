@@ -247,3 +247,12 @@ stability; persisted completed/cancelled jobs remain deduplicated.
 The dashboard at `/` includes file filtering, manual scan/download actions,
 settings, and a durable queue with progress, cancellation and retry. It polls every
 two seconds without overlapping requests and leaves transfers running when closed.
+
+## Process recovery acceptance check
+
+After building the frontend and backend, run `python3 scripts/verify-runtime.py`
+from the repository root with Elide on PATH. Python 3.9+, Docker and ssh-keygen
+are required. It creates disposable PostgreSQL/SSH containers, serves the built
+frontend, verifies automatic downloading, cancels and retries a 128 MiB transfer,
+kills its own backend process, and checks exact content after restart. All
+fixture containers, keys and partial files are cleaned up.

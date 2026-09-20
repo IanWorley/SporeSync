@@ -9,7 +9,7 @@ import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
 
 private const val WORKER_POLL_MILLIS = 1000L
-private const val WORKER_LOCK_ID =
+internal const val WORKER_LOCK_ID =
     1397772114L // Stable PostgreSQL session lock shared by all instances.
 private const val CONNECTION_CHECK_SECONDS = 1
 
@@ -34,12 +34,12 @@ class DownloadWorker(
       try {
         jobs.recover()
         val job = jobs.next() ?: return
-        jobs.start(job.id)
+        if (!jobs.start(job.id)) return
         try {
           downloader.transfer(job.spec, { bytes -> jobs.progress(job.id, bytes) }) {
-            !connection.isValid(CONNECTION_CHECK_SECONDS) ||
-                Thread.currentThread().isInterrupted ||
-                jobs.find(job.id)?.cancelRequested != false
+            if (Thread.currentThread().isInterrupted) throw InterruptedException()
+            check(connection.isValid(CONNECTION_CHECK_SECONDS))
+            jobs.find(job.id)?.cancelRequested != false
           }
           jobs.finish(job.id, JobState.COMPLETE)
         } catch (error: Exception) {

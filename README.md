@@ -82,6 +82,11 @@ To use another backend port, set `BACKEND_URL=http://127.0.0.1:9090 npm run dev`
 (and set `SERVER_PORT=9090` for the backend). `BACKEND_URL` is only proxy configuration,
 not a browser-exposed variable. It can also go in `frontend/.env.local`.
 
+Tailwind CSS 4 runs through the official `@tailwindcss/vite` plugin.
+`frontend/src/styles.css` imports Tailwind, and React components use utility classes
+directly. Vite handles CSS hot updates and emits the production stylesheet into
+`dist/assets/` for Spring to serve. No separate Tailwind CLI or PostCSS setup is needed.
+
 For a production frontend build:
 
 ```bash

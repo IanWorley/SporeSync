@@ -27,7 +27,7 @@ the new implementation; it is not a migration plan for the earlier codebase.
 ## Proposed starting design
 
 Vite is the chosen frontend tooling, with React and TypeScript the preferred
-frontend stack and Tailwind proposed for styling. A minimal Vite/React/TypeScript
+frontend stack and Tailwind CSS 4 for styling. A minimal Vite/React/TypeScript
 entry page now proxies API requests during development and builds external static
 assets for Spring to serve; dashboard screens remain deferred. Elide builds the
 Kotlin/Spring Boot scaffold; compatibility has been verified for the versions recorded below.

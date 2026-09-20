@@ -1,8 +1,38 @@
 # SporeSync
 
 SporeSync is being rebuilt around the [starting brief](docs/plan.md).
-The first implemented component is a dependency-free Python remote scanner.
-There is no backend or dashboard yet.
+The implementation includes a dependency-free Python remote scanner and a
+Kotlin/Spring Boot backend scaffold. Backend SSH discovery, downloads, and the
+dashboard are subsequent slices in the plan.
+
+## Build and test the backend
+
+Install [Elide](https://elide.help/docs/installation) and start Docker. The
+backend selects Elide 1.5.3, verified with build `1.5.3+20260917.e2442e4`,
+including Java 25 and Kotlin 2.4.20.
+No separate Maven, Gradle, or JDK installation is needed.
+
+```bash
+cd backend
+elide install --slim
+elide build
+elide test
+elide format -- -n src
+```
+
+Tests start disposable PostgreSQL through Testcontainers and verify HTTP/JSON
+and Liquibase initialization. Docker is required; tests do not silently skip.
+
+To run against your own PostgreSQL database, provide `SPRING_DATASOURCE_URL`,
+`SPRING_DATASOURCE_USERNAME`, and `SPRING_DATASOURCE_PASSWORD` in the environment,
+then run `elide run` from `backend/`. Do not put credentials in tracked files.
+The server binds to loopback by default; `GET http://127.0.0.1:8080/api/status`
+returns `{"application":"sporesync"}`. `SERVER_PORT` overrides the default port.
+
+For development, run `elide run -fDEV`; in another terminal run
+`elide build -fDEV` after editing Kotlin. DevTools watches compiled classes,
+not source files. It is excluded unless the `DEV` build flag is set.
+See [backend build notes](docs/backend-build.md) for versions and limitations.
 
 ## Run the scanner
 

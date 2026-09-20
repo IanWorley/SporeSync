@@ -1,0 +1,2 @@
+# Domain migrations belong to the durable transfer lifecycle slice.
+databaseChangeLog: []

@@ -27,18 +27,19 @@ the new implementation; it is not a migration plan for the earlier codebase.
 ## Proposed starting design
 
 Vite+ is the chosen frontend tooling, with React and TypeScript the preferred
-frontend stack and Tailwind proposed for styling. Elide is the requested build
-tool; verify its build workflow and compatibility with the proposed Java/Spring
-Boot application before scaffolding. Do not silently substitute Maven or Gradle.
-Spring Web, PostgreSQL, and Liquibase remain the backend direction. Dependency
-versions are not yet selected.
+frontend stack and Tailwind proposed for styling. Elide builds the Kotlin/Spring
+Boot scaffold; compatibility has been verified for the versions recorded below.
+Do not silently substitute Maven or Gradle.
+Spring Web, PostgreSQL, Liquibase, validation, and Kotlin JSON support are included
+in the scaffold, with JUnit/Testcontainers for tests and opt-in Spring DevTools.
+See [backend build notes](backend-build.md) for dependency versions.
 
 Defer application login and authorization for this initial phase. Revisit them
 with Spring Security later. SSH authentication to the seedbox is still required.
 
 Have the scanner return a versioned JSON inventory through SSH standard output,
 including relative paths, file types, byte sizes, and modification times.
-Spring can deserialize that inventory into typed records. This follows
+Spring can deserialize that inventory into typed Kotlin data classes. This follows
 [SeedSync's remote scanner pattern](https://github.com/ipsingh06/seedsync/blob/ff2a1039935beccbbf7ec76134b41d2e91137742/src/python/controller/scan/remote_scanner.py),
 using JSON in place of Python pickle. It requires SSH command access and Python
 on the seedbox; no seedbox HTTP service or cron job is needed.
@@ -56,7 +57,7 @@ and constrain downloaded paths to the configured destination.
 ## First milestone
 
 - [x] Establish a local SSH test container with Python and a sample directory tree.
-- [ ] Verify the Elide build workflow for the Spring Boot backend.
+- [x] Verify the Elide build workflow for the Kotlin/Spring Boot backend.
 - [ ] Connect from the backend, upload the scanner when needed, and execute it.
 - [ ] Return a typed inventory, including nested paths, sizes, and timestamps.
 - [ ] Verify names containing spaces and Unicode, an empty directory, and clear
@@ -65,14 +66,14 @@ and constrain downloaded paths to the configured destination.
 Acceptance: given SSH credentials and a remote directory, SporeSync returns an
 accurate inventory without requiring a separately managed seedbox service.
 
-Next, download one file with measurable progress in both temporary-file modes,
-including resuming when the remote file is larger. Then add persistent job state,
-restart handling and automatic queuing enabled by default,
-followed by the settings and transfer dashboard.
+Next, download one file with measurable progress. Temporary-file/resume support
+and persistent job state can then develop alongside each other, with their
+restart behavior integrated before automatic queuing is enabled. Settings APIs
+and dashboard work can start as their configuration and API contracts stabilize;
+they do not need to wait for every transfer feature. See the dependencies below.
 
 ## Choices to resolve as we reach them
 
-- Verify Elide integration and select supported dependency versions.
 - Choose the default for temporary-file mode and the scan interval.
 - Decide whether to scan only a torrent client's completed-download directory.
 - Define behavior for equal-size files, smaller remote files, replaced content,
@@ -91,11 +92,11 @@ commitment to finish an entire feature in one PR. The initial reset is exempt.
    explicit filesystem failures. Report symlinks without following them. Exercise
    scanner upload and execution against a disposable SSH/Python container.
 2. **Elide/Spring feasibility**: verify the current documented Elide workflow with
-   a minimal Spring Web application, selecting compatible Java and dependency
+   a minimal Kotlin/Spring Web application, selecting compatible JVM and dependency
    versions. Demonstrate build, run, and a focused automated test. Record exact
    commands and constraints; if incompatible, resolve the tool choice before
-   generating the application scaffold. This gates Java implementation.
-3. **Backend remote inventory**: typed versioned records, pinned SSH host keys,
+   generating the application scaffold. This gates Kotlin/JVM implementation.
+3. **Backend remote inventory**: typed versioned data classes, pinned SSH host keys,
    credential-safe configuration, scanner upload/version checks, execution
    timeout, and clear connection/protocol errors. Use the SSH fixture for the
    first milestone's acceptance test. Reject unsupported inventory versions.
@@ -112,17 +113,48 @@ commitment to finish an entire feature in one PR. The initial reset is exempt.
    automatic downloading enabled by default, configurable interval/source, and
    deduplication across scans. Resolve changing-file eligibility and whether the
    source should be a torrent client's completed directory.
-8. **Settings and dashboard**: verify Vite+ setup, then add React/TypeScript
+8. **Settings APIs and dashboard**: expose validated backend settings APIs, verify
+   Vite+ setup, then add React/TypeScript
    settings, inventory, queue state, and progress in separate small PRs. Choose
    SSE or polling when the backend progress contract exists. Never return SSH
    credentials to the browser.
 9. **Packaging**: document persistent storage, configuration, startup/recovery,
    and host-key provisioning. Application login remains deferred as agreed.
 
+### Dependencies and independent work
+
+Slice numbers identify scope, not a strictly sequential schedule. The initial
+scaffold is limited to slice 2: a verified Elide/Spring build, a minimal web
+endpoint, and HTTP/PostgreSQL integration tests. It includes database dependencies
+and an empty Liquibase changelog. SSH, transfers, domain persistence, scheduling,
+and settings APIs belong to later slices.
+
+| Slice | Prerequisites | Work that can proceed independently |
+|-------|---------------|-------------------------------------|
+| 1. Scanner and SSH fixture | None; implemented | Independent of the Kotlin scaffold. |
+| 2. Elide/Spring scaffold | Verify Elide compatibility before scaffolding | Independent of slice 1; gates all Kotlin backend implementation. |
+| 3. Backend inventory | 1 and 2 | Establish the inventory API for dashboard work. |
+| 4. Background transfer | 3, including trusted SSH configuration and discovered regular files | Define transfer state and progress contracts for slices 6 and 8. |
+| 5. Temporary files and resume | 4; resolve replacement and existing-file policies | Can develop alongside slice 6 using an agreed transfer state model. |
+| 6. Durable lifecycle | 4 and a defined transfer state model | Persistence can start before 5 is finished; complete restart/resume integration after 5. |
+| 7. Scheduled discovery and automatic queue | 3, 5, and 6; resolve changing-file eligibility | Scheduling can be built earlier, but automatic downloads wait for safe resume and durable recovery. |
+| 8a. Settings APIs | 2 and defined configuration fields, validation, and defaults | Develop alongside the relevant SSH, transfer, and scheduling slices; each setting needs its consuming feature for end-to-end verification. |
+| 8b. Dashboard | Stable APIs for each screen: 3 for inventory, 4 for progress, 7 for queue, 8a for settings | Verify Vite+ and build screens incrementally; choose SSE or polling once the progress contract exists. |
+| 9. Packaging | Verified startup, storage, configuration, and recovery behavior for the included features | Draft deployment documentation earlier; verify the complete application after integration. |
+
+The main backend dependency chain is **2 → 3 → 4 → (5 and 6) → 7**, with
+slice 1 also required by slice 3. Settings APIs branch from slice 2 as their
+contracts are defined; dashboard screens branch from their respective APIs.
+Independent work is optional, not a requirement to use multiple agents or PRs
+at once. Keep each PR focused and integrate shared contracts before dependent
+changes.
+
 ### Current milestone status
 
-The scanner and disposable SSH fixture are implemented. The fixture exercises
+The scanner and disposable SSH fixture are implemented. A Kotlin/Spring Boot
+scaffold builds and passes HTTP/PostgreSQL integration tests with Elide; see
+[backend build notes](backend-build.md). The SSH fixture exercises
 client-side upload and execution; it is not the planned Spring integration.
-Elide verification, typed Java inventory, backend connection errors, and the
+Typed Kotlin inventory, backend connection errors, and the
 full first-milestone acceptance test remain pending. No transfer behavior or
 unresolved resume policy is implied by the scanner implementation.

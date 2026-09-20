@@ -1,6 +1,6 @@
 # Agent instructions
 
-SporeSync is being rebuilt. Read `docs/plan.md` for scope and unresolved choices.
+SporeSync is being rebuilt. Read `docs/plan.md` for scope and agreed behavior.
 The implementation includes a Python scanner, Kotlin/Spring Boot SSH inventory,
 durable SFTP downloads, scheduled discovery, and a Vite/React/TypeScript dashboard.
 Elide is the

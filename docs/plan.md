@@ -175,7 +175,7 @@ process-kill recovery. Browser visual verification was unavailable in this envir
 | #69 | Scheduled discovery and automatic stable-file queue |
 | #70–71 | Settings, inventory and download dashboard |
 | #72–73 | Process-crash acceptance coverage, transfer edge cases and saved timeout |
-| Release packaging PR | Deployable source/assets bundle and operational documentation |
+| #74 | Deployable source/assets bundle and operational documentation |
 
 Each PR targets its predecessor; merge from the bottom of the dependency stack
 (#63 first), retargeting the next PR to main after its base has merged.

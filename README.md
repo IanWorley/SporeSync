@@ -226,3 +226,11 @@ prefix. Smaller or replaced remote content reports a conflict. Equal-size conten
 is compared completely. Transfers check remote metadata and reread content before
 completion, retaining partial data on cancellation or failure. Keep source and
 local download directories under trusted control; do not edit them during a job.
+
+`POST /api/downloads` with `{"path":"nested/file.ext"}` discovers and queues a
+regular file. `GET /api/downloads` returns durable state and byte progress;
+`POST /api/downloads/{id}/cancel` retains partial data, and `/retry` explicitly
+requeues failed or cancelled work. A backend worker processes one file at a time,
+independently of the browser. Interrupted jobs recover at startup, with three
+attempts maximum. Both a PostgreSQL session lock and destination filesystem lock
+protect writes. Run one deployment against a given destination and database.

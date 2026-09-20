@@ -47,12 +47,16 @@ import tools.jackson.databind.json.JsonMapper
 
 @Testcontainers
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(
+    webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+    properties = ["sporesync.background.enabled=false"],
+)
 class BackendIntegrationTest {
   @LocalServerPort private var port: Int = 0
   @Autowired private lateinit var dataSource: DataSource
   @Autowired private lateinit var jsonMapper: JsonMapper
   @Autowired private lateinit var sshSettings: SshSettings
+  @Autowired private lateinit var worker: DownloadWorker
   @Autowired private lateinit var downloader: SftpDownload
   @Autowired private lateinit var configuration: DownloadConfiguration
   @Autowired private lateinit var jobs: DownloadJobs
@@ -580,6 +584,60 @@ class BackendIntegrationTest {
     Files.createSymbolicLink(root.resolve("link"), outside)
     assertThrows(IllegalArgumentException::class.java) { downloader.safeTarget(root, "link/file") }
     assertTrue(!Files.exists(outside.resolve("file")))
+  }
+
+  @Test
+  fun `HTTP queued transfer completes in worker after request finishes`() {
+    jobs.list().forEach { jobs.cancel(it.id) }
+    val spec = transferSpec(true)
+    configuration.save(spec.settings)
+    val request =
+        HttpRequest.newBuilder(URI("http://127.0.0.1:$port/api/downloads"))
+            .header("Content-Type", "application/json")
+            .POST(
+                HttpRequest.BodyPublishers.ofString(
+                    jsonMapper.writeValueAsString(DownloadRequest(spec.entry.path))
+                )
+            )
+            .build()
+    val response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString())
+    assertEquals(202, response.statusCode(), response.body())
+    val job = jsonMapper.readValue(response.body(), DownloadJob::class.java)
+    assertEquals(JobState.QUEUED, job.state)
+    worker.tick()
+    assertEquals(JobState.COMPLETE, jobs.find(job.id)?.state)
+    assertEquals(SAMPLE_BYTES, jobs.find(job.id)?.bytesDone)
+    assertEquals(
+        "sample\n",
+        Files.readString(Path.of(spec.settings.destination).resolve(spec.entry.path)),
+    )
+  }
+
+  @Test
+  fun `worker recovers persisted running job with a fresh worker instance`() {
+    jobs.list().forEach { jobs.cancel(it.id) }
+    val job = jobs.enqueue(transferSpec(true))
+    jobs.start(job.id)
+    DownloadWorker(dataSource, jobs, downloader, false).tick()
+    assertEquals(JobState.COMPLETE, jobs.find(job.id)?.state)
+    assertEquals(2, jobs.find(job.id)?.attempts)
+  }
+
+  @Test
+  fun `second worker cannot claim a job while advisory lock is owned`() {
+    jobs.list().forEach { jobs.cancel(it.id) }
+    val job = jobs.enqueue(transferSpec(false))
+    dataSource.connection.use { connection ->
+      connection.createStatement().use { statement ->
+        statement.execute("SELECT pg_advisory_lock(1397772114)")
+        try {
+          DownloadWorker(dataSource, jobs, downloader, false).tick()
+          assertEquals(JobState.QUEUED, jobs.find(job.id)?.state)
+        } finally {
+          statement.execute("SELECT pg_advisory_unlock(1397772114)")
+        }
+      }
+    }
   }
 
   private fun transferSpec(temporaryMode: Boolean): DownloadSpec {

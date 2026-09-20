@@ -83,11 +83,11 @@ class RemoteInventory(
     private val mapper: JsonMapper,
 ) {
   @Synchronized
-  fun scan(): Inventory {
+  fun scan(connectionOverride: SshConnectionSettings? = null): Inventory {
     var stage = InventoryFailure.CONFIGURATION
     try {
       settings.validate()
-      val connection = SshConnectionSettings.load(applicationSettings)
+      val connection = connectionOverride ?: SshConnectionSettings.load(applicationSettings)
       val scanner = Files.readAllBytes(Path.of(settings.scanner))
       SSHClient().use { ssh ->
         ssh.connectTimeout = connection.timeoutMillis

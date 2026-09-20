@@ -53,6 +53,8 @@ class BackendIntegrationTest {
   @Autowired private lateinit var dataSource: DataSource
   @Autowired private lateinit var jsonMapper: JsonMapper
   @Autowired private lateinit var sshSettings: SshSettings
+  @Autowired private lateinit var downloader: SftpDownload
+  @Autowired private lateinit var configuration: DownloadConfiguration
   @Autowired private lateinit var jobs: DownloadJobs
   @Autowired private lateinit var inventory: RemoteInventory
   private lateinit var temporary: Path
@@ -515,6 +517,77 @@ class BackendIntegrationTest {
     jobs.enqueue(job.spec)
     assertEquals(JobState.CANCELLED, jobs.find(job.id)?.state)
     assertEquals(JobState.QUEUED, jobs.retry(job.id)?.state)
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = [true, false])
+  fun `downloads Unicode nested file over real SFTP in both filename modes`(
+      temporaryMode: Boolean
+  ) {
+    val spec = transferSpec(temporaryMode)
+    val progress = mutableListOf<Long>()
+    downloader.transfer(spec, progress::add) { false }
+    val target = Path.of(spec.settings.destination).resolve(spec.entry.path)
+    assertEquals("sample\n", Files.readString(target))
+    assertEquals(SAMPLE_BYTES, progress.last())
+  }
+
+  @Test
+  fun `resumes existing final file only after verifying its prefix`() {
+    val spec = transferSpec(true)
+    val target = Path.of(spec.settings.destination).resolve(spec.entry.path)
+    Files.createDirectories(target.parent)
+    Files.writeString(target, "sam")
+    downloader.transfer(spec, {}) { false }
+    assertEquals("sample\n", Files.readString(target))
+    downloader.transfer(spec, {}) { false }
+    assertEquals("sample\n", Files.readString(target))
+  }
+
+  @Test
+  fun `mismatched local prefix fails without modifying the file`() {
+    val spec = transferSpec(false)
+    val target = Path.of(spec.settings.destination).resolve(spec.entry.path)
+    Files.createDirectories(target.parent)
+    Files.writeString(target, "bad")
+    assertEquals(
+        "LOCAL_CONFLICT",
+        assertThrows(DownloadFailure::class.java) {
+              downloader.transfer(spec, {}) { false }
+            }
+            .code,
+    )
+    assertEquals("bad", Files.readString(target))
+  }
+
+  @Test
+  fun `cancelled temporary download resumes retained partial data`() {
+    val spec = transferSpec(true)
+    var cancel = false
+    assertThrows(DownloadFailure::class.java) {
+      downloader.transfer(spec, { cancel = true }) { cancel }
+    }
+    val target = Path.of(spec.settings.destination).resolve(spec.entry.path)
+    assertTrue(!Files.exists(target))
+    downloader.transfer(spec, {}) { false }
+    assertEquals("sample\n", Files.readString(target))
+  }
+
+  @Test
+  fun `destination rejects traversal and symlink parents`(@TempDir root: Path) {
+    assertThrows(IllegalArgumentException::class.java) { downloader.safeTarget(root, "../escape") }
+    val outside = Files.createTempDirectory(temporary, "outside")
+    Files.createSymbolicLink(root.resolve("link"), outside)
+    assertThrows(IllegalArgumentException::class.java) { downloader.safeTarget(root, "link/file") }
+    assertTrue(!Files.exists(outside.resolve("file")))
+  }
+
+  private fun transferSpec(temporaryMode: Boolean): DownloadSpec {
+    val destination = Files.createTempDirectory(temporary, "downloads").toRealPath().toString()
+    val settings =
+        configuration.read().copy(destination = destination, temporaryFiles = temporaryMode)
+    val entry = inventory.scan().entries.single { it.path == "nested/日本語 file.txt" }
+    return DownloadSpec(settings, entry)
   }
 
   private fun jobSpec(path: String) =

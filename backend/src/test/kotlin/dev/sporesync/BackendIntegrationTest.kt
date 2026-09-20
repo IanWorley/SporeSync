@@ -53,6 +53,7 @@ class BackendIntegrationTest {
   @Autowired private lateinit var dataSource: DataSource
   @Autowired private lateinit var jsonMapper: JsonMapper
   @Autowired private lateinit var sshSettings: SshSettings
+  @Autowired private lateinit var jobs: DownloadJobs
   @Autowired private lateinit var inventory: RemoteInventory
   private lateinit var temporary: Path
   private lateinit var ssh: GenericContainer<*>
@@ -478,6 +479,54 @@ class BackendIntegrationTest {
     )
     assertEquals(before, get("/api/settings").body())
   }
+
+  @Test
+  fun `queue persists snapshots and deduplicates repeated inventory`() {
+    val spec = jobSpec("deduplicated.txt")
+    val job = jobs.enqueue(spec)
+    jobs.enqueue(spec)
+    assertEquals(1, jobs.list().count { it.id == job.id })
+    assertEquals(spec, jobs.find(job.id)?.spec)
+  }
+
+  @Test
+  fun `interrupted work recovers with progress and bounded attempts`() {
+    val job = jobs.enqueue(jobSpec("interrupted.txt"))
+    repeat(MAX_DOWNLOAD_ATTEMPTS) { attempt ->
+      jobs.start(job.id)
+      jobs.progress(job.id, SAMPLE_BYTES)
+      jobs.recover()
+      val recovered = requireNotNull(jobs.find(job.id))
+      assertEquals(SAMPLE_BYTES, recovered.bytesDone)
+      assertEquals(attempt + 1, recovered.attempts)
+    }
+    assertEquals(JobState.FAILED, jobs.find(job.id)?.state)
+    assertEquals(JobState.QUEUED, jobs.retry(job.id)?.state)
+    assertEquals(0, jobs.find(job.id)?.attempts)
+  }
+
+  @Test
+  fun `cancellation survives recovery and requires explicit retry`() {
+    val job = jobs.enqueue(jobSpec("cancelled.txt"))
+    jobs.start(job.id)
+    jobs.cancel(job.id)
+    jobs.recover()
+    assertEquals(JobState.CANCELLED, jobs.find(job.id)?.state)
+    jobs.enqueue(job.spec)
+    assertEquals(JobState.CANCELLED, jobs.find(job.id)?.state)
+    assertEquals(JobState.QUEUED, jobs.retry(job.id)?.state)
+  }
+
+  private fun jobSpec(path: String) =
+      DownloadSpec(
+          DownloadSettings(
+              "seed.example",
+              username = "scanner",
+              source = "/seed",
+              destination = "/downloads",
+          ),
+          InventoryEntry(path, EntryType.file, SAMPLE_BYTES, 0),
+      )
 
   private fun get(path: String): HttpResponse<String> {
     val request =

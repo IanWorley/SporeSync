@@ -11,3 +11,6 @@ databaseChangeLog:
   - include:
       file: changes/004-ssh-setup-values.yaml
       relativeToChangelogFile: true
+  - include:
+      file: changes/005-download-jobs.yaml
+      relativeToChangelogFile: true

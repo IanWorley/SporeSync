@@ -26,9 +26,11 @@ the new implementation; it is not a migration plan for the earlier codebase.
 
 ## Proposed starting design
 
-Vite+ is the chosen frontend tooling, with React and TypeScript the preferred
-frontend stack and Tailwind proposed for styling. Elide builds the Kotlin/Spring
-Boot scaffold; compatibility has been verified for the versions recorded below.
+Vite is the chosen frontend tooling, with React and TypeScript the preferred
+frontend stack and Tailwind CSS 4 for styling. A minimal Vite/React/TypeScript
+entry page now proxies API requests during development and builds external static
+assets for Spring to serve; dashboard screens remain deferred. Elide builds the
+Kotlin/Spring Boot scaffold; compatibility has been verified for the versions recorded below.
 Do not silently substitute Maven or Gradle.
 Spring Web, PostgreSQL, Liquibase, validation, and Kotlin JSON support are included
 in the scaffold, with JUnit/Testcontainers for tests and opt-in Spring DevTools.
@@ -114,7 +116,7 @@ commitment to finish an entire feature in one PR. The initial reset is exempt.
    deduplication across scans. Resolve changing-file eligibility and whether the
    source should be a torrent client's completed directory.
 8. **Settings APIs and dashboard**: expose validated backend settings APIs, verify
-   Vite+ setup, then add React/TypeScript
+   Vite setup, then add React/TypeScript
    settings, inventory, queue state, and progress in separate small PRs. Choose
    SSE or polling when the backend progress contract exists. Never return SSH
    credentials to the browser.
@@ -140,7 +142,7 @@ transfers, scheduling, and settings APIs belong to later slices.
 | 6. Durable lifecycle | 4 and a defined transfer state model | Persistence can start before 5 is finished; complete restart/resume integration after 5. |
 | 7. Scheduled discovery and automatic queue | 3, 5, and 6; resolve changing-file eligibility | Scheduling can be built earlier, but automatic downloads wait for safe resume and durable recovery. |
 | 8a. Settings APIs | 2 and defined configuration fields, validation, and defaults | Develop alongside the relevant SSH, transfer, and scheduling slices; each setting needs its consuming feature for end-to-end verification. |
-| 8b. Dashboard | Stable APIs for each screen: 3 for inventory, 4 for progress, 7 for queue, 8a for settings | Verify Vite+ and build screens incrementally; choose SSE or polling once the progress contract exists. |
+| 8b. Dashboard | Stable APIs for each screen: 3 for inventory, 4 for progress, 7 for queue, 8a for settings | Verify Vite and build screens incrementally; choose SSE or polling once the progress contract exists. |
 | 9. Packaging | Verified startup, storage, configuration, and recovery behavior for the included features | Draft deployment documentation earlier; verify the complete application after integration. |
 
 The main backend dependency chain is **2 → 3 → 4 → (5 and 6) → 7**, with

@@ -54,9 +54,9 @@ SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP;
 Each scan reads these five database settings once; changes apply to the next scan
 without restarting. Missing or invalid values return `CONFIGURATION`. Port must
 be between 1 and 65535; timeout is a positive integer in milliseconds. Existing
-`SPORESYNC_SSH_HOST`, `PORT`, `USERNAME`, `SOURCE`, and `TIMEOUTMILLIS` environment
-values must be moved to their database rows; those environment overrides are no
-longer used.
+`SPORESYNC_SSH_*` environment values for host, port, username, source, and timeout
+must be moved to their database rows; those environment overrides are no longer
+used.
 
 Credentials, host trust, and the local scanner path remain external configuration.
 Set these environment variables before running `elide run` from `backend/`:

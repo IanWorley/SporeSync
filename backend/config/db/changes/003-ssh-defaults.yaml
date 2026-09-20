@@ -1,0 +1,11 @@
+databaseChangeLog:
+  - changeSet:
+      id: 003-ssh-defaults
+      author: sporesync
+      changes:
+        - sql:
+            dbms: postgresql
+            sql: |
+              INSERT INTO sporesync_settings (name, value)
+              VALUES ('ssh.port', '22'), ('ssh.timeout.millis', '30000')
+              ON CONFLICT (name) DO NOTHING;

@@ -5,3 +5,6 @@ databaseChangeLog:
   - include:
       file: changes/002-settings-timestamps.yaml
       relativeToChangelogFile: true
+  - include:
+      file: changes/003-ssh-defaults.yaml
+      relativeToChangelogFile: true

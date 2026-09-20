@@ -47,7 +47,8 @@ elide format -- -n src
 `elide test` requires Docker and starts disposable PostgreSQL and SSH/Python
 containers. It checks HTTP inventory, scanner caching, host-key verification,
 authentication failures, execution timeouts, protocol validation, Liquibase,
-and typed settings persistence through Spring Data JPA.
+typed settings persistence through Spring Data JPA, and SSH defaults migration
+on fresh and previously configured databases.
 Temporary SSH credentials are generated in Java; no local OpenSSH tool is needed
 for backend tests. Containers and temporary keys are cleaned up after the tests.
 
@@ -55,7 +56,7 @@ Initial scaffold verification passed: `elide build`, `elide test` (2 passed, 0 s
 `elide format -- -n src`. Both `elide run` and `elide run -fDEV` served the
 expected response against disposable PostgreSQL; changing a compiled class
 timestamp triggered a DevTools restart. Scanner/SSH tests were not rerun because
-those files were unchanged. SSH inventory integration now passes 16 backend tests
+those files were unchanged. SSH inventory integration now passes 22 backend tests
 with no skips, plus all 9 Python tests with the SSH fixture enabled.
 
 Settings foundation verification passed: `elide build`, `elide test` (9 passed,

@@ -158,4 +158,7 @@ authenticates with a private key, uploads scanner versions over SFTP, and execut
 bounded scans. Kotlin inventory validation rejects unsupported schemas and invalid
 paths or missing metadata. See the README for configuration and
 [backend build notes](backend-build.md) for the Elide workflow.
+SSH host, port, username, source directory, and timeout are database-backed
+application settings; migrations seed port and timeout without overwriting values.
+Credentials and host-key trust remain external configuration.
 Transfers, scheduling, and the dashboard remain pending.

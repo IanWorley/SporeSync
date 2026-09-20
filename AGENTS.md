@@ -8,7 +8,9 @@ backend build tool; do not substitute another build tool. See
 `docs/backend-build.md` for verified compatibility and limitations.
 Prefer simple, typed interfaces and named constants for policies.
 SSH connection settings live in `sporesync_settings`; credentials, known-hosts,
-and the local scanner path remain external. See README for setup and migration.
+and the local scanner path remain external. Choose KEY (default) or PASSWORD via
+`SPORESYNC_SSH_AUTHENTICATION`; both scanning and SFTP use the selected method.
+See README for setup and migration.
 
 ## Required checks
 

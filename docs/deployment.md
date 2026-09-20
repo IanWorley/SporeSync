@@ -43,10 +43,19 @@ Set these variables in the service environment, never in tracked files:
 export SPRING_DATASOURCE_URL=jdbc:postgresql://127.0.0.1:5432/sporesync
 export SPRING_DATASOURCE_USERNAME=sporesync
 # Set SPRING_DATASOURCE_PASSWORD through your service's secret/environment mechanism.
+export SPORESYNC_SSH_AUTHENTICATION=KEY # Default
 export SPORESYNC_SSH_PRIVATEKEY=/srv/sporesync/ssh/id_ed25519
 export SPORESYNC_SSH_KNOWNHOSTS=/srv/sporesync/ssh/known_hosts
 # Optional for encrypted private keys: SPORESYNC_SSH_PASSPHRASE
 ```
+
+Alternatively, set `SPORESYNC_SSH_AUTHENTICATION=PASSWORD` and inject the account
+password as `SPORESYNC_SSH_PASSWORD` through the service's secret mechanism.
+Password mode does not require a key file. Both modes require the known-hosts
+file; neither falls back to another authentication method. Restart the backend
+after changing these variables. The choice covers scanning and SFTP transfers;
+passwords are never stored in database settings or job snapshots. Interactive MFA
+is not supported.
 
 Provision the known-hosts entry only after checking its fingerprint against the
 seedbox provider or another trusted channel. `ssh-keyscan` can collect a candidate

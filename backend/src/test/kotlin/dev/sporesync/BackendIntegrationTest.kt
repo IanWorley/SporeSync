@@ -35,6 +35,8 @@ import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.web.server.LocalServerPort
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection
+import org.springframework.test.context.DynamicPropertyRegistry
+import org.springframework.test.context.DynamicPropertySource
 import org.testcontainers.containers.GenericContainer
 import org.testcontainers.containers.wait.strategy.Wait
 import org.testcontainers.images.builder.ImageFromDockerfile
@@ -90,7 +92,13 @@ class BackendIntegrationTest {
 
   @AfterAll
   fun stopSsh() {
-    if (::ssh.isInitialized) ssh.close()
+    try {
+      if (::ssh.isInitialized) ssh.close()
+    } finally {
+      Files.walk(staticDirectory).use { paths ->
+        paths.sorted(Comparator.reverseOrder()).forEach(Files::delete)
+      }
+    }
   }
 
   @BeforeEach
@@ -397,6 +405,39 @@ class BackendIntegrationTest {
     assertThrows(IllegalArgumentException::class.java) { settings.get(key) }
   }
 
+  @Test
+  fun `serves frontend entry point from external static directory`() {
+    val response = get("/")
+    assertEquals(HTTP_OK, response.statusCode())
+    assertEquals(INDEX_HTML, response.body())
+  }
+
+  @Test
+  fun `serves built assets from external static directory`() {
+    val response = get("/assets/app.js")
+    assertEquals(HTTP_OK, response.statusCode())
+    assertEquals(ASSET_JS, response.body())
+  }
+
+  @Test
+  fun `unknown API routes remain not found`() {
+    assertEquals(HTTP_NOT_FOUND, get("/api/missing").statusCode())
+  }
+
+  @Test
+  fun `missing assets remain not found`() {
+    assertEquals(HTTP_NOT_FOUND, get("/assets/missing.js").statusCode())
+  }
+
+  private fun get(path: String): HttpResponse<String> {
+    val request =
+        HttpRequest.newBuilder(URI("http://127.0.0.1:$port$path"))
+            .timeout(HTTP_TIMEOUT)
+            .GET()
+            .build()
+    return HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString())
+  }
+
   companion object {
     private const val SSH_PORT = 22
     private const val CUSTOM_SSH_PORT = 2222
@@ -410,9 +451,25 @@ class BackendIntegrationTest {
     private const val SPECIAL_SOURCE = "/seed 日本語 ' ; literal"
     private const val POSTGRES_IMAGE = "postgres:17.6-alpine"
     private const val HTTP_OK = 200
+    private const val HTTP_NOT_FOUND = 404
+    private const val INDEX_HTML = "<!doctype html><title>SporeSync static fixture</title>"
+    private const val ASSET_JS = "console.info('static asset fixture');"
     private const val SINGLE_LOCK_ROW = 1
     private val HTTP_TIMEOUT = Duration.ofSeconds(10)
 
     @Container @ServiceConnection @JvmField val postgres = PostgreSQLContainer(POSTGRES_IMAGE)
+
+    // Spring creates the per-class context before JUnit initializes @TempDir fields.
+    private val staticDirectory = Files.createTempDirectory("sporesync-static-test")
+
+    @JvmStatic
+    @DynamicPropertySource
+    fun staticResources(registry: DynamicPropertyRegistry) {
+      val directory = staticDirectory
+      Files.writeString(directory.resolve("index.html"), INDEX_HTML)
+      Files.createDirectories(directory.resolve("assets"))
+      Files.writeString(directory.resolve("assets/app.js"), ASSET_JS)
+      registry.add("SPORESYNC_STATIC_LOCATION") { directory.toUri().toString() }
+    }
   }
 }

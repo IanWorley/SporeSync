@@ -15,6 +15,7 @@ Gradle build files or an independently installed JDK.
 | PostgreSQL JDBC | 42.7.13 |
 | Liquibase (through the Spring starter) | 5.0.3 |
 | Testcontainers | 2.0.5 |
+| SSHJ | 0.40.0 |
 | PostgreSQL test image | postgres:17.6-alpine |
 
 The manifest names direct versions once. Jackson, JDBC, and Testcontainers
@@ -41,16 +42,18 @@ elide test
 elide format -- -n src
 ```
 
-`elide test` requires Docker, starts a disposable PostgreSQL instance, and
-checks two integration boundaries: real HTTP serialization of a Kotlin data
-class, and Liquibase initialization against PostgreSQL. It requires no database
-credentials from the developer. The container is cleaned up after the tests.
+`elide test` requires Docker and starts disposable PostgreSQL and SSH/Python
+containers. It checks HTTP inventory, scanner caching, host-key verification,
+authentication failures, execution timeouts, protocol validation, and Liquibase.
+Temporary SSH credentials are generated in Java; no local OpenSSH tool is needed
+for backend tests. Containers and temporary keys are cleaned up after the tests.
 
-Verification passed: `elide build`, `elide test` (2 passed, 0 skipped), and
+Initial scaffold verification passed: `elide build`, `elide test` (2 passed, 0 skipped), and
 `elide format -- -n src`. Both `elide run` and `elide run -fDEV` served the
 expected response against disposable PostgreSQL; changing a compiled class
 timestamp triggered a DevTools restart. Scanner/SSH tests were not rerun because
-those files were unchanged.
+those files were unchanged. SSH inventory integration now passes 9 backend tests
+with no skips, plus all 9 Python tests with the SSH fixture enabled.
 
 For normal startup, set `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`,
 and `SPRING_DATASOURCE_PASSWORD` for an existing PostgreSQL database, then run
@@ -77,9 +80,8 @@ because there is no frontend yet. This does not provide a source compiler watche
   transactional services; do not assume final Kotlin classes can be proxied.
 
 The changelog is intentionally empty: only Liquibase's metadata tables are
-initialized. SSH libraries, transfer jobs, domain migrations, scheduling,
-settings APIs, and application security are later slices. Dependencies needed
-for those features will be selected when their implementation choices are made.
+initialized. SSHJ supplies the inventory connection; transfer jobs, domain
+migrations, scheduling, settings APIs, and application security are later slices.
 
 Sources: [JVM workflow](https://elide.help/docs/jvm),
 [manifest reference](https://elide.help/docs/elide-pkl-reference),

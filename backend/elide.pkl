@@ -7,6 +7,7 @@ local kotlinVersion = "2.4.20"
 local jacksonVersion = "3.1.5"
 local testcontainersVersion = "2.0.5"
 local postgresDriverVersion = "42.7.13"
+local sshjVersion = "0.40.0"
 local development = build.flags.bool("DEV")
 
 name = "sporesync-backend"
@@ -41,6 +42,7 @@ dependencies {
       "org.springframework.boot:spring-boot-starter-liquibase:\(springBootVersion)"
       "org.jetbrains.kotlin:kotlin-reflect:\(kotlinVersion)"
       "tools.jackson.module:jackson-module-kotlin:\(jacksonVersion)"
+      "com.hierynomus:sshj:\(sshjVersion)"
     }
     runtimeOnly {
       "org.postgresql:postgresql:\(postgresDriverVersion)"

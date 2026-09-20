@@ -58,9 +58,9 @@ and constrain downloaded paths to the configured destination.
 
 - [x] Establish a local SSH test container with Python and a sample directory tree.
 - [x] Verify the Elide build workflow for the Kotlin/Spring Boot backend.
-- [ ] Connect from the backend, upload the scanner when needed, and execute it.
-- [ ] Return a typed inventory, including nested paths, sizes, and timestamps.
-- [ ] Verify names containing spaces and Unicode, an empty directory, and clear
+- [x] Connect from the backend, upload the scanner when needed, and execute it.
+- [x] Return a typed inventory, including nested paths, sizes, and timestamps.
+- [x] Verify names containing spaces and Unicode, an empty directory, and clear
       errors for an inaccessible source or failed SSH connection.
 
 Acceptance: given SSH credentials and a remote directory, SporeSync returns an
@@ -151,10 +151,10 @@ changes.
 
 ### Current milestone status
 
-The scanner and disposable SSH fixture are implemented. A Kotlin/Spring Boot
-scaffold builds and passes HTTP/PostgreSQL integration tests with Elide; see
-[backend build notes](backend-build.md). The SSH fixture exercises
-client-side upload and execution; it is not the planned Spring integration.
-Typed Kotlin inventory, backend connection errors, and the
-full first-milestone acceptance test remain pending. No transfer behavior or
-unresolved resume policy is implied by the scanner implementation.
+The first milestone is implemented and verified through the backend HTTP endpoint
+against disposable SSH and PostgreSQL containers. SSHJ verifies known host keys,
+authenticates with a private key, uploads scanner versions over SFTP, and executes
+bounded scans. Kotlin inventory validation rejects unsupported schemas and invalid
+paths or missing metadata. See the README for configuration and
+[backend build notes](backend-build.md) for the Elide workflow.
+Transfers, scheduling, and the dashboard remain pending.

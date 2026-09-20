@@ -2,7 +2,7 @@
 
 SporeSync is being rebuilt around the [starting brief](docs/plan.md).
 The implementation includes a dependency-free Python remote scanner and a
-Kotlin/Spring Boot backend scaffold. Backend SSH discovery, downloads, and the
+Kotlin/Spring Boot backend with SSH inventory discovery. Downloads and the
 dashboard are subsequent slices in the plan.
 
 ## Build and test the backend
@@ -20,8 +20,9 @@ elide test
 elide format -- -n src
 ```
 
-Tests start disposable PostgreSQL through Testcontainers and verify HTTP/JSON
-and Liquibase initialization. Docker is required; tests do not silently skip.
+Tests start disposable PostgreSQL and SSH/Python containers through Testcontainers
+and verify HTTP inventory, trusted SSH, timeouts, and Liquibase initialization.
+Docker is required; tests do not silently skip.
 
 To run against your own PostgreSQL database, provide `SPRING_DATASOURCE_URL`,
 `SPRING_DATASOURCE_USERNAME`, and `SPRING_DATASOURCE_PASSWORD` in the environment,
@@ -33,6 +34,39 @@ For development, run `elide run -fDEV`; in another terminal run
 `elide build -fDEV` after editing Kotlin. DevTools watches compiled classes,
 not source files. It is excluded unless the `DEV` build flag is set.
 See [backend build notes](docs/backend-build.md) for versions and limitations.
+
+## Scan through the backend
+
+Configure the database as above and set these environment variables before
+running `elide run` from `backend/`:
+
+```bash
+export SPORESYNC_SSH_HOST=seedbox.example.com
+export SPORESYNC_SSH_USERNAME=scanner
+export SPORESYNC_SSH_PRIVATEKEY=/absolute/path/to/private-key
+export SPORESYNC_SSH_KNOWNHOSTS=/absolute/path/to/known_hosts
+export SPORESYNC_SSH_SOURCE=/absolute/remote/source
+```
+
+The known-hosts file must contain a host key verified through a trusted channel;
+unknown or changed keys are rejected. Optional settings are `SPORESYNC_SSH_PORT`
+(22), `SPORESYNC_SSH_PASSPHRASE` (for encrypted keys),
+`SPORESYNC_SSH_TIMEOUTMILLIS` (30000), and `SPORESYNC_SSH_SCANNER`
+(`../scanner/inventory.py`). Keep credentials outside tracked files.
+The seedbox needs Python 3.9+, SFTP, command access, and a writable home directory.
+
+```bash
+curl -X POST http://127.0.0.1:8080/api/inventory/scan
+```
+
+This synchronous endpoint returns the versioned inventory described below.
+Scans are serialized. The backend atomically uploads the scanner into the remote
+`~/.sporesync/` directory under a SHA-256 filename and reuses that version on
+subsequent scans. Old versions are retained. Output is limited to 16 MiB, stderr
+to 64 KiB; SSH operations and command execution have bounded waits.
+Failures return HTTP 502 with an `error` category: `CONFIGURATION`, `CONNECTION`
+(including host-key rejection), `AUTHENTICATION`, `UPLOAD`, `EXECUTION`, `TIMEOUT`,
+or `PROTOCOL`. Remote stderr and credentials are not included in responses.
 
 ## Run the scanner
 

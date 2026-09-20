@@ -640,6 +640,43 @@ class BackendIntegrationTest {
     }
   }
 
+  @Test
+  fun `automatic queue waits for two stable scans and deduplicates later scans`() {
+    val spec = transferSpec(true)
+    val discovery = Discovery(inventory, configuration, jobs, false)
+    val snapshot = Inventory(1, listOf(spec.entry))
+    discovery.accept(spec.settings.copy(automatic = true), snapshot)
+    assertNull(jobs.find(spec.identity()))
+    discovery.accept(spec.settings.copy(automatic = true), snapshot)
+    assertEquals(JobState.QUEUED, jobs.find(spec.identity())?.state)
+    discovery.accept(spec.settings.copy(automatic = true), snapshot)
+    assertEquals(1, jobs.list().count { it.id == spec.identity() })
+  }
+
+  @Test
+  fun `changing file is ineligible until a later stable scan`() {
+    val spec = transferSpec(true)
+    val discovery = Discovery(inventory, configuration, jobs, false)
+    discovery.accept(
+        spec.settings.copy(automatic = true),
+        Inventory(1, listOf(spec.entry.copy(sizeBytes = 1))),
+    )
+    discovery.accept(spec.settings.copy(automatic = true), Inventory(1, listOf(spec.entry)))
+    assertNull(jobs.find(spec.identity()))
+    discovery.accept(spec.settings.copy(automatic = true), Inventory(1, listOf(spec.entry)))
+    assertNotNull(jobs.find(spec.identity()))
+  }
+
+  @Test
+  fun `disabled automatic downloads still publish discovery without queuing`() {
+    val spec = transferSpec(true)
+    val discovery = Discovery(inventory, configuration, jobs, false)
+    val snapshot = Inventory(1, listOf(spec.entry))
+    repeat(2) { discovery.accept(spec.settings.copy(automatic = false), snapshot) }
+    assertNull(jobs.find(spec.identity()))
+    assertEquals(snapshot, discovery.state().inventory)
+  }
+
   private fun transferSpec(temporaryMode: Boolean): DownloadSpec {
     val destination = Files.createTempDirectory(temporary, "downloads").toRealPath().toString()
     val settings =

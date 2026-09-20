@@ -60,7 +60,7 @@ class Discovery(
               settings.port,
               settings.username,
               settings.source,
-              DEFAULT_TIMEOUT_MILLIS,
+              settings.timeoutMillis,
           )
       val inventory = remote.scan(connection)
       accept(settings, inventory)

@@ -3,6 +3,8 @@ import { errorMessage, jsonBody, request, type Settings } from './api';
 
 const MIN_PORT = 1;
 const MAX_PORT = 65535;
+const MIN_TIMEOUT_MILLIS = 1;
+const MAX_TIMEOUT_MILLIS = 300000;
 const MIN_SCAN_SECONDS = 10;
 const MAX_SCAN_SECONDS = 86400;
 const INPUT_CLASS =
@@ -104,6 +106,12 @@ export function SettingsPanel() {
                 value={settings.scanSeconds}
                 onChange={(event) => setSettings({ ...settings, scanSeconds: event.target.valueAsNumber })}
               />
+            </label>
+            <label className="text-sm text-slate-300">
+              SSH timeout (milliseconds)
+              <input className={INPUT_CLASS} type="number" required min={MIN_TIMEOUT_MILLIS} max={MAX_TIMEOUT_MILLIS}
+                value={settings.timeoutMillis}
+                onChange={(event) => setSettings({ ...settings, timeoutMillis: event.target.valueAsNumber })} />
             </label>
             <label className="flex items-start gap-3 text-sm text-slate-300 sm:col-span-2">
               <input

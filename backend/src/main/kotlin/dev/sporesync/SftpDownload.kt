@@ -46,8 +46,8 @@ class SftpDownload(private val credentials: SshSettings) {
             } else target
         SSHClient().use { ssh ->
           credentials.validate()
-          ssh.connectTimeout = DEFAULT_TIMEOUT_MILLIS
-          ssh.timeout = DEFAULT_TIMEOUT_MILLIS
+          ssh.connectTimeout = spec.settings.timeoutMillis
+          ssh.timeout = spec.settings.timeoutMillis
           ssh.loadKnownHosts(Path.of(credentials.knownHosts).toFile())
           val key = ssh.loadKeys(credentials.privateKey, credentials.passphrase)
           ssh.connect(spec.settings.host, spec.settings.port)

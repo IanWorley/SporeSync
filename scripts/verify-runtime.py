@@ -113,7 +113,7 @@ def verify(root):
             with urllib.request.urlopen(base + asset.group(1)) as response:
                 assert response.read(), "Frontend JavaScript was empty"
             settings = dict(host="127.0.0.1", port=ssh_port, username="scanner", source="/seed",
-                            destination=str(downloads), scanSeconds=10, automatic=True, temporaryFiles=True)
+                            destination=str(downloads), scanSeconds=10, automatic=True, temporaryFiles=True, timeoutMillis=30000)
             assert api("/api/settings", "PUT", settings) == settings
             api("/api/inventory/scan", "POST")
             api("/api/inventory/scan", "POST")

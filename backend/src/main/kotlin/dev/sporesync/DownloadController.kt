@@ -26,7 +26,7 @@ class DownloadController(
             settings.port,
             settings.username,
             settings.source,
-            DEFAULT_TIMEOUT_MILLIS,
+            settings.timeoutMillis,
         )
     val entry =
         inventory.scan(connection).entries.singleOrNull {

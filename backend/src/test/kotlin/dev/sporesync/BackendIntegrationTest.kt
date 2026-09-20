@@ -772,6 +772,20 @@ class BackendIntegrationTest {
     }
   }
 
+  @Test
+  fun `download configuration preserves persisted SSH timeout`() {
+    settings.set(SshSettingKeys.TIMEOUT_MILLIS, SHORT_TIMEOUT_MILLIS)
+    val loaded = configuration.read()
+    assertEquals(SHORT_TIMEOUT_MILLIS, loaded.timeoutMillis)
+    configuration.save(loaded.copy(destination = temporary.toString()))
+    assertEquals(SHORT_TIMEOUT_MILLIS, settings.get(SshSettingKeys.TIMEOUT_MILLIS))
+    assertThrows(IllegalArgumentException::class.java) {
+      configuration.save(
+          loaded.copy(destination = temporary.toString(), timeoutMillis = MAX_TIMEOUT_MILLIS + 1)
+      )
+    }
+  }
+
   private fun transferSpec(temporaryMode: Boolean): DownloadSpec {
     val destination = Files.createTempDirectory(temporary, "downloads").toRealPath().toString()
     val settings =

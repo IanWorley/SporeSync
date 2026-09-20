@@ -15,6 +15,7 @@ const val MIN_SSH_PORT = 1
 const val MAX_SSH_PORT = 65535
 const val DEFAULT_SSH_PORT = 22
 const val DEFAULT_TIMEOUT_MILLIS = 30000
+const val MAX_TIMEOUT_MILLIS = 300000
 
 /** Credentials and trust material deliberately have no representation in the browser contract. */
 data class DownloadSettings(
@@ -26,10 +27,12 @@ data class DownloadSettings(
     val scanSeconds: Long = DEFAULT_SCAN_SECONDS,
     val automatic: Boolean = true,
     val temporaryFiles: Boolean = true,
+    val timeoutMillis: Int = DEFAULT_TIMEOUT_MILLIS,
 ) {
   fun validate() {
     require(host.isNotBlank() && username.isNotBlank())
     require(port in MIN_SSH_PORT..MAX_SSH_PORT)
+    require(timeoutMillis in 1..MAX_TIMEOUT_MILLIS)
     require(source.startsWith('/') && '\u0000' !in source)
     require(destination.isNotBlank() && Path.of(destination).isAbsolute)
     require(scanSeconds in MIN_SCAN_SECONDS..MAX_SCAN_SECONDS)
@@ -42,6 +45,7 @@ class DownloadConfiguration(private val repository: ApplicationSettingRepository
     val values = repository.findAll().associate { it.name to it.value }
     return DownloadSettings(
         host = values[SettingNames.SSH_HOST].orEmpty(),
+        timeoutMillis = values[SettingNames.SSH_TIMEOUT_MILLIS]?.toInt() ?: DEFAULT_TIMEOUT_MILLIS,
         port = values[SettingNames.SSH_PORT]?.toInt() ?: DEFAULT_SSH_PORT,
         username = values[SettingNames.SSH_USERNAME].orEmpty(),
         source = values[SettingNames.REMOTE_SOURCE_DIRECTORY].orEmpty(),
@@ -58,6 +62,7 @@ class DownloadConfiguration(private val repository: ApplicationSettingRepository
     repository.saveAll(
         mapOf(
                 SettingNames.SSH_HOST to value.host,
+                SettingNames.SSH_TIMEOUT_MILLIS to value.timeoutMillis.toString(),
                 SettingNames.SSH_PORT to value.port.toString(),
                 SettingNames.SSH_USERNAME to value.username,
                 SettingNames.REMOTE_SOURCE_DIRECTORY to value.source,

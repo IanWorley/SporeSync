@@ -14,15 +14,17 @@ Gradle build files or an independently installed JDK.
 | Jackson Kotlin module | 3.1.5 |
 | PostgreSQL JDBC | 42.7.13 |
 | Liquibase (through the Spring starter) | 5.0.3 |
+| SLF4J API | 2.0.18 |
 | Testcontainers | 2.0.5 |
 | SSHJ | 0.40.0 |
 | PostgreSQL test image | postgres:17.6-alpine |
 
-The manifest names direct versions once. Jackson, JDBC, and Testcontainers
-versions follow Spring Boot 4.1.1's dependency BOM; Kotlin follows Elide's
+The manifest names direct versions once. Jackson, JDBC, Testcontainers,
+and SLF4J versions follow Spring Boot 4.1.1's dependency BOM; Kotlin follows Elide's
 bundled compiler. Spring starters supply their transitive dependencies. This is
 not a separately imported Boot BOM or a committed transitive dependency lock.
-Review the resolved classpaths when changing versions.
+Review the resolved classpaths when changing versions. SLF4J is pinned directly
+because adding JPA otherwise resolved its incompatible 1.7.36 API under Elide.
 
 `backend/.elideversion` selects 1.5.3. This is a release-version selector, not an
 exact nightly pin. The dated selector triggered repeated downloads in this
@@ -44,7 +46,8 @@ elide format -- -n src
 
 `elide test` requires Docker and starts disposable PostgreSQL and SSH/Python
 containers. It checks HTTP inventory, scanner caching, host-key verification,
-authentication failures, execution timeouts, protocol validation, and Liquibase.
+authentication failures, execution timeouts, protocol validation, Liquibase,
+and typed settings persistence through Spring Data JPA.
 Temporary SSH credentials are generated in Java; no local OpenSSH tool is needed
 for backend tests. Containers and temporary keys are cleaned up after the tests.
 
@@ -52,8 +55,11 @@ Initial scaffold verification passed: `elide build`, `elide test` (2 passed, 0 s
 `elide format -- -n src`. Both `elide run` and `elide run -fDEV` served the
 expected response against disposable PostgreSQL; changing a compiled class
 timestamp triggered a DevTools restart. Scanner/SSH tests were not rerun because
-those files were unchanged. SSH inventory integration now passes 9 backend tests
+those files were unchanged. SSH inventory integration now passes 16 backend tests
 with no skips, plus all 9 Python tests with the SSH fixture enabled.
+
+Settings foundation verification passed: `elide build`, `elide test` (9 passed,
+0 skipped against disposable PostgreSQL), and `elide format -- -n src`.
 
 For normal startup, set `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`,
 and `SPRING_DATASOURCE_PASSWORD` for an existing PostgreSQL database, then run
@@ -79,9 +85,13 @@ because there is no frontend yet. This does not provide a source compiler watche
   compiler plugin for the scaffold. Revisit proxy requirements when adding
   transactional services; do not assume final Kotlin classes can be proxied.
 
-The changelog is intentionally empty: only Liquibase's metadata tables are
-initialized. SSHJ supplies the inventory connection; transfer jobs, domain
-migrations, scheduling, settings APIs, and application security are later slices.
+Liquibase creates `sporesync_settings`; Hibernate validates the schema rather
+than creating or updating it. Spring Data JPA repositories supply transaction
+boundaries for settings reads and writes. The entity has an explicit protected
+no-argument constructor and open properties for JPA, without compiler plugins.
+The settings service does not need transactional proxying for its single repository
+calls. SSHJ supplies the inventory connection; transfer jobs, scheduling, settings
+APIs, and application security are later slices.
 
 Sources: [JVM workflow](https://elide.help/docs/jvm),
 [manifest reference](https://elide.help/docs/elide-pkl-reference),

@@ -1,5 +1,9 @@
 package dev.sporesync
 
+import dev.sporesync.settings.ApplicationSetting
+import dev.sporesync.settings.ApplicationSettingRepository
+import dev.sporesync.settings.ApplicationSettings
+import dev.sporesync.settings.SettingKey
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -8,13 +12,17 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.security.KeyPairGenerator
 import java.time.Duration
+import java.time.Instant
 import java.util.Base64
 import javax.sql.DataSource
 import net.schmizz.sshj.common.Buffer
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTimeout
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -39,7 +47,7 @@ class BackendIntegrationTest {
   @LocalServerPort private var port: Int = 0
   @Autowired private lateinit var dataSource: DataSource
   @Autowired private lateinit var jsonMapper: JsonMapper
-  @Autowired private lateinit var settings: SshSettings
+  @Autowired private lateinit var sshSettings: SshSettings
   @Autowired private lateinit var inventory: RemoteInventory
   private lateinit var temporary: Path
   private lateinit var ssh: GenericContainer<*>
@@ -84,14 +92,14 @@ class BackendIntegrationTest {
 
   @BeforeEach
   fun configureSsh() {
-    settings.host = ssh.host
-    settings.port = ssh.getMappedPort(SSH_PORT)
-    settings.username = "scanner"
-    settings.privateKey = temporary.resolve("key").toString()
-    settings.knownHosts = temporary.resolve("known_hosts").toString()
-    settings.source = SPECIAL_SOURCE
-    settings.scanner = "../scanner/inventory.py"
-    settings.timeoutMillis = SSH_TIMEOUT_MILLIS
+    sshSettings.host = ssh.host
+    sshSettings.port = ssh.getMappedPort(SSH_PORT)
+    sshSettings.username = "scanner"
+    sshSettings.privateKey = temporary.resolve("key").toString()
+    sshSettings.knownHosts = temporary.resolve("known_hosts").toString()
+    sshSettings.source = SPECIAL_SOURCE
+    sshSettings.scanner = "../scanner/inventory.py"
+    sshSettings.timeoutMillis = SSH_TIMEOUT_MILLIS
   }
 
   @Test
@@ -130,7 +138,7 @@ class BackendIntegrationTest {
 
   @Test
   fun `reports inaccessible source without exposing remote details`() {
-    settings.source = "/restricted"
+    sshSettings.source = "/restricted"
     val request =
         HttpRequest.newBuilder(URI("http://127.0.0.1:$port/api/inventory/scan"))
             .timeout(HTTP_TIMEOUT)
@@ -143,8 +151,8 @@ class BackendIntegrationTest {
 
   @Test
   fun `rejects untrusted host keys`() {
-    settings.knownHosts = temporary.resolve("untrusted").toString()
-    Files.writeString(Path.of(settings.knownHosts), "")
+    sshSettings.knownHosts = temporary.resolve("untrusted").toString()
+    Files.writeString(Path.of(sshSettings.knownHosts), "")
     assertEquals(
         InventoryFailure.CONNECTION,
         assertThrows(InventoryException::class.java) { inventory.scan() }.code,
@@ -153,7 +161,7 @@ class BackendIntegrationTest {
 
   @Test
   fun `reports authentication failures`() {
-    settings.username = "nonexistent"
+    sshSettings.username = "nonexistent"
     assertEquals(
         InventoryFailure.AUTHENTICATION,
         assertThrows(InventoryException::class.java) { inventory.scan() }.code,
@@ -164,7 +172,7 @@ class BackendIntegrationTest {
   fun `uploads changed scanner and rejects unsupported inventory versions`() {
     val changed = temporary.resolve("changed.py")
     Files.writeString(changed, "print('{\"schemaVersion\":2,\"entries\":[]}')\n")
-    settings.scanner = changed.toString()
+    sshSettings.scanner = changed.toString()
     assertEquals(
         InventoryFailure.PROTOCOL,
         assertThrows(InventoryException::class.java) { inventory.scan() }.code,
@@ -182,8 +190,8 @@ class BackendIntegrationTest {
   fun `bounds remote execution time`() {
     val slow = temporary.resolve("slow.py")
     Files.writeString(slow, "import time\ntime.sleep(${HTTP_TIMEOUT.seconds})\n")
-    settings.scanner = slow.toString()
-    settings.timeoutMillis = SHORT_TIMEOUT_MILLIS
+    sshSettings.scanner = slow.toString()
+    sshSettings.timeoutMillis = SHORT_TIMEOUT_MILLIS
     assertTimeout(HTTP_TIMEOUT) {
       assertEquals(
           InventoryFailure.TIMEOUT,
@@ -191,6 +199,9 @@ class BackendIntegrationTest {
       )
     }
   }
+
+  @Autowired private lateinit var settings: ApplicationSettings
+  @Autowired private lateinit var settingsRepository: ApplicationSettingRepository
 
   @Test
   fun `serves typed application status over HTTP`() {
@@ -218,6 +229,92 @@ class BackendIntegrationTest {
         }
       }
     }
+  }
+
+  @Test
+  fun `persists strings without changing their contents`() {
+    val key = SettingKey("test.path", { it }, { value: String -> value })
+    val path = "/downloads/日本語 files"
+
+    settings.set(key, path)
+
+    assertEquals(path, settings.get(key))
+    assertEquals(path, settingsRepository.findById(key.name).orElseThrow().value)
+  }
+
+  @Test
+  fun `converts a stored string to its declared type`() {
+    val key = SettingKey("test.interval", Duration::parse, Duration::toString)
+    val interval = Duration.ofMinutes(5)
+
+    settings.set(key, interval)
+
+    assertEquals("PT5M", settingsRepository.findById(key.name).orElseThrow().value)
+    assertEquals(interval, settings.get(key))
+  }
+
+  @Test
+  fun `updates the value for an existing name`() {
+    val key = SettingKey("test.enabled", String::toBooleanStrict, Boolean::toString)
+    settings.set(key, false)
+
+    settings.set(key, true)
+
+    assertEquals(true, settings.get(key))
+  }
+
+  @Test
+  fun `assigns timestamps when creating a setting`() {
+    val key = SettingKey("test.timestamps.create", String::toBooleanStrict, Boolean::toString)
+
+    settings.set(key, true)
+
+    val stored = settingsRepository.findById(key.name).orElseThrow()
+    assertNotNull(stored.createdAt)
+    assertNotNull(stored.updatedAt)
+    assertTrue(!stored.updatedAt.isBefore(stored.createdAt))
+  }
+
+  @Test
+  fun `updates modification time while preserving creation time`() {
+    val key = SettingKey("test.timestamps.update", String::toBooleanStrict, Boolean::toString)
+    val originalTime = Instant.parse("2020-01-01T00:00:00Z")
+    // Seed an older row so timestamp advancement does not depend on sleeps or clock resolution.
+    dataSource.connection.use { connection ->
+      connection
+          .prepareStatement(
+              "INSERT INTO sporesync_settings (name, value, created_at, updated_at) VALUES (?, ?, ?, ?)"
+          )
+          .use { statement ->
+            statement.setString(1, key.name)
+            statement.setString(2, "false")
+            statement.setObject(3, originalTime.atOffset(java.time.ZoneOffset.UTC))
+            statement.setObject(4, originalTime.atOffset(java.time.ZoneOffset.UTC))
+            statement.executeUpdate()
+          }
+    }
+
+    settings.set(key, true)
+
+    val stored = settingsRepository.findById(key.name).orElseThrow()
+    assertEquals(originalTime, stored.createdAt)
+    assertTrue(stored.updatedAt.isAfter(originalTime))
+    assertEquals(true, settings.get(key))
+  }
+
+  @Test
+  fun `returns null for a missing setting`() {
+    val key = SettingKey("test.missing", String::toInt, Int::toString)
+
+    assertNull(settings.get(key))
+  }
+
+  @Test
+  fun `rejects malformed values instead of applying an implicit default`() {
+    val key = SettingKey("test.invalid", String::toBooleanStrict, Boolean::toString)
+    settingsRepository.saveAndFlush(ApplicationSetting(key.name, "not-a-boolean"))
+
+    assertThrows(IllegalArgumentException::class.java) { settings.get(key) }
   }
 
   companion object {

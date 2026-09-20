@@ -126,8 +126,9 @@ commitment to finish an entire feature in one PR. The initial reset is exempt.
 Slice numbers identify scope, not a strictly sequential schedule. The initial
 scaffold is limited to slice 2: a verified Elide/Spring build, a minimal web
 endpoint, and HTTP/PostgreSQL integration tests. It includes database dependencies
-and an empty Liquibase changelog. SSH, transfers, domain persistence, scheduling,
-and settings APIs belong to later slices.
+and Liquibase setup. A subsequent persistence foundation adds Spring Data JPA,
+the `sporesync_settings` table, and typed conversion of string values. SSH,
+transfers, scheduling, and settings APIs belong to later slices.
 
 | Slice | Prerequisites | Work that can proceed independently |
 |-------|---------------|-------------------------------------|

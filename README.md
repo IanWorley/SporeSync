@@ -21,8 +21,8 @@ elide format -- -n src
 ```
 
 Tests start disposable PostgreSQL and SSH/Python containers through Testcontainers
-and verify HTTP inventory, trusted SSH, timeouts, and Liquibase initialization.
-Docker is required; tests do not silently skip.
+and verify HTTP inventory, trusted SSH, timeouts, Liquibase migrations, and typed
+JPA settings persistence. Docker is required; tests do not silently skip.
 
 To run against your own PostgreSQL database, provide `SPRING_DATASOURCE_URL`,
 `SPRING_DATASOURCE_USERNAME`, and `SPRING_DATASOURCE_PASSWORD` in the environment,
@@ -67,6 +67,35 @@ to 64 KiB; SSH operations and command execution have bounded waits.
 Failures return HTTP 502 with an `error` category: `CONFIGURATION`, `CONNECTION`
 (including host-key rejection), `AUTHENTICATION`, `UPLOAD`, `EXECUTION`, `TIMEOUT`,
 or `PROTOCOL`. Remote stderr and credentials are not included in responses.
+
+## Application settings
+
+Liquibase owns the database schema; Hibernate validates its JPA mappings at
+startup. Add future migrations under `backend/config/db/changes/` and include
+them in `changelog.yaml`. Keep applied changesets unchanged.
+
+`sporesync_settings` stores one application-wide setting per `name` (text primary
+key), with a non-null text `value` and `created_at` / `updated_at` timestamps.
+Hibernate uses the database clock to populate timestamps and refreshes
+`updated_at` on JPA updates while preserving `created_at`. Existing rows receive
+the migration time for both timestamps. Spring Data JPA provides persistence through
+`ApplicationSettingRepository`. `ApplicationSettings` reads and writes typed
+values using a `SettingKey<T>` that pairs a name with parsing and formatting:
+
+```kotlin
+val scanInterval = SettingKey(SettingNames.SCAN_INTERVAL, Duration::parse, Duration::toString)
+settings.set(scanInterval, Duration.ofMinutes(5))
+val interval: Duration? = settings.get(scanInterval)
+```
+
+Search `SettingNames.kt` for application setting names. These constants reserve
+names for planned settings; they do not seed rows or enable features.
+
+This is an example, not a configured default. Declare each real key once alongside
+its consuming feature. Missing values return `null`; malformed values propagate
+parser errors. Use strict parsers (such as `String::toBooleanStrict`) to reject
+invalid input. Settings are application-wide; no user accounts or settings HTTP
+API are introduced yet.
 
 ## Run the scanner
 

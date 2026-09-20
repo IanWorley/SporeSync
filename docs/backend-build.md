@@ -16,6 +16,7 @@ Gradle build files or an independently installed JDK.
 | Liquibase (through the Spring starter) | 5.0.3 |
 | SLF4J API | 2.0.18 |
 | Testcontainers | 2.0.5 |
+| SSHJ | 0.40.0 |
 | PostgreSQL test image | postgres:17.6-alpine |
 
 The manifest names direct versions once. Jackson, JDBC, Testcontainers,
@@ -43,16 +44,19 @@ elide test
 elide format -- -n src
 ```
 
-`elide test` requires Docker, starts a disposable PostgreSQL instance, and
-checks real HTTP serialization, Liquibase migrations, and Spring Data JPA
-settings persistence with typed string conversion against PostgreSQL. It requires no database
-credentials from the developer. The container is cleaned up after the tests.
+`elide test` requires Docker and starts disposable PostgreSQL and SSH/Python
+containers. It checks HTTP inventory, scanner caching, host-key verification,
+authentication failures, execution timeouts, protocol validation, Liquibase,
+and typed settings persistence through Spring Data JPA.
+Temporary SSH credentials are generated in Java; no local OpenSSH tool is needed
+for backend tests. Containers and temporary keys are cleaned up after the tests.
 
 Initial scaffold verification passed: `elide build`, `elide test` (2 passed, 0 skipped), and
 `elide format -- -n src`. Both `elide run` and `elide run -fDEV` served the
 expected response against disposable PostgreSQL; changing a compiled class
 timestamp triggered a DevTools restart. Scanner/SSH tests were not rerun because
-those files were unchanged.
+those files were unchanged. SSH inventory integration now passes 20 backend tests
+with no skips, plus all 9 Python tests with the SSH fixture enabled.
 
 Settings foundation verification passed: `elide build`, `elide test` (9 passed,
 0 skipped against disposable PostgreSQL), and `elide format -- -n src`.
@@ -85,9 +89,8 @@ than creating or updating it. Spring Data JPA repositories supply transaction
 boundaries for settings reads and writes. The entity has an explicit protected
 no-argument constructor and open properties for JPA, without compiler plugins.
 The settings service does not need transactional proxying for its single repository
-calls. SSH libraries, transfer jobs, scheduling, settings APIs, and application
-security are later slices. Dependencies needed
-for those features will be selected when their implementation choices are made.
+calls. SSHJ supplies the inventory connection; transfer jobs, scheduling, settings
+APIs, and application security are later slices.
 
 Sources: [JVM workflow](https://elide.help/docs/jvm),
 [manifest reference](https://elide.help/docs/elide-pkl-reference),

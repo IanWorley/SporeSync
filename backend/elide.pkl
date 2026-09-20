@@ -7,6 +7,7 @@ local kotlinVersion = "2.4.20"
 local jacksonVersion = "3.1.5"
 local testcontainersVersion = "2.0.5"
 local postgresDriverVersion = "42.7.13"
+local sshjVersion = "0.40.0"
 local slf4jVersion = "2.0.18"
 local development = build.flags.bool("DEV")
 
@@ -44,6 +45,7 @@ dependencies {
       "org.slf4j:slf4j-api:\(slf4jVersion)"
       "org.jetbrains.kotlin:kotlin-reflect:\(kotlinVersion)"
       "tools.jackson.module:jackson-module-kotlin:\(jacksonVersion)"
+      "com.hierynomus:sshj:\(sshjVersion)"
     }
     runtimeOnly {
       "org.postgresql:postgresql:\(postgresDriverVersion)"

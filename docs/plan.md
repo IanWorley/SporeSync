@@ -27,9 +27,9 @@ the new implementation; it is not a migration plan for the earlier codebase.
 ## Proposed starting design
 
 Vite is the chosen frontend tooling, with React and TypeScript the preferred
-frontend stack and Tailwind CSS 4 for styling. A minimal Vite/React/TypeScript
-entry page now proxies API requests during development and builds external static
-assets for Spring to serve; dashboard screens remain deferred. Elide builds the
+frontend stack and Tailwind CSS 4 for styling. The Vite/React/TypeScript
+dashboard proxies API requests during development and builds external static
+assets for Spring to serve. Settings, inventory and queue screens are implemented. Elide builds the
 Kotlin/Spring Boot scaffold; compatibility has been verified for the versions recorded below.
 Do not silently substitute Maven or Gradle.
 Spring Web, PostgreSQL, Liquibase, validation, and Kotlin JSON support are included
@@ -47,9 +47,8 @@ using JSON in place of Python pickle. It requires SSH command access and Python
 on the seedbox; no seedbox HTTP service or cron job is needed.
 
 Start with one seedbox and one active download. Persist transfer state in
-PostgreSQL and run downloads as background jobs within Spring. Use server-sent
-events for dashboard updates as a proposed choice; browser HTTP polling is also
-viable and is separate from remote filesystem discovery.
+PostgreSQL and run downloads as background jobs within Spring. Use browser HTTP polling every two seconds for dashboard updates, independently
+of scheduled remote filesystem discovery.
 
 Configuration should cover SSH host, port, username and authentication, remote
 source directory, local download directory, scan interval, and temporary-file
@@ -74,14 +73,15 @@ restart behavior integrated before automatic queuing is enabled. Settings APIs
 and dashboard work can start as their configuration and API contracts stabilize;
 they do not need to wait for every transfer feature. See the dependencies below.
 
-## Choices to resolve as we reach them
+## Resolved behavior
 
-- Choose the default for temporary-file mode and the scan interval.
-- Decide whether to scan only a torrent client's completed-download directory.
-- Define behavior for equal-size files, smaller remote files, replaced content,
-  and files changing during a transfer. Also define how an existing final file
-  resumes when temporary-file mode is enabled, plus cancellation and retry.
-- Confirm subfolder preservation and deployment packaging.
+Defaults are temporary files enabled and five-minute scans. Preserve subfolders.
+Recommend a completed-download source directory and require two unchanged scans
+for automatic eligibility. Verify all existing bytes before appending; equal files
+require full comparison, and smaller/replaced remote content fails without truncation.
+Existing final files resume in place even in temporary mode. Cancellation retains
+partials; retry is explicit after cancellation or three failed attempts. Deploy a
+source-and-static-assets release with Elide on the host; see [deployment](deployment.md).
 
 ## Implementation slices
 
@@ -163,12 +163,30 @@ paths or missing metadata. See the README for configuration and
 SSH host, port, username, source directory, and timeout are database-backed
 application settings; migrations seed port and timeout without overwriting values.
 Credentials and host-key trust remain external configuration.
-Transfers, scheduling, and the dashboard remain pending.
+All planned implementation slices are now implemented in the stacked PRs below.
+Application login remains explicitly deferred. Verification includes 50 backend
+integration tests, 9 scanner/SSH tests, strict TypeScript/Vite builds and real
+process-kill recovery. Browser visual verification was unavailable in this environment.
 
-### Remaining implementation decisions
+| PR | Outcome |
+|----|---------|
+| #63–64 | Backend SSH inventory and database-backed connection settings |
+| #65 | Validated settings API and defaults |
+| #66 | Durable queue, progress and lifecycle storage |
+| #67 | SFTP, content-verified resume and path confinement |
+| #68 | Background worker, cancellation, retry and exclusive ownership |
+| #69 | Scheduled discovery and automatic stable-file queue |
+| #70–71 | Settings, inventory and download dashboard |
+| #72–73 | Process-crash acceptance coverage, transfer edge cases and saved timeout |
+| Release packaging PR | Deployable source/assets bundle and operational documentation |
+
+Each PR targets its predecessor; merge from the bottom of the dependency stack
+(#63 first), retargeting the next PR to main after its base has merged.
+
+### Implemented policies
 
 Use five-minute scans and temporary files by default. Preserve subdirectories.
-Use a completed-download directory when available; otherwise automatic queuing
+Use a completed-download directory when available; automatic queuing
 requires unchanged size and modification time in two consecutive scans. Compare
 existing bytes with the remote prefix before appending. Equal files require full
 comparison; smaller or replaced content fails safely without truncating local

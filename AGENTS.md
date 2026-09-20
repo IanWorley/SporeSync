@@ -26,6 +26,9 @@ and the local scanner path remain external. See README for setup and migration.
 - Runtime/recovery changes: after building frontend and backend, run
   `python3 scripts/verify-runtime.py` from the root (Elide on PATH, Docker and
   ssh-keygen required). It kills only its own disposable backend process.
+- Packaging changes: run `scripts/package.sh OUTPUT_DIRECTORY`, extract the
+  archive, and verify `scripts/start.sh` serves built assets and `/api/status`
+  against disposable PostgreSQL. See `docs/deployment.md`.
 - Report commands and results; never present skipped integration tests as passed.
 - Update this file and README when setup or testing commands change.
 

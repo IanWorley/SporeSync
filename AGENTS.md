@@ -1,7 +1,7 @@
 # Agent instructions
 
 SporeSync is being rebuilt. Read `docs/plan.md` for scope and unresolved choices.
-The implementation includes a Python scanner and Kotlin/Spring Boot scaffold;
+The implementation includes a Python scanner and Kotlin/Spring Boot scaffold plus a minimal Vite/React/TypeScript frontend;
 there is no dashboard or backend SSH/transfer functionality yet. Elide is the
 backend build tool; do not substitute another build tool. See
 `docs/backend-build.md` for verified compatibility and limitations.
@@ -14,6 +14,9 @@ Prefer simple, typed interfaces and named constants for policies.
   Docker must fail rather than silently skip integration verification.
 - Kotlin formatting: from `backend/`, run `elide format -- -n src`.
 - Backend commands must run from `backend/` so Spring finds `config/`.
+- Frontend changes: from `frontend/`, run `npm ci` and `npm run build`.
+  Verify `/api/status` through Vite against a running backend when changing the proxy.
+  Spring serves `frontend/dist/` externally; build it before production-mode verification.
 - Scanner changes: `python3 -m unittest discover -s tests -v`.
 - SSH or fixture changes: also run
   `SPORESYNC_SSH_TEST=1 python3 -m unittest discover -s tests -v` (requires Docker).

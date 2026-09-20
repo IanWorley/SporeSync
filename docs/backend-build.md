@@ -63,8 +63,7 @@ and `SPRING_DATASOURCE_PASSWORD` for an existing PostgreSQL database, then run
 identifies the running application; it does not report seedbox or transfer health.
 
 `elide run -fDEV` includes DevTools; `elide build -fDEV` recompiles changes for
-its restart watcher. Normal builds/runs exclude DevTools. LiveReload is disabled
-because there is no frontend yet. This does not provide a source compiler watcher.
+its restart watcher. Normal builds/runs exclude DevTools. LiveReload is disabled; Vite handles frontend hot updates. This does not provide a source compiler watcher.
 
 ## Elide constraints
 
@@ -94,3 +93,22 @@ Sources: [JVM workflow](https://elide.help/docs/jvm),
 [manifest reference](https://elide.help/docs/elide-pkl-reference),
 [build flags](https://elide.help/docs/tooling-build-flags), and
 [Spring Boot dependency BOM](https://repo.maven.apache.org/maven2/org/springframework/boot/spring-boot-dependencies/4.1.1/spring-boot-dependencies-4.1.1.pom).
+
+## Frontend assets
+
+Vite builds the React/TypeScript frontend separately with `npm run build` from
+`frontend/`. Spring reads its output through `spring.web.resources.static-locations`,
+defaulting to `file:../frontend/dist/`. Set `SPORESYNC_STATIC_LOCATION` to a directory
+URL ending in `/` for a different deployment layout. This avoids relying on Elide
+resource copying; the build does not embed assets into compiled classes or a JAR.
+The frontend uses relative `/api` URLs in both modes. Vite proxies those paths in
+development; Spring handles them directly when serving the production bundle.
+See the [README](../README.md) for startup and verification commands.
+
+Frontend integration verification (2026-09-20): `npm ci` and `npm run build`
+passed with Node 24.20.0; `elide build`, `elide test` (6 passed, 0 skipped), and
+`elide format -- -n src` passed. A running backend with disposable PostgreSQL
+served the actual Vite HTML and JavaScript without Vite running. Vite then
+successfully proxied `/api/status` to a custom backend port via `BACKEND_URL`;
+an unknown API path returned 404. The backend suite also verifies external
+static fixtures and missing assets. Scanner/SSH files were unchanged.

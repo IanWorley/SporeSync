@@ -9,10 +9,13 @@ import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.time.Duration
+import java.time.Instant
 import javax.sql.DataSource
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
@@ -89,6 +92,45 @@ class BackendIntegrationTest {
 
     settings.set(key, true)
 
+    assertEquals(true, settings.get(key))
+  }
+
+  @Test
+  fun `assigns timestamps when creating a setting`() {
+    val key = SettingKey("test.timestamps.create", String::toBooleanStrict, Boolean::toString)
+
+    settings.set(key, true)
+
+    val stored = settingsRepository.findById(key.name).orElseThrow()
+    assertNotNull(stored.createdAt)
+    assertNotNull(stored.updatedAt)
+    assertTrue(!stored.updatedAt.isBefore(stored.createdAt))
+  }
+
+  @Test
+  fun `updates modification time while preserving creation time`() {
+    val key = SettingKey("test.timestamps.update", String::toBooleanStrict, Boolean::toString)
+    val originalTime = Instant.parse("2020-01-01T00:00:00Z")
+    // Seed an older row so timestamp advancement does not depend on sleeps or clock resolution.
+    dataSource.connection.use { connection ->
+      connection
+          .prepareStatement(
+              "INSERT INTO sporesync_settings (name, value, created_at, updated_at) VALUES (?, ?, ?, ?)"
+          )
+          .use { statement ->
+            statement.setString(1, key.name)
+            statement.setString(2, "false")
+            statement.setObject(3, originalTime.atOffset(java.time.ZoneOffset.UTC))
+            statement.setObject(4, originalTime.atOffset(java.time.ZoneOffset.UTC))
+            statement.executeUpdate()
+          }
+    }
+
+    settings.set(key, true)
+
+    val stored = settingsRepository.findById(key.name).orElseThrow()
+    assertEquals(originalTime, stored.createdAt)
+    assertTrue(stored.updatedAt.isAfter(originalTime))
     assertEquals(true, settings.get(key))
   }
 

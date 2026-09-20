@@ -2,3 +2,6 @@ databaseChangeLog:
   - include:
       file: changes/001-create-settings.yaml
       relativeToChangelogFile: true
+  - include:
+      file: changes/002-settings-timestamps.yaml
+      relativeToChangelogFile: true

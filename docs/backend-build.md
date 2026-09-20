@@ -54,7 +54,7 @@ expected response against disposable PostgreSQL; changing a compiled class
 timestamp triggered a DevTools restart. Scanner/SSH tests were not rerun because
 those files were unchanged.
 
-Settings foundation verification passed: `elide build`, `elide test` (7 passed,
+Settings foundation verification passed: `elide build`, `elide test` (9 passed,
 0 skipped against disposable PostgreSQL), and `elide format -- -n src`.
 
 For normal startup, set `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`,

@@ -1,0 +1,20 @@
+databaseChangeLog:
+  - changeSet:
+      id: 002-settings-timestamps
+      author: sporesync
+      changes:
+        - addColumn:
+            tableName: sporesync_settings
+            columns:
+              - column:
+                  name: created_at
+                  type: timestamp with time zone
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+              - column:
+                  name: updated_at
+                  type: timestamp with time zone
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false

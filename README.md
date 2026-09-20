@@ -41,15 +41,21 @@ startup. Add future migrations under `backend/config/db/changes/` and include
 them in `changelog.yaml`. Keep applied changesets unchanged.
 
 `sporesync_settings` stores one application-wide setting per `name` (text primary
-key), with a non-null text `value`. Spring Data JPA provides persistence through
+key), with a non-null text `value` and `created_at` / `updated_at` timestamps.
+Hibernate uses the database clock to populate timestamps and refreshes
+`updated_at` on JPA updates while preserving `created_at`. Existing rows receive
+the migration time for both timestamps. Spring Data JPA provides persistence through
 `ApplicationSettingRepository`. `ApplicationSettings` reads and writes typed
 values using a `SettingKey<T>` that pairs a name with parsing and formatting:
 
 ```kotlin
-val scanInterval = SettingKey("scan.interval", Duration::parse, Duration::toString)
+val scanInterval = SettingKey(SettingNames.SCAN_INTERVAL, Duration::parse, Duration::toString)
 settings.set(scanInterval, Duration.ofMinutes(5))
 val interval: Duration? = settings.get(scanInterval)
 ```
+
+Search `SettingNames.kt` for application setting names. These constants reserve
+names for planned settings; they do not seed rows or enable features.
 
 This is an example, not a configured default. Declare each real key once alongside
 its consuming feature. Missing values return `null`; malformed values propagate

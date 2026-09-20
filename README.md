@@ -206,3 +206,12 @@ and uploads the scanner over SSH. It verifies nested Unicode filenames and a
 permission-denied source. Containers, images, and temporary keys are cleaned up
 by the suite. The Debian base follows bookworm updates; it is a test fixture,
 not a production deployment image.
+
+## Dashboard settings contract
+
+`GET /api/settings` returns non-secret connection and download settings;
+`PUT /api/settings` validates and atomically saves the complete form. The source
+and destination must be absolute paths. Defaults are a five-minute scan interval,
+automatic downloads enabled, and temporary files enabled. Credentials and trusted
+host keys remain external configuration. Settings changes apply to future jobs;
+already queued jobs retain their original source and destination.

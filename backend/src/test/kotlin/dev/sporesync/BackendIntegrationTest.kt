@@ -436,6 +436,49 @@ class BackendIntegrationTest {
     assertEquals(HTTP_NOT_FOUND, get("/assets/missing.js").statusCode())
   }
 
+  @Test
+  fun `settings API saves a complete form and never exposes credentials`() {
+    val value =
+        DownloadSettings(
+            "seed.example",
+            username = "scanner",
+            source = "/seed",
+            destination = "/downloads",
+        )
+    val request =
+        HttpRequest.newBuilder(URI("http://127.0.0.1:$port/api/settings"))
+            .header("Content-Type", "application/json")
+            .PUT(HttpRequest.BodyPublishers.ofString(jsonMapper.writeValueAsString(value)))
+            .build()
+    val response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString())
+    assertEquals(HTTP_OK, response.statusCode())
+    val loaded = get("/api/settings")
+    assertEquals(value, jsonMapper.readValue(loaded.body(), DownloadSettings::class.java))
+    assertTrue(!loaded.body().contains("privateKey") && !loaded.body().contains("passphrase"))
+  }
+
+  @Test
+  fun `invalid settings cannot partially update persisted values`() {
+    val before = get("/api/settings").body()
+    val value =
+        DownloadSettings(
+            "changed.example",
+            username = "scanner",
+            source = "/seed",
+            destination = "relative",
+        )
+    val request =
+        HttpRequest.newBuilder(URI("http://127.0.0.1:$port/api/settings"))
+            .header("Content-Type", "application/json")
+            .PUT(HttpRequest.BodyPublishers.ofString(jsonMapper.writeValueAsString(value)))
+            .build()
+    assertEquals(
+        HTTP_BAD_REQUEST,
+        HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString()).statusCode(),
+    )
+    assertEquals(before, get("/api/settings").body())
+  }
+
   private fun get(path: String): HttpResponse<String> {
     val request =
         HttpRequest.newBuilder(URI("http://127.0.0.1:$port$path"))
@@ -457,6 +500,7 @@ class BackendIntegrationTest {
     private const val BAD_GATEWAY = 502
     private const val SPECIAL_SOURCE = "/seed 日本語 ' ; literal"
     private const val POSTGRES_IMAGE = "postgres:17.6-alpine"
+    private const val HTTP_BAD_REQUEST = 400
     private const val HTTP_OK = 200
     private const val HTTP_NOT_FOUND = 404
     private const val INDEX_HTML = "<!doctype html><title>SporeSync static fixture</title>"

@@ -7,6 +7,7 @@ local kotlinVersion = "2.4.20"
 local jacksonVersion = "3.1.5"
 local testcontainersVersion = "2.0.5"
 local postgresDriverVersion = "42.7.13"
+local slf4jVersion = "2.0.18"
 local development = build.flags.bool("DEV")
 
 name = "sporesync-backend"
@@ -37,8 +38,10 @@ dependencies {
     packages {
       "org.springframework.boot:spring-boot-starter-webmvc:\(springBootVersion)"
       "org.springframework.boot:spring-boot-starter-validation:\(springBootVersion)"
-      "org.springframework.boot:spring-boot-starter-jdbc:\(springBootVersion)"
+      "org.springframework.boot:spring-boot-starter-data-jpa:\(springBootVersion)"
       "org.springframework.boot:spring-boot-starter-liquibase:\(springBootVersion)"
+      // Keep logging aligned with Boot when transitive dependencies request SLF4J 1.x.
+      "org.slf4j:slf4j-api:\(slf4jVersion)"
       "org.jetbrains.kotlin:kotlin-reflect:\(kotlinVersion)"
       "tools.jackson.module:jackson-module-kotlin:\(jacksonVersion)"
     }

@@ -21,7 +21,7 @@ elide format -- -n src
 ```
 
 Tests start disposable PostgreSQL through Testcontainers and verify HTTP/JSON
-and Liquibase initialization. Docker is required; tests do not silently skip.
+and Liquibase migrations plus JPA settings persistence and typed conversion. Docker is required; tests do not silently skip.
 
 To run against your own PostgreSQL database, provide `SPRING_DATASOURCE_URL`,
 `SPRING_DATASOURCE_USERNAME`, and `SPRING_DATASOURCE_PASSWORD` in the environment,
@@ -33,6 +33,29 @@ For development, run `elide run -fDEV`; in another terminal run
 `elide build -fDEV` after editing Kotlin. DevTools watches compiled classes,
 not source files. It is excluded unless the `DEV` build flag is set.
 See [backend build notes](docs/backend-build.md) for versions and limitations.
+
+## Application settings
+
+Liquibase owns the database schema; Hibernate validates its JPA mappings at
+startup. Add future migrations under `backend/config/db/changes/` and include
+them in `changelog.yaml`. Keep applied changesets unchanged.
+
+`sporesync_settings` stores one application-wide setting per `name` (text primary
+key), with a non-null text `value`. Spring Data JPA provides persistence through
+`ApplicationSettingRepository`. `ApplicationSettings` reads and writes typed
+values using a `SettingKey<T>` that pairs a name with parsing and formatting:
+
+```kotlin
+val scanInterval = SettingKey("scan.interval", Duration::parse, Duration::toString)
+settings.set(scanInterval, Duration.ofMinutes(5))
+val interval: Duration? = settings.get(scanInterval)
+```
+
+This is an example, not a configured default. Declare each real key once alongside
+its consuming feature. Missing values return `null`; malformed values propagate
+parser errors. Use strict parsers (such as `String::toBooleanStrict`) to reject
+invalid input. Settings are application-wide; no user accounts or settings HTTP
+API are introduced yet.
 
 ## Run the scanner
 

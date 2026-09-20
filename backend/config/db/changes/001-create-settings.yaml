@@ -1,0 +1,19 @@
+databaseChangeLog:
+  - changeSet:
+      id: 001-create-settings
+      author: sporesync
+      changes:
+        - createTable:
+            tableName: sporesync_settings
+            columns:
+              - column:
+                  name: name
+                  type: text
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: value
+                  type: text
+                  constraints:
+                    nullable: false

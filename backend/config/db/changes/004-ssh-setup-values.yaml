@@ -1,0 +1,12 @@
+databaseChangeLog:
+  - changeSet:
+      id: 004-ssh-setup-values
+      author: sporesync
+      changes:
+        - sql:
+            dbms: postgresql
+            sql: |
+              -- Empty values make required setup visible without selecting a remote target.
+              INSERT INTO sporesync_settings (name, value)
+              VALUES ('ssh.host', ''), ('ssh.username', ''), ('remote.source.directory', '')
+              ON CONFLICT (name) DO NOTHING;

@@ -261,10 +261,14 @@ class BackendIntegrationTest {
               it.setString(1, SshSettingKeys.PORT.name)
               it.setString(2, CUSTOM_SSH_PORT.toString())
               it.executeUpdate()
+              it.setString(1, SshSettingKeys.SOURCE.name)
+              it.setString(2, SPECIAL_SOURCE)
+              it.executeUpdate()
             }
       }
     }
     migrate("003-ssh-defaults")
+    migrate("004-ssh-setup-values")
     dataSource.connection.use { connection ->
       connection.createStatement().use { statement ->
         statement
@@ -283,6 +287,9 @@ class BackendIntegrationTest {
                       SshSettingKeys.PORT.name to
                           (if (existing) CUSTOM_SSH_PORT else SSH_PORT).toString(),
                       SshSettingKeys.TIMEOUT_MILLIS.name to DEFAULT_SSH_TIMEOUT_MILLIS.toString(),
+                      SshSettingKeys.HOST.name to "",
+                      SshSettingKeys.USERNAME.name to "",
+                      SshSettingKeys.SOURCE.name to (if (existing) SPECIAL_SOURCE else ""),
                   ),
                   values,
               )

@@ -40,7 +40,8 @@ See [backend build notes](docs/backend-build.md) for versions and limitations.
 
 Configure the database as above. Liquibase seeds `ssh.port = 22` and
 `ssh.timeout.millis = 30000` in `sporesync_settings`, preserving existing values.
-Host, username, and source have no defaults. Set them through `ApplicationSettings`
+A follow-up migration seeds empty host, username, and source rows without
+overwriting configured values. Fill these required values through `ApplicationSettings`
 using `SshSettingKeys`, or run this SQL against the configured database:
 
 ```sql

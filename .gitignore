@@ -1,12 +1,2 @@
-.dotnet/
-bin/
-obj/
-**/bin/
-**/obj/
-TestResults/
-artifacts/
-SporeSync.Web/ClientApp/node_modules/
-SporeSync.Web/ClientApp/dist/
-SporeSync.Web/wwwroot/
-.idea/
-.agent-downloads/
+__pycache__/
+*.pyc

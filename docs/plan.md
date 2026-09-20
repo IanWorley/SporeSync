@@ -55,7 +55,7 @@ and constrain downloaded paths to the configured destination.
 
 ## First milestone
 
-- [ ] Establish a local SSH test container with Python and a sample directory tree.
+- [x] Establish a local SSH test container with Python and a sample directory tree.
 - [ ] Verify the Elide build workflow for the Spring Boot backend.
 - [ ] Connect from the backend, upload the scanner when needed, and execute it.
 - [ ] Return a typed inventory, including nested paths, sizes, and timestamps.
@@ -79,3 +79,50 @@ followed by the settings and transfer dashboard.
   and files changing during a transfer. Also define how an existing final file
   resumes when temporary-file mode is enabled, plus cancellation and retry.
 - Confirm subfolder preservation and deployment packaging.
+
+## Implementation slices
+
+Keep implementation PRs around 200–400 changed lines, each with one reviewable
+outcome. Split a slice further if needed; these are feature boundaries, not a
+commitment to finish an entire feature in one PR. The initial reset is exempt.
+
+1. **Remote scanner contract and SSH fixture** (implemented first): versioned
+   JSON, nested files, empty directories, Unicode/space-containing names, and
+   explicit filesystem failures. Report symlinks without following them. Exercise
+   scanner upload and execution against a disposable SSH/Python container.
+2. **Elide/Spring feasibility**: verify the current documented Elide workflow with
+   a minimal Spring Web application, selecting compatible Java and dependency
+   versions. Demonstrate build, run, and a focused automated test. Record exact
+   commands and constraints; if incompatible, resolve the tool choice before
+   generating the application scaffold. This gates Java implementation.
+3. **Backend remote inventory**: typed versioned records, pinned SSH host keys,
+   credential-safe configuration, scanner upload/version checks, execution
+   timeout, and clear connection/protocol errors. Use the SSH fixture for the
+   first milestone's acceptance test. Reject unsupported inventory versions.
+4. **One background transfer**: manually request one discovered regular file,
+   preserve subfolders, constrain the destination path, and expose byte progress
+   independently of browser lifetime. Verify content through real SFTP.
+5. **Temporary files and resume**: cover both filename modes and remote growth.
+   Resolve replacement detection, equal/smaller files, and existing final files
+   before enabling automatic resume. Never assume size proves matching content.
+6. **Durable transfer lifecycle**: PostgreSQL/Liquibase state, explicit completion,
+   restart recovery, bounded retries, and cancellation. Verify restart behavior
+   without duplicate workers writing the same destination.
+7. **Scheduled discovery and automatic queue**: one seedbox, one active download,
+   automatic downloading enabled by default, configurable interval/source, and
+   deduplication across scans. Resolve changing-file eligibility and whether the
+   source should be a torrent client's completed directory.
+8. **Settings and dashboard**: verify Vite+ setup, then add React/TypeScript
+   settings, inventory, queue state, and progress in separate small PRs. Choose
+   SSE or polling when the backend progress contract exists. Never return SSH
+   credentials to the browser.
+9. **Packaging**: document persistent storage, configuration, startup/recovery,
+   and host-key provisioning. Application login remains deferred as agreed.
+
+### Current milestone status
+
+The scanner and disposable SSH fixture are implemented. The fixture exercises
+client-side upload and execution; it is not the planned Spring integration.
+Elide verification, typed Java inventory, backend connection errors, and the
+full first-milestone acceptance test remain pending. No transfer behavior or
+unresolved resume policy is implied by the scanner implementation.

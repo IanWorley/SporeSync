@@ -106,3 +106,9 @@ It tests production assets, real SSH/SFTP, automatic queueing, cancellation/retr
 and process-kill recovery of a 128 MiB file with SHA-256 comparison. It uses only
 disposable fixtures. The backend suite additionally verifies PostgreSQL migrations,
 path confinement, remote replacement, stable scans and exclusive worker ownership.
+
+Verified on 2026-09-20: the extracted archive resolved Elide dependencies, built,
+started through `scripts/start.sh` from another working directory, served the real
+frontend assets and `/api/status`, retained existing jobs, and completed a new
+SFTP download against disposable PostgreSQL/SSH containers. This verification
+used macOS arm64; other host platforms require their own compatible Elide runtime.

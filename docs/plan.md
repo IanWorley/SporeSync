@@ -19,7 +19,7 @@ the new implementation; it is not a migration plan for the earlier codebase.
   from the local byte count and append the remaining bytes. In temporary-file
   mode, apply the same behavior to the partial download. Size alone does not
   establish that an existing local file is a matching prefix of the remote file;
-  handling replaced files remains an implementation decision.
+  existing prefixes are verified byte for byte and replacement conflicts fail safely.
 - Make temporary `.part` files optional: when enabled, download to the temporary
   name and rename after completion; when disabled, write to the final filename.
   Track completion independently of the filename in both modes.
@@ -67,11 +67,8 @@ and constrain downloaded paths to the configured destination.
 Acceptance: given SSH credentials and a remote directory, SporeSync returns an
 accurate inventory without requiring a separately managed seedbox service.
 
-Next, download one file with measurable progress. Temporary-file/resume support
-and persistent job state can then develop alongside each other, with their
-restart behavior integrated before automatic queuing is enabled. Settings APIs
-and dashboard work can start as their configuration and API contracts stabilize;
-they do not need to wait for every transfer feature. See the dependencies below.
+The remaining slices below are implemented and verified. Their original feature
+boundaries and dependencies are retained as a guide to the stacked PRs.
 
 ## Resolved behavior
 
@@ -126,11 +123,11 @@ commitment to finish an entire feature in one PR. The initial reset is exempt.
 ### Dependencies and independent work
 
 Slice numbers identify scope, not a strictly sequential schedule. The initial
-scaffold is limited to slice 2: a verified Elide/Spring build, a minimal web
+scaffold was limited to slice 2: a verified Elide/Spring build, a minimal web
 endpoint, and HTTP/PostgreSQL integration tests. It includes database dependencies
 and Liquibase setup. A subsequent persistence foundation adds Spring Data JPA,
 the `sporesync_settings` table, and typed conversion of string values. SSH,
-transfers, scheduling, and settings APIs belong to later slices.
+transfers, scheduling, and settings APIs were implemented in the dependent slices.
 
 | Slice | Prerequisites | Work that can proceed independently |
 |-------|---------------|-------------------------------------|

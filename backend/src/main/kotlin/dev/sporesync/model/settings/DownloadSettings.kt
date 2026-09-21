@@ -1,10 +1,6 @@
-package dev.sporesync
+package dev.sporesync.model.settings
 
-import dev.sporesync.settings.ApplicationSetting
-import dev.sporesync.settings.ApplicationSettingRepository
-import dev.sporesync.settings.SettingNames
 import java.nio.file.Path
-import org.springframework.http.HttpStatus
 import org.springframework.stereotype.Service
 import org.springframework.web.bind.annotation.*
 
@@ -40,8 +36,9 @@ data class DownloadSettings(
 }
 
 @Service
-class DownloadConfiguration(private val repository: ApplicationSettingRepository) {
-  fun read(): DownloadSettings {
+class DownloadConfiguration(private val repository: ApplicationSettingRepository) :
+    DownloadSettingsStore {
+  override fun read(): DownloadSettings {
     val values = repository.findAll().associate { it.name to it.value }
     return DownloadSettings(
         host = values[SettingNames.SSH_HOST].orEmpty(),
@@ -56,7 +53,7 @@ class DownloadConfiguration(private val repository: ApplicationSettingRepository
     )
   }
 
-  fun save(value: DownloadSettings): DownloadSettings {
+  override fun save(value: DownloadSettings): DownloadSettings {
     value.validate()
     // saveAll supplies one transaction: the worker never reads a partially saved form.
     repository.saveAll(
@@ -75,17 +72,4 @@ class DownloadConfiguration(private val repository: ApplicationSettingRepository
     )
     return value
   }
-}
-
-@RestController
-@RequestMapping("/api/settings")
-class SettingsController(private val configuration: DownloadConfiguration) {
-  @GetMapping fun read(): DownloadSettings = configuration.read()
-
-  @PutMapping
-  fun save(@RequestBody settings: DownloadSettings): DownloadSettings = configuration.save(settings)
-
-  @ExceptionHandler(IllegalArgumentException::class)
-  @ResponseStatus(HttpStatus.BAD_REQUEST)
-  fun invalid(): Map<String, String> = mapOf("error" to "INVALID_SETTINGS")
 }

@@ -1,17 +1,7 @@
-export interface Settings {
-  host: string;
-  port: number;
-  timeoutMillis: number;
-  username: string;
-  source: string;
-  destination: string;
-  scanSeconds: number;
-  automatic: boolean;
-  temporaryFiles: boolean;
-}
+import { API_BASE } from '../config/api';
 
 export async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(`/api${path}`, options);
+  const response = await fetch(`${API_BASE}${path}`, options);
   if (!response.ok) {
     const body: unknown = await response.json().catch(() => null);
     const code = typeof body === 'object' && body !== null && 'error' in body && typeof body.error === 'string'

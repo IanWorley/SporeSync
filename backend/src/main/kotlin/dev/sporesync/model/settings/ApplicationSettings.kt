@@ -1,4 +1,4 @@
-package dev.sporesync.settings
+package dev.sporesync.model.settings
 
 import org.springframework.stereotype.Service
 

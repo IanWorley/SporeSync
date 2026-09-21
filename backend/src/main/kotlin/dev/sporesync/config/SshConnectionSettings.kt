@@ -1,8 +1,8 @@
-package dev.sporesync
+package dev.sporesync.config
 
-import dev.sporesync.settings.ApplicationSettings
-import dev.sporesync.settings.SettingKey
-import dev.sporesync.settings.SettingNames
+import dev.sporesync.model.settings.ApplicationSettings
+import dev.sporesync.model.settings.SettingKey
+import dev.sporesync.model.settings.SettingNames
 
 object SshSettingKeys {
   val HOST = SettingKey(SettingNames.SSH_HOST, { it }, { value: String -> value })

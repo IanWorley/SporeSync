@@ -1,4 +1,4 @@
-package dev.sporesync.settings
+package dev.sporesync.model.settings
 
 import jakarta.persistence.Column
 import jakarta.persistence.Entity

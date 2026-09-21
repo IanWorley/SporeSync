@@ -1,38 +1,28 @@
-package dev.sporesync
+package dev.sporesync.controller
 
+import dev.sporesync.model.download.DownloadJob
+import dev.sporesync.model.download.DownloadJobRepository
+import dev.sporesync.model.download.DownloadRequest
+import dev.sporesync.model.download.DownloadRequests
+import dev.sporesync.model.inventory.InventoryException
+import dev.sporesync.model.inventory.InventoryFailure
 import org.springframework.http.HttpStatus
 import org.springframework.web.bind.annotation.*
 import org.springframework.web.server.ResponseStatusException
 
-data class DownloadRequest(val path: String)
-
 @RestController
 @RequestMapping("/api/downloads")
 class DownloadController(
-    private val jobs: DownloadJobs,
-    private val inventory: RemoteInventory,
-    private val configuration: DownloadConfiguration,
+    private val jobs: DownloadJobRepository,
+    private val requests: DownloadRequests,
 ) {
   @GetMapping fun list(): List<DownloadJob> = jobs.list()
 
   @PostMapping
   @ResponseStatus(HttpStatus.ACCEPTED)
   fun enqueue(@RequestBody request: DownloadRequest): DownloadJob {
-    val settings = configuration.read()
-    settings.validate()
-    val connection =
-        SshConnectionSettings(
-            settings.host,
-            settings.port,
-            settings.username,
-            settings.source,
-            settings.timeoutMillis,
-        )
-    val entry =
-        inventory.scan(connection).entries.singleOrNull {
-          it.path == request.path && it.type == EntryType.file
-        } ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "Discovered regular file required")
-    return jobs.enqueue(DownloadSpec(settings, entry))
+    return requests.enqueue(request)
+        ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "Discovered regular file required")
   }
 
   @PostMapping("/{id}/cancel")

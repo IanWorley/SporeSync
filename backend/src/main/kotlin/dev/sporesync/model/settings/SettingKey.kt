@@ -1,4 +1,4 @@
-package dev.sporesync.settings
+package dev.sporesync.model.settings
 
 /** Declare each key once so its name, type, and string representation stay together. */
 class SettingKey<T : Any>(

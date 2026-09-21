@@ -1,4 +1,4 @@
-package dev.sporesync.settings
+package dev.sporesync.model.settings
 
 /** Stable storage names; consuming features define typed keys, validation, and defaults. */
 object SettingNames {

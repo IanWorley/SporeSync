@@ -1,5 +1,8 @@
-package dev.sporesync
+package dev.sporesync.model.download
 
+import dev.sporesync.model.inventory.EntryType
+import dev.sporesync.model.inventory.InventoryEntry
+import dev.sporesync.model.settings.DownloadSettings
 import java.security.MessageDigest
 import java.sql.ResultSet
 import org.springframework.jdbc.core.JdbcTemplate
@@ -47,8 +50,9 @@ data class DownloadJob(
 )
 
 @Component
-class DownloadJobs(private val jdbc: JdbcTemplate, private val mapper: JsonMapper) {
-  fun enqueue(spec: DownloadSpec): DownloadJob {
+class DownloadJobs(private val jdbc: JdbcTemplate, private val mapper: JsonMapper) :
+    DownloadJobRepository {
+  override fun enqueue(spec: DownloadSpec): DownloadJob {
     spec.settings.validate()
     require(spec.entry.type == EntryType.file)
     val id = spec.identity()
@@ -60,21 +64,21 @@ class DownloadJobs(private val jdbc: JdbcTemplate, private val mapper: JsonMappe
     return requireNotNull(find(id))
   }
 
-  fun list(): List<DownloadJob> =
+  override fun list(): List<DownloadJob> =
       jdbc.query("SELECT * FROM download_jobs ORDER BY created_at DESC", ::decode)
 
-  fun find(id: String): DownloadJob? =
+  override fun find(id: String): DownloadJob? =
       jdbc.query("SELECT * FROM download_jobs WHERE id = ?", ::decode, id).firstOrNull()
 
   /** Call only while holding the worker lock; RUNNING rows belong to an interrupted worker. */
-  fun recover() {
+  override fun recover() {
     jdbc.update(
         "UPDATE download_jobs SET state = CASE WHEN cancel_requested THEN 'CANCELLED' WHEN attempts >= ? THEN 'FAILED' ELSE 'QUEUED' END, error = 'INTERRUPTED', updated_at = now() WHERE state = 'RUNNING'",
         MAX_DOWNLOAD_ATTEMPTS,
     )
   }
 
-  fun next(): DownloadJob? =
+  override fun next(): DownloadJob? =
       jdbc
           .query(
               "SELECT * FROM download_jobs WHERE state = 'QUEUED' ORDER BY created_at LIMIT 1",
@@ -82,13 +86,13 @@ class DownloadJobs(private val jdbc: JdbcTemplate, private val mapper: JsonMappe
           )
           .firstOrNull()
 
-  fun start(id: String): Boolean =
+  override fun start(id: String): Boolean =
       jdbc.update(
           "UPDATE download_jobs SET state = 'RUNNING', attempts = attempts + 1, error = NULL, updated_at = now() WHERE id = ? AND state = 'QUEUED'",
           id,
       ) == 1
 
-  fun progress(id: String, bytes: Long) {
+  override fun progress(id: String, bytes: Long) {
     jdbc.update(
         "UPDATE download_jobs SET bytes_done = ?, updated_at = now() WHERE id = ?",
         bytes,
@@ -96,7 +100,7 @@ class DownloadJobs(private val jdbc: JdbcTemplate, private val mapper: JsonMappe
     )
   }
 
-  fun finish(id: String, state: JobState, error: String? = null) {
+  override fun finish(id: String, state: JobState, error: String?) {
     jdbc.update(
         "UPDATE download_jobs SET state = CASE WHEN cancel_requested THEN 'CANCELLED' ELSE ? END, error = ?, updated_at = now() WHERE id = ?",
         state.name,
@@ -105,7 +109,7 @@ class DownloadJobs(private val jdbc: JdbcTemplate, private val mapper: JsonMappe
     )
   }
 
-  fun cancel(id: String): DownloadJob? {
+  override fun cancel(id: String): DownloadJob? {
     jdbc.update(
         "UPDATE download_jobs SET cancel_requested = true, state = CASE WHEN state = 'QUEUED' THEN 'CANCELLED' ELSE state END, updated_at = now() WHERE id = ? AND state IN ('QUEUED','RUNNING')",
         id,
@@ -113,7 +117,7 @@ class DownloadJobs(private val jdbc: JdbcTemplate, private val mapper: JsonMappe
     return find(id)
   }
 
-  fun retry(id: String): DownloadJob? {
+  override fun retry(id: String): DownloadJob? {
     jdbc.update(
         "UPDATE download_jobs SET state = 'QUEUED', attempts = 0, cancel_requested = false, error = NULL, updated_at = now() WHERE id = ? AND state IN ('FAILED','CANCELLED')",
         id,

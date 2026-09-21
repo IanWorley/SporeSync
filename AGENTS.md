@@ -10,6 +10,11 @@ Prefer simple, typed interfaces and named constants for policies.
 
 ## Required checks
 
+- CI: `.github/workflows/ci.yml` runs backend build/format/tests, frontend
+  type-check/build, and scanner unit/SSH tests on every PR (including stacked
+  PRs), pushes to `main`, and manual dispatch. Keep these checks aligned with
+  the local commands below. The Elide Linux archive is release- and checksum-pinned.
+
 - Backend changes: from `backend/`, run `elide build` and `elide test`.
   Tests require Docker and use disposable PostgreSQL and SSH Testcontainers; missing
   Docker must fail rather than silently skip integration verification.

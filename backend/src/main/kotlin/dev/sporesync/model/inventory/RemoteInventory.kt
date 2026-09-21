@@ -29,9 +29,9 @@ class RemoteInventory(
     private val settings: SshSettings,
     private val applicationSettings: ApplicationSettings,
     private val mapper: JsonMapper,
-) {
+) : InventoryScanner {
   @Synchronized
-  fun scan(): Inventory {
+  override fun scan(): Inventory {
     var stage = InventoryFailure.CONFIGURATION
     try {
       settings.validate()

@@ -8,23 +8,18 @@ slices in the plan.
 
 ## Source layout
 
-Application code follows model, view, controller, and config responsibilities:
+Backend Kotlin code uses `model/` for domain types, persistence, and business
+logic, `controller/` for HTTP endpoints, and `config/` for runtime settings.
+The React frontend supplies the view: `model/` contains typed contracts,
+`view/` contains components and styles, `controller/` contains hooks and API
+requests, and `config/` contains shared endpoint and polling constants.
+Entry points and tool manifests stay at their standard locations; runtime
+backend configuration stays in `backend/config/`. The remote scanner remains
+one independently uploadable script.
+Use interfaces for I/O-facing service contracts (scanning, file transfer, job
+persistence, and settings storage); keep immutable data models concrete.
 
-- `backend/src/main/kotlin/dev/sporesync/model/`: inventory types and scanning
-  logic, plus settings entities, repositories, and typed persistence services.
-- `backend/src/main/kotlin/dev/sporesync/controller/`: HTTP endpoints and error responses.
-- `backend/src/main/kotlin/dev/sporesync/config/`: external SSH configuration and
-  database-backed connection settings. Runtime properties and Liquibase migrations
-  remain in `backend/config/`.
-- `frontend/src/model/`: typed API data and response validation.
-- `frontend/src/view/`: React markup and styles; this frontend is the application's view.
-- `frontend/src/controller/`: hooks that load data and manage view state.
-- `frontend/src/config/`: browser API configuration, including endpoint paths.
 
-`Application.kt` and `main.tsx` remain small entry points. Vite, TypeScript, and
-Elide manifests stay at their tool-discovered locations. The remote scanner stays
-in `scanner/inventory.py` as a dependency-free, single-file SSH upload; its CLI
-and the existing build, test, and runtime configuration paths are unchanged.
 
 ## Continuous integration
 
@@ -245,3 +240,12 @@ and uploads the scanner over SSH. It verifies nested Unicode filenames and a
 permission-denied source. Containers, images, and temporary keys are cleaned up
 by the suite. The Debian base follows bookworm updates; it is a test fixture,
 not a production deployment image.
+
+## Dashboard settings contract
+
+`GET /api/settings` returns non-secret connection and download settings;
+`PUT /api/settings` validates and atomically saves the complete form. The source
+and destination must be absolute paths. Defaults are a five-minute scan interval,
+automatic downloads enabled, and temporary files enabled. Credentials and trusted
+host keys remain external configuration. Settings changes apply to future jobs;
+already queued jobs retain their original source and destination.

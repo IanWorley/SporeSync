@@ -11,6 +11,9 @@ import dev.sporesync.model.inventory.RemoteInventory
 import dev.sporesync.model.settings.ApplicationSetting
 import dev.sporesync.model.settings.ApplicationSettingRepository
 import dev.sporesync.model.settings.ApplicationSettings
+import dev.sporesync.model.settings.DownloadConfiguration
+import dev.sporesync.model.settings.DownloadSettings
+import dev.sporesync.model.settings.MAX_TIMEOUT_MILLIS
 import dev.sporesync.model.settings.SettingKey
 import java.net.URI
 import java.net.http.HttpClient
@@ -119,6 +122,21 @@ class BackendIntegrationTest {
     settings.set(SshSettingKeys.SOURCE, SPECIAL_SOURCE)
     sshSettings.scanner = "../scanner/inventory.py"
     settings.set(SshSettingKeys.TIMEOUT_MILLIS, SSH_TIMEOUT_MILLIS)
+  }
+
+  @Test
+  fun `download configuration preserves persisted SSH timeout`() {
+    val configuration = DownloadConfiguration(settingsRepository)
+    settings.set(SshSettingKeys.TIMEOUT_MILLIS, SHORT_TIMEOUT_MILLIS)
+    val loaded = configuration.read()
+    assertEquals(SHORT_TIMEOUT_MILLIS, loaded.timeoutMillis)
+    configuration.save(loaded.copy(destination = temporary.toString()))
+    assertEquals(SHORT_TIMEOUT_MILLIS, settings.get(SshSettingKeys.TIMEOUT_MILLIS))
+    assertThrows(IllegalArgumentException::class.java) {
+      configuration.save(
+          loaded.copy(destination = temporary.toString(), timeoutMillis = MAX_TIMEOUT_MILLIS + 1)
+      )
+    }
   }
 
   @Test
@@ -444,6 +462,49 @@ class BackendIntegrationTest {
     assertEquals(HTTP_NOT_FOUND, get("/assets/missing.js").statusCode())
   }
 
+  @Test
+  fun `settings API saves a complete form and never exposes credentials`() {
+    val value =
+        DownloadSettings(
+            "seed.example",
+            username = "scanner",
+            source = "/seed",
+            destination = "/downloads",
+        )
+    val request =
+        HttpRequest.newBuilder(URI("http://127.0.0.1:$port/api/settings"))
+            .header("Content-Type", "application/json")
+            .PUT(HttpRequest.BodyPublishers.ofString(jsonMapper.writeValueAsString(value)))
+            .build()
+    val response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString())
+    assertEquals(HTTP_OK, response.statusCode())
+    val loaded = get("/api/settings")
+    assertEquals(value, jsonMapper.readValue(loaded.body(), DownloadSettings::class.java))
+    assertTrue(!loaded.body().contains("privateKey") && !loaded.body().contains("passphrase"))
+  }
+
+  @Test
+  fun `invalid settings cannot partially update persisted values`() {
+    val before = get("/api/settings").body()
+    val value =
+        DownloadSettings(
+            "changed.example",
+            username = "scanner",
+            source = "/seed",
+            destination = "relative",
+        )
+    val request =
+        HttpRequest.newBuilder(URI("http://127.0.0.1:$port/api/settings"))
+            .header("Content-Type", "application/json")
+            .PUT(HttpRequest.BodyPublishers.ofString(jsonMapper.writeValueAsString(value)))
+            .build()
+    assertEquals(
+        HTTP_BAD_REQUEST,
+        HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString()).statusCode(),
+    )
+    assertEquals(before, get("/api/settings").body())
+  }
+
   private fun get(path: String): HttpResponse<String> {
     val request =
         HttpRequest.newBuilder(URI("http://127.0.0.1:$port$path"))
@@ -465,6 +526,7 @@ class BackendIntegrationTest {
     private const val BAD_GATEWAY = 502
     private const val SPECIAL_SOURCE = "/seed 日本語 ' ; literal"
     private const val POSTGRES_IMAGE = "postgres:17.6-alpine"
+    private const val HTTP_BAD_REQUEST = 400
     private const val HTTP_OK = 200
     private const val HTTP_NOT_FOUND = 404
     private const val INDEX_HTML = "<!doctype html><title>SporeSync static fixture</title>"

@@ -164,3 +164,14 @@ SSH host, port, username, source directory, and timeout are database-backed
 application settings; migrations seed port and timeout without overwriting values.
 Credentials and host-key trust remain external configuration.
 Transfers, scheduling, and the dashboard remain pending.
+
+### Remaining implementation decisions
+
+Use five-minute scans and temporary files by default. Preserve subdirectories.
+Use a completed-download directory when available; otherwise automatic queuing
+requires unchanged size and modification time in two consecutive scans. Compare
+existing bytes with the remote prefix before appending. Equal files require full
+comparison; smaller or replaced content fails safely without truncating local
+files. Cancellation retains partial data and retry is explicit after bounded
+failures. Browser progress uses polling. Deploy the Elide application and Vite
+assets together with external PostgreSQL and persistent downloads/SSH material.

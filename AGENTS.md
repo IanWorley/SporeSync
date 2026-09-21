@@ -12,12 +12,18 @@ and the local scanner path remain external. See README for setup and migration.
 
 ## Source layout
 
-Use `model/`, `controller/`, and `config/` under the backend Kotlin package.
-Models include domain types, persistence, and business logic; controllers handle
-HTTP. The React frontend provides the view, with `model/`, `view/`, `controller/`,
-and `config/` under `frontend/src/`. Keep entry points and tool manifests at their
-standard locations, runtime backend configuration in `backend/config/`, and the
-remote scanner as one independently uploadable script. See README for the layout.
+Backend Kotlin code uses `model/` for domain types, persistence, and business
+logic, `controller/` for HTTP endpoints, and `config/` for runtime settings.
+The React frontend supplies the view: `model/` contains typed contracts,
+`view/` contains components and styles, `controller/` contains hooks and API
+requests, and `config/` contains shared endpoint and polling constants.
+Entry points and tool manifests stay at their standard locations; runtime
+backend configuration stays in `backend/config/`. The remote scanner remains
+one independently uploadable script.
+Use interfaces for I/O-facing service contracts (scanning, file transfer, job
+persistence, and settings storage); keep immutable data models concrete.
+
+
 
 ## Required checks
 

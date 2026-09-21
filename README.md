@@ -252,13 +252,30 @@ already queued jobs retain their original source and destination.
 
 ## Safe transfer policy
 
-New downloads use `.sporesync/<path-hash>.part` under the destination, then an
-atomic hard-link publication followed by removal of the staging name. The destination
-filesystem must support hard links; publication fails safely otherwise and never
-replaces a concurrently created target. `.sporesync` is reserved and cannot be downloaded as a source path.
+Downloads currently support Linux and macOS. JNA supplies descriptor-relative
+POSIX operations; Linux requires `/proc/self/fd` and macOS requires `/dev/fd` for
+file metadata inspection. Windows is not supported by this transfer implementation.
+New downloads use `.sporesync/<path-hash>.part` under the destination and publish
+with an atomic, non-replacing hard link. Hard-link support between staging and the
+final directory is tested before SSH authentication or data transfer. Unsupported
+filesystems fail with `UNSUPPORTED_DESTINATION`, retaining any existing partial data.
+
+Destination directories stay open throughout each transfer. Creating child
+directories, opening files, and publishing completed files use those directory
+descriptors without following descendant symlinks. Renaming a checked parent and
+replacing its name with a symlink cannot redirect writes or publication. The
+explicitly configured root may be a filesystem alias. `.sporesync` is reserved,
+must belong to the service account, and is secured to owner-only permissions,
+including when upgrading a staging directory from an earlier version. Do not
+share the service account with untrusted processes or edit active download data.
+
 An existing final file resumes in place even when temporary mode is enabled;
-it is never moved away or truncated. Every existing byte must match the remote
-prefix. Smaller or replaced remote content reports a conflict. Equal-size content
-is compared completely. Transfers check remote metadata and reopen the source path to reread content before
-completion, retaining partial data on cancellation or failure. Keep source and
-local download directories under trusted control; do not edit them during a job.
+it is never moved away or truncated. The seedbox's Python 3 computes SHA-256
+hashes for the existing prefix and complete source before copying. A local prefix
+mismatch fails before appending. Pipelined SFTP reads transfer only the missing
+suffix; complete files require no SFTP data reads. A fresh remote checksum after
+copying detects replacement, including rename-based replacement, and is compared
+with the locally accumulated checksum before publication. This still reads the
+source disk twice, but does not send those two full-file reads over the network.
+Hashing emits heartbeats so the configured timeout bounds inactivity rather than
+total hash duration. Cancellation and failures retain partial data.

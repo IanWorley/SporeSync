@@ -1,6 +1,8 @@
-package dev.sporesync
+package dev.sporesync.model.inventory
 
-import dev.sporesync.settings.ApplicationSettings
+import dev.sporesync.config.SshConnectionSettings
+import dev.sporesync.config.SshSettings
+import dev.sporesync.model.settings.ApplicationSettings
 import java.io.InputStream
 import java.nio.file.Files
 import java.nio.file.Path
@@ -12,14 +14,7 @@ import java.util.concurrent.TimeoutException
 import net.schmizz.sshj.SSHClient
 import net.schmizz.sshj.sftp.SFTPClient
 import net.schmizz.sshj.xfer.InMemorySourceFile
-import org.springframework.boot.context.properties.ConfigurationProperties
-import org.springframework.http.HttpStatus
-import org.springframework.stereotype.Component
 import org.springframework.stereotype.Service
-import org.springframework.web.bind.annotation.ExceptionHandler
-import org.springframework.web.bind.annotation.PostMapping
-import org.springframework.web.bind.annotation.ResponseStatus
-import org.springframework.web.bind.annotation.RestController
 import tools.jackson.databind.DeserializationFeature
 import tools.jackson.databind.json.JsonMapper
 
@@ -29,87 +24,14 @@ private const val MAX_ERROR_BYTES = 64 * 1024
 private const val PRIVATE_DIRECTORY_MODE = 448 // POSIX 0700
 private const val SUCCESS_EXIT = 0
 
-enum class SshAuthentication {
-  KEY,
-  PASSWORD,
-}
-
-// Deliberately not a data class: generated toString must not expose credentials.
-@Component
-@ConfigurationProperties("sporesync.ssh")
-class SshSettings {
-  var authentication: SshAuthentication = SshAuthentication.KEY
-  var password: String = ""
-  var privateKey: String = ""
-  var passphrase: String = ""
-  var knownHosts: String = ""
-  var scanner: String = "../scanner/inventory.py"
-
-  fun validate() {
-    require(
-        listOf(knownHosts, scanner).all {
-          it.isNotBlank() && Files.isRegularFile(Path.of(it))
-        }
-    )
-    when (authentication) {
-      SshAuthentication.KEY ->
-          require(privateKey.isNotBlank() && Files.isRegularFile(Path.of(privateKey)))
-      SshAuthentication.PASSWORD -> require(password.isNotEmpty())
-    }
-  }
-
-  // Load key material before connecting so local key failures remain configuration errors.
-  fun prepareAuthentication(ssh: SSHClient, username: String): () -> Unit =
-      when (authentication) {
-        SshAuthentication.KEY -> {
-          val key = ssh.loadKeys(privateKey, passphrase)
-          val authenticate: () -> Unit = { ssh.authPublickey(username, key) }
-          authenticate
-        }
-        SshAuthentication.PASSWORD -> {
-          val secret = password
-          { ssh.authPassword(username, secret) }
-        }
-      }
-}
-
-enum class EntryType {
-  file,
-  directory,
-  symlink,
-  other,
-}
-
-data class InventoryEntry(
-    val path: String,
-    val type: EntryType,
-    val sizeBytes: Long,
-    val modifiedTimeNs: Long,
-)
-
-data class Inventory(val schemaVersion: Int, val entries: List<InventoryEntry>)
-
-enum class InventoryFailure {
-  CONFIGURATION,
-  CONNECTION,
-  AUTHENTICATION,
-  UPLOAD,
-  EXECUTION,
-  TIMEOUT,
-  PROTOCOL,
-}
-
-class InventoryException(val code: InventoryFailure) :
-    RuntimeException("Remote inventory failed: $code")
-
 @Service
 class RemoteInventory(
     private val settings: SshSettings,
     private val applicationSettings: ApplicationSettings,
     private val mapper: JsonMapper,
-) {
+) : InventoryScanner {
   @Synchronized
-  fun scan(): Inventory {
+  override fun scan(): Inventory {
     var stage = InventoryFailure.CONFIGURATION
     try {
       settings.validate()
@@ -234,14 +156,4 @@ class RemoteInventory(
   }
 
   private fun quote(value: String) = "'${value.replace("'", "'\"'\"'")}'"
-}
-
-@RestController
-class InventoryController(private val inventory: RemoteInventory) {
-  @PostMapping("/api/inventory/scan") fun scan(): Inventory = inventory.scan()
-
-  @ExceptionHandler(InventoryException::class)
-  @ResponseStatus(HttpStatus.BAD_GATEWAY)
-  fun failed(error: InventoryException): Map<String, InventoryFailure> =
-      mapOf("error" to error.code)
 }

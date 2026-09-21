@@ -6,6 +6,21 @@ Kotlin/Spring Boot backend with SSH inventory discovery and a minimal
 Vite/React/TypeScript frontend. Downloads and dashboard features are subsequent
 slices in the plan.
 
+## Source layout
+
+Backend Kotlin code uses `model/` for domain types, persistence, and business
+logic, `controller/` for HTTP endpoints, and `config/` for runtime settings.
+The React frontend supplies the view: `model/` contains typed contracts,
+`view/` contains components and styles, `controller/` contains hooks and API
+requests, and `config/` contains shared endpoint and polling constants.
+Entry points and tool manifests stay at their standard locations; runtime
+backend configuration stays in `backend/config/`. The remote scanner remains
+one independently uploadable script.
+Use interfaces for I/O-facing service contracts (scanning, file transfer, job
+persistence, and settings storage); keep immutable data models concrete.
+
+
+
 ## Continuous integration
 
 [Build and test](.github/workflows/ci.yml) runs on every pull request, including
@@ -168,7 +183,7 @@ To use another backend port, set `BACKEND_URL=http://127.0.0.1:9090 npm run dev`
 not a browser-exposed variable. It can also go in `frontend/.env.local`.
 
 Tailwind CSS 4 runs through the official `@tailwindcss/vite` plugin.
-`frontend/src/styles.css` imports Tailwind, and React components use utility classes
+`frontend/src/view/styles.css` imports Tailwind, and React components use utility classes
 directly. Vite handles CSS hot updates and emits the production stylesheet into
 `dist/assets/` for Spring to serve. No separate Tailwind CLI or PostCSS setup is needed.
 

@@ -1,0 +1,93 @@
+name: Build and test
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend build and tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      ELIDE_RELEASE: 1.5.3+20260917
+      ELIDE_ARCHIVE_SHA256: 01bf042a8755b8999ea85948c7ef4601edaa53dfb139d55738351dd047a80436
+      ELIDE_DOWNLOAD_RETRIES: '3'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Verify Docker is available
+        run: docker info
+      - name: Install pinned Elide runtime
+        shell: bash
+        run: |
+          archive="$RUNNER_TEMP/elide.tgz"
+          runtime="$RUNNER_TEMP/elide-runtime"
+          curl --fail --location --retry "$ELIDE_DOWNLOAD_RETRIES" \
+            "https://github.com/elide-dev/elide/releases/download/${ELIDE_RELEASE}/elide.linux-amd64.tgz" \
+            --output "$archive"
+          echo "$ELIDE_ARCHIVE_SHA256  $archive" | sha256sum --check --strict
+          mkdir -p "$runtime"
+          tar -xzf "$archive" -C "$runtime"
+          echo "$runtime/bin" >> "$GITHUB_PATH"
+      - name: Install backend dependencies
+        run: elide install --slim
+      - name: Build backend
+        run: elide build
+      - name: Check Kotlin formatting
+        run: elide format -- -n src
+      - name: Run backend tests with PostgreSQL and SSH Testcontainers
+        run: elide test
+
+  frontend:
+    name: Frontend type-check and build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run build
+
+  scanner:
+    name: Scanner unit and SSH tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - name: Verify Docker and OpenSSH are available
+        run: |
+          docker info
+          command -v ssh
+          command -v ssh-keygen
+      - name: Run scanner unit and real SSH tests
+        env:
+          SPORESYNC_SSH_TEST: '1'
+        run: python3 -m unittest discover -s tests -v

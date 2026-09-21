@@ -5,6 +5,7 @@ object SettingNames {
   const val SSH_HOST = "ssh.host"
   const val SSH_PORT = "ssh.port"
   const val SSH_USERNAME = "ssh.username"
+  const val SSH_TIMEOUT_MILLIS = "ssh.timeout.millis"
   const val REMOTE_SOURCE_DIRECTORY = "remote.source.directory"
   const val LOCAL_DOWNLOAD_DIRECTORY = "local.download.directory"
   const val SCAN_INTERVAL = "scan.interval"

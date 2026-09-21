@@ -15,6 +15,7 @@ import java.time.Duration
 import java.time.Instant
 import java.util.Base64
 import javax.sql.DataSource
+import liquibase.integration.spring.SpringLiquibase
 import net.schmizz.sshj.common.Buffer
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -28,6 +29,8 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
 import org.junit.jupiter.api.io.TempDir
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.web.server.LocalServerPort
@@ -100,14 +103,14 @@ class BackendIntegrationTest {
 
   @BeforeEach
   fun configureSsh() {
-    sshSettings.host = ssh.host
-    sshSettings.port = ssh.getMappedPort(SSH_PORT)
-    sshSettings.username = "scanner"
+    settings.set(SshSettingKeys.HOST, ssh.host)
+    settings.set(SshSettingKeys.PORT, ssh.getMappedPort(SSH_PORT))
+    settings.set(SshSettingKeys.USERNAME, "scanner")
     sshSettings.privateKey = temporary.resolve("key").toString()
     sshSettings.knownHosts = temporary.resolve("known_hosts").toString()
-    sshSettings.source = SPECIAL_SOURCE
+    settings.set(SshSettingKeys.SOURCE, SPECIAL_SOURCE)
     sshSettings.scanner = "../scanner/inventory.py"
-    sshSettings.timeoutMillis = SSH_TIMEOUT_MILLIS
+    settings.set(SshSettingKeys.TIMEOUT_MILLIS, SSH_TIMEOUT_MILLIS)
   }
 
   @Test
@@ -145,8 +148,9 @@ class BackendIntegrationTest {
   }
 
   @Test
-  fun `reports inaccessible source without exposing remote details`() {
-    sshSettings.source = "/restricted"
+  fun `uses updated source on next scan and keeps remote errors private`() {
+    inventory.scan()
+    settings.set(SshSettingKeys.SOURCE, "/restricted")
     val request =
         HttpRequest.newBuilder(URI("http://127.0.0.1:$port/api/inventory/scan"))
             .timeout(HTTP_TIMEOUT)
@@ -169,7 +173,7 @@ class BackendIntegrationTest {
 
   @Test
   fun `reports authentication failures`() {
-    sshSettings.username = "nonexistent"
+    settings.set(SshSettingKeys.USERNAME, "nonexistent")
     assertEquals(
         InventoryFailure.AUTHENTICATION,
         assertThrows(InventoryException::class.java) { inventory.scan() }.code,
@@ -199,7 +203,7 @@ class BackendIntegrationTest {
     val slow = temporary.resolve("slow.py")
     Files.writeString(slow, "import time\ntime.sleep(${HTTP_TIMEOUT.seconds})\n")
     sshSettings.scanner = slow.toString()
-    sshSettings.timeoutMillis = SHORT_TIMEOUT_MILLIS
+    settings.set(SshSettingKeys.TIMEOUT_MILLIS, SHORT_TIMEOUT_MILLIS)
     assertTimeout(HTTP_TIMEOUT) {
       assertEquals(
           InventoryFailure.TIMEOUT,
@@ -210,6 +214,89 @@ class BackendIntegrationTest {
 
   @Autowired private lateinit var settings: ApplicationSettings
   @Autowired private lateinit var settingsRepository: ApplicationSettingRepository
+
+  @ParameterizedTest
+  @ValueSource(strings = ["0", "65536", "invalid"])
+  fun `rejects invalid database ports before connecting`(value: String) {
+    settingsRepository.saveAndFlush(ApplicationSetting(SshSettingKeys.PORT.name, value))
+    assertEquals(
+        InventoryFailure.CONFIGURATION,
+        assertThrows(InventoryException::class.java) { inventory.scan() }.code,
+    )
+  }
+
+  @Test
+  fun `requires a configured source instead of inventing a default`() {
+    settingsRepository.deleteById(SshSettingKeys.SOURCE.name)
+    assertEquals(
+        InventoryFailure.CONFIGURATION,
+        assertThrows(InventoryException::class.java) { inventory.scan() }.code,
+    )
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = [false, true])
+  fun `migration seeds defaults while preserving existing settings`(existing: Boolean) {
+    val schema = if (existing) "ssh_existing" else "ssh_defaults"
+    dataSource.connection.use {
+      it.createStatement().use { statement -> statement.execute("CREATE SCHEMA $schema") }
+    }
+    fun migrate(file: String) {
+      SpringLiquibase()
+          .apply {
+            dataSource = this@BackendIntegrationTest.dataSource
+            defaultSchema = schema
+            liquibaseSchema = schema
+            changeLog = "file:./config/db/changes/$file.yaml"
+          }
+          .afterPropertiesSet()
+    }
+    migrate("001-create-settings")
+    migrate("002-settings-timestamps")
+    if (existing) {
+      dataSource.connection.use { connection ->
+        connection
+            .prepareStatement("INSERT INTO $schema.sporesync_settings (name, value) VALUES (?, ?)")
+            .use {
+              it.setString(1, SshSettingKeys.PORT.name)
+              it.setString(2, CUSTOM_SSH_PORT.toString())
+              it.executeUpdate()
+              it.setString(1, SshSettingKeys.SOURCE.name)
+              it.setString(2, SPECIAL_SOURCE)
+              it.executeUpdate()
+            }
+      }
+    }
+    migrate("003-ssh-defaults")
+    migrate("004-ssh-setup-values")
+    dataSource.connection.use { connection ->
+      connection.createStatement().use { statement ->
+        statement
+            .executeQuery(
+                "SELECT name, value, created_at, updated_at FROM $schema.sporesync_settings"
+            )
+            .use { rows ->
+              val values = mutableMapOf<String, String>()
+              while (rows.next()) {
+                values[rows.getString("name")] = rows.getString("value")
+                assertNotNull(rows.getTimestamp("created_at"))
+                assertNotNull(rows.getTimestamp("updated_at"))
+              }
+              assertEquals(
+                  mapOf(
+                      SshSettingKeys.PORT.name to
+                          (if (existing) CUSTOM_SSH_PORT else SSH_PORT).toString(),
+                      SshSettingKeys.TIMEOUT_MILLIS.name to DEFAULT_SSH_TIMEOUT_MILLIS.toString(),
+                      SshSettingKeys.HOST.name to "",
+                      SshSettingKeys.USERNAME.name to "",
+                      SshSettingKeys.SOURCE.name to (if (existing) SPECIAL_SOURCE else ""),
+                  ),
+                  values,
+              )
+            }
+      }
+    }
+  }
 
   @Test
   fun `serves typed application status over HTTP`() {
@@ -360,6 +447,8 @@ class BackendIntegrationTest {
 
   companion object {
     private const val SSH_PORT = 22
+    private const val CUSTOM_SSH_PORT = 2222
+    private const val DEFAULT_SSH_TIMEOUT_MILLIS = 30000
     private const val TEST_KEY_BITS = 2048
     private const val PEM_LINE_WIDTH = 64
     private const val SSH_TIMEOUT_MILLIS = 5000

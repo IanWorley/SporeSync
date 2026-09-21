@@ -57,21 +57,39 @@ See [backend build notes](docs/backend-build.md) for versions and limitations.
 
 ## Scan through the backend
 
-Configure the database as above and set these environment variables before
-running `elide run` from `backend/`:
+Configure the database as above. Liquibase seeds `ssh.port = 22` and
+`ssh.timeout.millis = 30000` in `sporesync_settings`, preserving existing values.
+A follow-up migration seeds empty host, username, and source rows without
+overwriting configured values. Fill these required values through `ApplicationSettings`
+using `SshSettingKeys`, or run this SQL against the configured database:
+
+```sql
+INSERT INTO sporesync_settings (name, value) VALUES
+  ('ssh.host', 'seedbox.example.com'),
+  ('ssh.username', 'scanner'),
+  ('remote.source.directory', '/absolute/remote/source')
+ON CONFLICT (name) DO UPDATE
+SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP;
+```
+
+Each scan reads these five database settings once; changes apply to the next scan
+without restarting. Missing or invalid values return `CONFIGURATION`. Port must
+be between 1 and 65535; timeout is a positive integer in milliseconds. Existing
+`SPORESYNC_SSH_*` environment values for host, port, username, source, and timeout
+must be moved to their database rows; those environment overrides are no longer
+used.
+
+Credentials, host trust, and the local scanner path remain external configuration.
+Set these environment variables before running `elide run` from `backend/`:
 
 ```bash
-export SPORESYNC_SSH_HOST=seedbox.example.com
-export SPORESYNC_SSH_USERNAME=scanner
 export SPORESYNC_SSH_PRIVATEKEY=/absolute/path/to/private-key
 export SPORESYNC_SSH_KNOWNHOSTS=/absolute/path/to/known_hosts
-export SPORESYNC_SSH_SOURCE=/absolute/remote/source
 ```
 
 The known-hosts file must contain a host key verified through a trusted channel;
-unknown or changed keys are rejected. Optional settings are `SPORESYNC_SSH_PORT`
-(22), `SPORESYNC_SSH_PASSPHRASE` (for encrypted keys),
-`SPORESYNC_SSH_TIMEOUTMILLIS` (30000), and `SPORESYNC_SSH_SCANNER`
+unknown or changed keys are rejected. Optional settings are
+`SPORESYNC_SSH_PASSPHRASE` (for encrypted keys) and `SPORESYNC_SSH_SCANNER`
 (`../scanner/inventory.py`). Keep credentials outside tracked files.
 The seedbox needs Python 3.9+, SFTP, command access, and a writable home directory.
 
@@ -109,7 +127,8 @@ val interval: Duration? = settings.get(scanInterval)
 ```
 
 Search `SettingNames.kt` for application setting names. These constants reserve
-names for planned settings; they do not seed rows or enable features.
+names for settings. `SshSettingKeys` defines the typed keys used by inventory;
+other reserved names do not enable planned features.
 
 This is an example, not a configured default. Declare each real key once alongside
 its consuming feature. Missing values return `null`; malformed values propagate

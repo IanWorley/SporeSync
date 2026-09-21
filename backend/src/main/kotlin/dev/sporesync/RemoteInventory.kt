@@ -1,5 +1,6 @@
 package dev.sporesync
 
+import dev.sporesync.settings.ApplicationSettings
 import java.io.InputStream
 import java.nio.file.Files
 import java.nio.file.Path
@@ -22,9 +23,6 @@ import org.springframework.web.bind.annotation.RestController
 import tools.jackson.databind.DeserializationFeature
 import tools.jackson.databind.json.JsonMapper
 
-private const val SSH_PORT = 22
-private const val MAX_PORT = 65535
-private const val TIMEOUT_MILLIS = 30000
 private const val INVENTORY_VERSION = 1
 private const val MAX_INVENTORY_BYTES = 16 * 1024 * 1024
 private const val MAX_ERROR_BYTES = 64 * 1024
@@ -35,19 +33,12 @@ private const val SUCCESS_EXIT = 0
 @Component
 @ConfigurationProperties("sporesync.ssh")
 class SshSettings {
-  var host: String = ""
-  var port: Int = SSH_PORT
-  var username: String = ""
   var privateKey: String = ""
   var passphrase: String = ""
   var knownHosts: String = ""
-  var source: String = ""
   var scanner: String = "../scanner/inventory.py"
-  var timeoutMillis: Int = TIMEOUT_MILLIS
 
   fun validate() {
-    require(host.isNotBlank() && username.isNotBlank() && source.startsWith("/"))
-    require('\u0000' !in source && port in 1..MAX_PORT && timeoutMillis > 0)
     require(
         listOf(privateKey, knownHosts, scanner).all {
           it.isNotBlank() && Files.isRegularFile(Path.of(it))
@@ -86,28 +77,38 @@ class InventoryException(val code: InventoryFailure) :
     RuntimeException("Remote inventory failed: $code")
 
 @Service
-class RemoteInventory(private val settings: SshSettings, private val mapper: JsonMapper) {
+class RemoteInventory(
+    private val settings: SshSettings,
+    private val applicationSettings: ApplicationSettings,
+    private val mapper: JsonMapper,
+) {
   @Synchronized
   fun scan(): Inventory {
     var stage = InventoryFailure.CONFIGURATION
     try {
       settings.validate()
+      val connection = SshConnectionSettings.load(applicationSettings)
       val scanner = Files.readAllBytes(Path.of(settings.scanner))
       SSHClient().use { ssh ->
-        ssh.connectTimeout = settings.timeoutMillis
-        ssh.timeout = settings.timeoutMillis
-        ssh.transport.timeoutMs = settings.timeoutMillis
-        ssh.connection.timeoutMs = settings.timeoutMillis
+        ssh.connectTimeout = connection.timeoutMillis
+        ssh.timeout = connection.timeoutMillis
+        ssh.transport.timeoutMs = connection.timeoutMillis
+        ssh.connection.timeoutMs = connection.timeoutMillis
         ssh.loadKnownHosts(Path.of(settings.knownHosts).toFile())
         val key = ssh.loadKeys(settings.privateKey, settings.passphrase)
         stage = InventoryFailure.CONNECTION
-        ssh.connect(settings.host, settings.port)
+        ssh.connect(connection.host, connection.port)
         stage = InventoryFailure.AUTHENTICATION
-        ssh.authPublickey(settings.username, key)
+        ssh.authPublickey(connection.username, key)
         stage = InventoryFailure.UPLOAD
         val remoteScanner = ssh.newSFTPClient().use { upload(it, scanner) }
         stage = InventoryFailure.EXECUTION
-        val json = execute(ssh, "python3 ${quote(remoteScanner)} ${quote(settings.source)}")
+        val json =
+            execute(
+                ssh,
+                "python3 ${quote(remoteScanner)} ${quote(connection.source)}",
+                connection.timeoutMillis,
+            )
         stage = InventoryFailure.PROTOCOL
         return decode(json)
       }
@@ -174,7 +175,7 @@ class RemoteInventory(private val settings: SshSettings, private val mapper: Jso
     return target
   }
 
-  private fun execute(ssh: SSHClient, command: String): String {
+  private fun execute(ssh: SSHClient, command: String, timeoutMillis: Int): String {
     val readers = Executors.newVirtualThreadPerTaskExecutor()
     try {
       ssh.startSession().use { session ->
@@ -183,7 +184,7 @@ class RemoteInventory(private val settings: SshSettings, private val mapper: Jso
               readers.submit<String> { readLimited(process.inputStream, MAX_INVENTORY_BYTES) }
           val errors = readers.submit<String> { readLimited(process.errorStream, MAX_ERROR_BYTES) }
           try {
-            process.join(settings.timeoutMillis.toLong(), TimeUnit.MILLISECONDS)
+            process.join(timeoutMillis.toLong(), TimeUnit.MILLISECONDS)
           } catch (error: Exception) {
             // Disconnect before channel cleanup so a hung command cannot prolong the timeout.
             ssh.disconnect()
@@ -191,8 +192,8 @@ class RemoteInventory(private val settings: SshSettings, private val mapper: Jso
             throw error
           }
           require(process.exitStatus == SUCCESS_EXIT)
-          errors.get(settings.timeoutMillis.toLong(), TimeUnit.MILLISECONDS)
-          return output.get(settings.timeoutMillis.toLong(), TimeUnit.MILLISECONDS)
+          errors.get(timeoutMillis.toLong(), TimeUnit.MILLISECONDS)
+          return output.get(timeoutMillis.toLong(), TimeUnit.MILLISECONDS)
         }
       }
     } finally {

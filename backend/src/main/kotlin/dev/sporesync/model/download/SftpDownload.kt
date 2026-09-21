@@ -1,5 +1,7 @@
-package dev.sporesync
+package dev.sporesync.model.download
 
+import dev.sporesync.config.SshSettings
+import dev.sporesync.model.inventory.EntryType
 import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
 import java.nio.file.Files
@@ -20,8 +22,8 @@ private const val STAGING_DIRECTORY = ".sporesync"
 class DownloadFailure(val code: String) : RuntimeException(code)
 
 @Service
-class SftpDownload(private val credentials: SshSettings) {
-  fun transfer(spec: DownloadSpec, progress: (Long) -> Unit, cancelled: () -> Boolean) {
+class SftpDownload(private val credentials: SshSettings) : FileDownloader {
+  override fun transfer(spec: DownloadSpec, progress: (Long) -> Unit, cancelled: () -> Boolean) {
     spec.settings.validate()
     val entry = spec.entry
     require(entry.type == EntryType.file)

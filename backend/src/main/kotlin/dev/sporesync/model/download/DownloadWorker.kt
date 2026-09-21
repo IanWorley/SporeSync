@@ -1,4 +1,4 @@
-package dev.sporesync
+package dev.sporesync.model.download
 
 import java.sql.Connection
 import javax.sql.DataSource
@@ -18,8 +18,8 @@ private const val CONNECTION_CHECK_SECONDS = 1
 @Service
 class DownloadWorker(
     private val dataSource: DataSource,
-    private val jobs: DownloadJobs,
-    private val downloader: SftpDownload,
+    private val jobs: DownloadJobRepository,
+    private val downloader: FileDownloader,
     @param:Value("\${sporesync.background.enabled:true}") private val enabled: Boolean,
 ) {
   @Scheduled(fixedDelay = WORKER_POLL_MILLIS)

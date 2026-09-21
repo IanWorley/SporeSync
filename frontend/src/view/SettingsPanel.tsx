@@ -1,5 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
-import { errorMessage, jsonBody, request, type Settings } from './api';
+import { useSettings } from '../controller/useSettings';
 
 const MIN_PORT = 1;
 const MAX_PORT = 65535;
@@ -19,36 +18,7 @@ const TEXT_FIELDS: { key: TextSetting; label: string; placeholder: string }[] = 
 ];
 
 export function SettingsPanel() {
-  const [settings, setSettings] = useState<Settings | null>(null);
-  const [message, setMessage] = useState('');
-  const [error, setError] = useState('');
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    request<Settings>('/settings', { signal: controller.signal })
-      .then(setSettings)
-      .catch((reason: unknown) => {
-        if (!controller.signal.aborted) setError(errorMessage(reason));
-      });
-    return () => controller.abort();
-  }, []);
-
-  async function save(event: FormEvent) {
-    event.preventDefault();
-    if (!settings) return;
-    setSaving(true);
-    setError('');
-    setMessage('');
-    try {
-      setSettings(await request<Settings>('/settings', { method: 'PUT', ...jsonBody(settings) }));
-      setMessage('Settings saved. New jobs use these settings.');
-    } catch (reason) {
-      setError(errorMessage(reason));
-    } finally {
-      setSaving(false);
-    }
-  }
+  const { settings, setSettings, message, error, saving, save } = useSettings();
 
   return (
     <section className="rounded-2xl border border-slate-800 bg-slate-900 p-6 sm:p-8" aria-labelledby="settings-title">

@@ -4,6 +4,7 @@ import dev.sporesync.config.SshSettings
 import dev.sporesync.model.inventory.EntryType
 import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
+import java.nio.channels.OverlappingFileLockException
 import java.nio.file.FileAlreadyExistsException
 import java.nio.file.Files
 import java.nio.file.LinkOption.NOFOLLOW_LINKS
@@ -34,7 +35,12 @@ class SftpDownload(private val credentials: SshSettings) : FileDownloader {
     val target = safeTarget(root, entry.path)
     val lockPath = safeTarget(root, "$STAGING_DIRECTORY/worker.lock", internal = true)
     FileChannel.open(lockPath, CREATE, WRITE, NOFOLLOW_LINKS).use { lockChannel ->
-      val lock = lockChannel.tryLock() ?: throw DownloadFailure("DESTINATION_BUSY")
+      val lock =
+          try {
+            lockChannel.tryLock()
+          } catch (_: OverlappingFileLockException) {
+            null
+          } ?: throw DownloadFailure("DESTINATION_BUSY")
       lock.use {
         val staging =
             if (spec.settings.temporaryFiles && !Files.exists(target, NOFOLLOW_LINKS)) {
@@ -50,11 +56,14 @@ class SftpDownload(private val credentials: SshSettings) : FileDownloader {
           credentials.validate()
           ssh.connectTimeout = spec.settings.timeoutMillis
           ssh.timeout = spec.settings.timeoutMillis
+          ssh.transport.timeoutMs = spec.settings.timeoutMillis
+          ssh.connection.timeoutMs = spec.settings.timeoutMillis
           ssh.loadKnownHosts(Path.of(credentials.knownHosts).toFile())
           val key = ssh.loadKeys(credentials.privateKey, credentials.passphrase)
           ssh.connect(spec.settings.host, spec.settings.port)
           ssh.authPublickey(spec.settings.username, key)
           ssh.newSFTPClient().use { sftp ->
+            sftp.sftpEngine.timeoutMs = spec.settings.timeoutMillis
             val source = spec.settings.source.trimEnd('/') + "/" + entry.path
             val canonicalRoot = sftp.canonicalize(spec.settings.source).trimEnd('/')
             if (sftp.canonicalize(source) != "$canonicalRoot/${entry.path}")

@@ -695,6 +695,30 @@ class BackendIntegrationTest {
   }
 
   @Test
+  fun `overlapping transfer in the same JVM reports destination busy`() {
+    val spec = transferSpec(true)
+    var attempted = false
+    downloader.transfer(
+        spec,
+        {
+          if (!attempted) {
+            attempted = true
+            assertEquals(
+                "DESTINATION_BUSY",
+                assertThrows(DownloadFailure::class.java) {
+                      downloader.transfer(spec, {}) { false }
+                    }
+                    .code,
+            )
+          }
+        },
+    ) {
+      false
+    }
+    assertTrue(attempted)
+  }
+
+  @Test
   fun `publishing never replaces a destination created during transfer`(@TempDir root: Path) {
     val staging = Files.writeString(root.resolve("staging.part"), "download")
     val target = Files.writeString(root.resolve("target"), "existing data")

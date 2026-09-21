@@ -211,8 +211,12 @@ class RemoteInventory(
 }
 
 @RestController
-class InventoryController(private val inventory: RemoteInventory) {
-  @PostMapping("/api/inventory/scan") fun scan(): Inventory = inventory.scan()
+class InventoryController(private val discovery: Discovery) {
+  @PostMapping("/api/inventory/scan") fun scan(): Inventory = discovery.scan()
+
+  @ExceptionHandler(IllegalArgumentException::class)
+  @ResponseStatus(HttpStatus.BAD_REQUEST)
+  fun invalid(): Map<String, String> = mapOf("error" to "CONFIGURATION")
 
   @ExceptionHandler(InventoryException::class)
   @ResponseStatus(HttpStatus.BAD_GATEWAY)

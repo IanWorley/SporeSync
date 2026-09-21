@@ -253,3 +253,12 @@ requeues failed or cancelled work. A backend worker processes one file at a time
 independently of the browser. Interrupted jobs recover at startup, with three
 attempts maximum. Both a PostgreSQL session lock and destination filesystem lock
 protect writes. Run one deployment against a given destination and database.
+
+Automatic discovery runs at the saved interval (five minutes by default). Only
+regular files unchanged in two consecutive successful scans enter the automatic
+queue. Prefer your torrent client's completed-download directory; stability checks
+reduce but cannot eliminate races with active writers. `GET /api/inventory` reports
+the last inventory, attempt/success times and a safe error code. Manual scans use
+`POST /api/inventory/scan`. Disabling automatic downloads keeps discovery active
+and does not cancel already queued jobs. After a restart, two new scans establish
+stability; persisted completed/cancelled jobs remain deduplicated.

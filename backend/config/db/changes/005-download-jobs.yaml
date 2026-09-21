@@ -1,0 +1,20 @@
+databaseChangeLog:
+  - changeSet:
+      id: 005-download-jobs
+      author: sporesync
+      changes:
+        - sql:
+            dbms: postgresql
+            sql: |
+              CREATE TABLE download_jobs (
+                id text PRIMARY KEY,
+                spec text NOT NULL,
+                state text NOT NULL CHECK (state IN ('QUEUED','RUNNING','COMPLETE','FAILED','CANCELLED')),
+                bytes_done bigint NOT NULL DEFAULT 0 CHECK (bytes_done >= 0),
+                attempts integer NOT NULL DEFAULT 0,
+                error text,
+                cancel_requested boolean NOT NULL DEFAULT false,
+                created_at timestamptz NOT NULL DEFAULT now(),
+                updated_at timestamptz NOT NULL DEFAULT now()
+              );
+              CREATE INDEX download_jobs_pending ON download_jobs (created_at) WHERE state IN ('QUEUED', 'RUNNING');

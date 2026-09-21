@@ -1,11 +1,17 @@
-package dev.sporesync
+package dev.sporesync.model.inventory
 
+import dev.sporesync.config.SshConnectionSettings
+import dev.sporesync.model.download.DownloadJobRepository
+import dev.sporesync.model.download.DownloadSpec
+import dev.sporesync.model.settings.DEFAULT_SCAN_SECONDS
+import dev.sporesync.model.settings.DownloadSettings
+import dev.sporesync.model.settings.DownloadSettingsStore
+import dev.sporesync.model.settings.MAX_SCAN_SECONDS
+import dev.sporesync.model.settings.MIN_SCAN_SECONDS
 import java.time.Instant
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
-import org.springframework.web.bind.annotation.GetMapping
-import org.springframework.web.bind.annotation.RestController
 
 private const val DISCOVERY_POLL_MILLIS = 1000L
 private const val MILLIS_PER_SECOND = 1000L
@@ -19,9 +25,9 @@ data class DiscoverySnapshot(
 
 @Service
 class Discovery(
-    private val remote: RemoteInventory,
-    private val configuration: DownloadConfiguration,
-    private val jobs: DownloadJobs,
+    private val remote: InventoryScanner,
+    private val configuration: DownloadSettingsStore,
+    private val jobs: DownloadJobRepository,
     @param:Value("\${sporesync.background.enabled:true}") private val enabled: Boolean,
 ) {
   @Volatile private var snapshot = DiscoverySnapshot()
@@ -90,9 +96,4 @@ class Discovery(
     previousEntries = inventory.entries.associateBy { it.path }
     snapshot = snapshot.copy(inventory = inventory, lastSuccess = Instant.now(), error = null)
   }
-}
-
-@RestController
-class DiscoveryController(private val discovery: Discovery) {
-  @GetMapping("/api/inventory") fun state(): DiscoverySnapshot = discovery.state()
 }

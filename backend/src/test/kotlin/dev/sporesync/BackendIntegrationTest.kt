@@ -134,8 +134,9 @@ class BackendIntegrationTest {
     settings.set(SshSettingKeys.TIMEOUT_MILLIS, SSH_TIMEOUT_MILLIS)
   }
 
-  @Test
-  fun `remote replacement during transfer prevents completion`() {
+  @ParameterizedTest
+  @ValueSource(booleans = [false, true])
+  fun `remote replacement during transfer prevents completion`(replaceByRename: Boolean) {
     val source = "/replacement-source"
     ssh.execInContainer("mkdir", "-p", source)
     ssh.execInContainer("sh", "-c", "printf original > $source/file")
@@ -151,7 +152,13 @@ class BackendIntegrationTest {
         assertThrows(DownloadFailure::class.java) {
               downloader.transfer(
                   spec,
-                  { ssh.execInContainer("sh", "-c", "printf replaced > $source/file") },
+                  {
+                    val command =
+                        if (replaceByRename)
+                            "printf replaced > $source/new; touch -r $source/file $source/new; mv $source/new $source/file"
+                        else "printf replaced > $source/file"
+                    assertEquals(0, ssh.execInContainer("sh", "-c", command).exitCode)
+                  },
               ) {
                 false
               }
@@ -685,6 +692,18 @@ class BackendIntegrationTest {
     assertTrue(!Files.exists(target))
     downloader.transfer(spec, {}) { false }
     assertEquals("sample\n", Files.readString(target))
+  }
+
+  @Test
+  fun `publishing never replaces a destination created during transfer`(@TempDir root: Path) {
+    val staging = Files.writeString(root.resolve("staging.part"), "download")
+    val target = Files.writeString(root.resolve("target"), "existing data")
+    assertEquals(
+        "LOCAL_CONFLICT",
+        assertThrows(DownloadFailure::class.java) { downloader.publish(staging, target) }.code,
+    )
+    assertEquals("existing data", Files.readString(target))
+    assertEquals("download", Files.readString(staging))
   }
 
   @Test

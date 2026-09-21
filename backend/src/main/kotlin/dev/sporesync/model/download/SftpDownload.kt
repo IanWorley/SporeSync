@@ -4,10 +4,10 @@ import dev.sporesync.config.SshSettings
 import dev.sporesync.model.inventory.EntryType
 import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
+import java.nio.file.FileAlreadyExistsException
 import java.nio.file.Files
 import java.nio.file.LinkOption.NOFOLLOW_LINKS
 import java.nio.file.Path
-import java.nio.file.StandardCopyOption.ATOMIC_MOVE
 import java.nio.file.StandardOpenOption.*
 import java.security.MessageDigest
 import net.schmizz.sshj.SSHClient
@@ -60,8 +60,8 @@ class SftpDownload(private val credentials: SshSettings) : FileDownloader {
             if (sftp.canonicalize(source) != "$canonicalRoot/${entry.path}")
                 throw DownloadFailure("REMOTE_SYMLINK")
             sftp.open(source, setOf(OpenMode.READ)).use { remote ->
-              fun unchanged() {
-                val attributes = remote.fetchAttributes()
+              fun unchanged(file: RemoteFile = remote) {
+                val attributes = file.fetchAttributes()
                 if (
                     attributes.size != entry.sizeBytes ||
                         attributes.mtime != entry.modifiedTimeNs / NANOS_PER_SECOND
@@ -103,23 +103,38 @@ class SftpDownload(private val credentials: SshSettings) : FileDownloader {
                 }
                 local.force(true)
                 unchanged()
-                // A second read detects content replacement even when size and timestamps are
-                // reused.
-                if (!digest.digest().contentEquals(hash(remote, entry.sizeBytes, cancelled)))
-                    throw DownloadFailure("REMOTE_CHANGED")
-                unchanged()
+                // Reopen the path: the original handle can still refer to an unlinked file
+                // after replacement by rename, even when its metadata and bytes are unchanged.
+                if (sftp.canonicalize(source) != "$canonicalRoot/${entry.path}")
+                    throw DownloadFailure("REMOTE_SYMLINK")
+                sftp.open(source, setOf(OpenMode.READ)).use { current ->
+                  unchanged(current)
+                  if (!digest.digest().contentEquals(hash(current, entry.sizeBytes, cancelled)))
+                      throw DownloadFailure("REMOTE_CHANGED")
+                  unchanged(current)
+                }
               }
             }
           }
         }
         if (cancelled()) throw DownloadFailure("CANCELLED")
         if (staging != target) {
-          if (Files.exists(target, NOFOLLOW_LINKS)) throw DownloadFailure("LOCAL_CONFLICT")
-          Files.move(staging, target, ATOMIC_MOVE)
+          publish(staging, target)
         }
         progress(entry.sizeBytes)
       }
     }
+  }
+
+  internal fun publish(staging: Path, target: Path) {
+    // Creating a hard link publishes complete bytes atomically and never replaces a target.
+    // Keep staging on failure; filesystems without hard links must fail safely.
+    try {
+      Files.createLink(target, staging)
+    } catch (_: FileAlreadyExistsException) {
+      throw DownloadFailure("LOCAL_CONFLICT")
+    }
+    Files.delete(staging)
   }
 
   private fun hash(remote: RemoteFile, size: Long, cancelled: () -> Boolean): ByteArray {

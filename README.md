@@ -234,3 +234,14 @@ and destination must be absolute paths. Defaults are a five-minute scan interval
 automatic downloads enabled, and temporary files enabled. Credentials and trusted
 host keys remain external configuration. Settings changes apply to future jobs;
 already queued jobs retain their original source and destination.
+
+## Safe transfer policy
+
+New downloads use `.sporesync/<path-hash>.part` under the destination, then an
+atomic rename. `.sporesync` is reserved and cannot be downloaded as a source path.
+An existing final file resumes in place even when temporary mode is enabled;
+it is never moved away or truncated. Every existing byte must match the remote
+prefix. Smaller or replaced remote content reports a conflict. Equal-size content
+is compared completely. Transfers check remote metadata and reread content before
+completion, retaining partial data on cancellation or failure. Keep source and
+local download directories under trusted control; do not edit them during a job.

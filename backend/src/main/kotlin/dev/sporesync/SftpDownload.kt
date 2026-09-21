@@ -49,9 +49,9 @@ class SftpDownload(private val credentials: SshSettings) {
           ssh.connectTimeout = spec.settings.timeoutMillis
           ssh.timeout = spec.settings.timeoutMillis
           ssh.loadKnownHosts(Path.of(credentials.knownHosts).toFile())
-          val key = ssh.loadKeys(credentials.privateKey, credentials.passphrase)
+          val authenticate = credentials.prepareAuthentication(ssh, spec.settings.username)
           ssh.connect(spec.settings.host, spec.settings.port)
-          ssh.authPublickey(spec.settings.username, key)
+          authenticate()
           ssh.newSFTPClient().use { sftp ->
             val source = spec.settings.source.trimEnd('/') + "/" + entry.path
             val canonicalRoot = sftp.canonicalize(spec.settings.source).trimEnd('/')

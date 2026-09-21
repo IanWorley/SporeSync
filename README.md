@@ -83,12 +83,24 @@ Credentials, host trust, and the local scanner path remain external configuratio
 Set these environment variables before running `elide run` from `backend/`:
 
 ```bash
+export SPORESYNC_SSH_AUTHENTICATION=KEY # Default; existing key setups still work.
 export SPORESYNC_SSH_PRIVATEKEY=/absolute/path/to/private-key
 export SPORESYNC_SSH_KNOWNHOSTS=/absolute/path/to/known_hosts
 ```
 
-The known-hosts file must contain a host key verified through a trusted channel;
-unknown or changed keys are rejected. Optional settings are
+For SSH account password login, set `SPORESYNC_SSH_AUTHENTICATION=PASSWORD`
+and supply `SPORESYNC_SSH_PASSWORD` through your service's secret/environment
+mechanism. No private-key file or key passphrase is required in password mode.
+`KEY` requires a private-key file; `PASSWORD` requires a nonempty password, used
+exactly as supplied. Only the selected method is attempted, with no fallback.
+This supports SSH password authentication, not interactive MFA challenges.
+Restart the backend after changing authentication or credentials. The same choice
+applies to manual/scheduled scans and background SFTP downloads. Authentication
+and credentials remain external configuration, outside the dashboard settings API
+and database job snapshots.
+
+The known-hosts file is required in both modes and must contain a host key verified
+through a trusted channel; unknown or changed keys are rejected. Optional settings are
 `SPORESYNC_SSH_PASSPHRASE` (for encrypted keys) and `SPORESYNC_SSH_SCANNER`
 (`../scanner/inventory.py`). Keep credentials outside tracked files.
 The seedbox needs Python 3.9+, SFTP, command access, and a writable home directory.

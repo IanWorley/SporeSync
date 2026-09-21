@@ -29,10 +29,17 @@ private const val MAX_ERROR_BYTES = 64 * 1024
 private const val PRIVATE_DIRECTORY_MODE = 448 // POSIX 0700
 private const val SUCCESS_EXIT = 0
 
+enum class SshAuthentication {
+  KEY,
+  PASSWORD,
+}
+
 // Deliberately not a data class: generated toString must not expose credentials.
 @Component
 @ConfigurationProperties("sporesync.ssh")
 class SshSettings {
+  var authentication: SshAuthentication = SshAuthentication.KEY
+  var password: String = ""
   var privateKey: String = ""
   var passphrase: String = ""
   var knownHosts: String = ""
@@ -40,11 +47,30 @@ class SshSettings {
 
   fun validate() {
     require(
-        listOf(privateKey, knownHosts, scanner).all {
+        listOf(knownHosts, scanner).all {
           it.isNotBlank() && Files.isRegularFile(Path.of(it))
         }
     )
+    when (authentication) {
+      SshAuthentication.KEY ->
+          require(privateKey.isNotBlank() && Files.isRegularFile(Path.of(privateKey)))
+      SshAuthentication.PASSWORD -> require(password.isNotEmpty())
+    }
   }
+
+  // Load key material before connecting so local key failures remain configuration errors.
+  fun prepareAuthentication(ssh: SSHClient, username: String): () -> Unit =
+      when (authentication) {
+        SshAuthentication.KEY -> {
+          val key = ssh.loadKeys(privateKey, passphrase)
+          val authenticate: () -> Unit = { ssh.authPublickey(username, key) }
+          authenticate
+        }
+        SshAuthentication.PASSWORD -> {
+          val secret = password
+          { ssh.authPassword(username, secret) }
+        }
+      }
 }
 
 enum class EntryType {
@@ -95,11 +121,11 @@ class RemoteInventory(
         ssh.transport.timeoutMs = connection.timeoutMillis
         ssh.connection.timeoutMs = connection.timeoutMillis
         ssh.loadKnownHosts(Path.of(settings.knownHosts).toFile())
-        val key = ssh.loadKeys(settings.privateKey, settings.passphrase)
+        val authenticate = settings.prepareAuthentication(ssh, connection.username)
         stage = InventoryFailure.CONNECTION
         ssh.connect(connection.host, connection.port)
         stage = InventoryFailure.AUTHENTICATION
-        ssh.authPublickey(connection.username, key)
+        authenticate()
         stage = InventoryFailure.UPLOAD
         val remoteScanner = ssh.newSFTPClient().use { upload(it, scanner) }
         stage = InventoryFailure.EXECUTION

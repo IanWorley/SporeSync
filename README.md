@@ -262,3 +262,7 @@ the last inventory, attempt/success times and a safe error code. Manual scans us
 `POST /api/inventory/scan`. Disabling automatic downloads keeps discovery active
 and does not cancel already queued jobs. After a restart, two new scans establish
 stability; persisted completed/cancelled jobs remain deduplicated.
+
+The dashboard at `/` includes file filtering, manual scan/download actions,
+settings, and a durable queue with progress, cancellation and retry. It polls every
+two seconds without overlapping requests and leaves transfers running when closed.

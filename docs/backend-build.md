@@ -79,8 +79,9 @@ its restart watcher. Normal builds/runs exclude DevTools. LiveReload is disabled
   `config/db/changelog.yaml` relative to the working directory. Do not run from
   the repository root with only `-p backend`; that does not establish Spring's
   configuration working directory.
-- `elide build` compiles classes. Executable JAR/container packaging is deferred;
-  a deployment must eventually carry both configuration and dependencies.
+- `elide build` compiles classes. Releases carry source, configuration and built
+  frontend assets; the target resolves dependencies and compiles with native Elide.
+  See [deployment](deployment.md) for the verified bundle/startup workflow.
 - Kotlin configuration uses `proxyBeanMethods = false`, avoiding an all-open
   compiler plugin for the scaffold. Revisit proxy requirements when adding
   transactional services; do not assume final Kotlin classes can be proxied.
@@ -90,8 +91,9 @@ than creating or updating it. Spring Data JPA repositories supply transaction
 boundaries for settings reads and writes. The entity has an explicit protected
 no-argument constructor and open properties for JPA, without compiler plugins.
 The settings service does not need transactional proxying for its single repository
-calls. SSHJ supplies the inventory connection; transfer jobs, scheduling, settings
-APIs, and application security are later slices.
+calls. SSHJ supplies inventory and SFTP connections; JDBC supplies durable job
+state. Transfers, scheduling and settings APIs are implemented. Application login
+remains deferred.
 
 Sources: [JVM workflow](https://elide.help/docs/jvm),
 [manifest reference](https://elide.help/docs/elide-pkl-reference),
@@ -116,3 +118,11 @@ served the actual Vite HTML and JavaScript without Vite running. Vite then
 successfully proxied `/api/status` to a custom backend port via `BACKEND_URL`;
 an unknown API path returned 404. The backend suite also verifies external
 static fixtures and missing assets. Scanner/SSH files were unchanged.
+
+## Full application verification (2026-09-20)
+
+`elide build`, `elide test` (50 passed, zero skipped), and
+`elide format -- -n src` passed. Frontend `npm ci`/`npm run build` and all 9
+scanner/SSH tests passed. `python3 scripts/verify-runtime.py` verifies production
+assets, automatic real-SFTP download, cancellation/retry, and process-kill recovery
+with exact SHA-256 comparison of a 128 MiB transfer against disposable PostgreSQL.

@@ -19,7 +19,7 @@ the new implementation; it is not a migration plan for the earlier codebase.
   from the local byte count and append the remaining bytes. In temporary-file
   mode, apply the same behavior to the partial download. Size alone does not
   establish that an existing local file is a matching prefix of the remote file;
-  handling replaced files remains an implementation decision.
+  existing prefixes are verified byte for byte and replacement conflicts fail safely.
 - Make temporary `.part` files optional: when enabled, download to the temporary
   name and rename after completion; when disabled, write to the final filename.
   Track completion independently of the filename in both modes.
@@ -27,9 +27,9 @@ the new implementation; it is not a migration plan for the earlier codebase.
 ## Proposed starting design
 
 Vite is the chosen frontend tooling, with React and TypeScript the preferred
-frontend stack and Tailwind CSS 4 for styling. A minimal Vite/React/TypeScript
-entry page now proxies API requests during development and builds external static
-assets for Spring to serve; dashboard screens remain deferred. Elide builds the
+frontend stack and Tailwind CSS 4 for styling. The Vite/React/TypeScript
+dashboard proxies API requests during development and builds external static
+assets for Spring to serve. Settings, inventory and queue screens are implemented. Elide builds the
 Kotlin/Spring Boot scaffold; compatibility has been verified for the versions recorded below.
 Do not silently substitute Maven or Gradle.
 Spring Web, PostgreSQL, Liquibase, validation, and Kotlin JSON support are included
@@ -47,9 +47,8 @@ using JSON in place of Python pickle. It requires SSH command access and Python
 on the seedbox; no seedbox HTTP service or cron job is needed.
 
 Start with one seedbox and one active download. Persist transfer state in
-PostgreSQL and run downloads as background jobs within Spring. Use server-sent
-events for dashboard updates as a proposed choice; browser HTTP polling is also
-viable and is separate from remote filesystem discovery.
+PostgreSQL and run downloads as background jobs within Spring. Use browser HTTP polling every two seconds for dashboard updates, independently
+of scheduled remote filesystem discovery.
 
 Configuration should cover SSH host, port, username and authentication, remote
 source directory, local download directory, scan interval, and temporary-file
@@ -68,20 +67,18 @@ and constrain downloaded paths to the configured destination.
 Acceptance: given SSH credentials and a remote directory, SporeSync returns an
 accurate inventory without requiring a separately managed seedbox service.
 
-Next, download one file with measurable progress. Temporary-file/resume support
-and persistent job state can then develop alongside each other, with their
-restart behavior integrated before automatic queuing is enabled. Settings APIs
-and dashboard work can start as their configuration and API contracts stabilize;
-they do not need to wait for every transfer feature. See the dependencies below.
+The remaining slices below are implemented and verified. Their original feature
+boundaries and dependencies are retained as a guide to the stacked PRs.
 
-## Choices to resolve as we reach them
+## Resolved behavior
 
-- Choose the default for temporary-file mode and the scan interval.
-- Decide whether to scan only a torrent client's completed-download directory.
-- Define behavior for equal-size files, smaller remote files, replaced content,
-  and files changing during a transfer. Also define how an existing final file
-  resumes when temporary-file mode is enabled, plus cancellation and retry.
-- Confirm subfolder preservation and deployment packaging.
+Defaults are temporary files enabled and five-minute scans. Preserve subfolders.
+Recommend a completed-download source directory and require two unchanged scans
+for automatic eligibility. Verify all existing bytes before appending; equal files
+require full comparison, and smaller/replaced remote content fails without truncation.
+Existing final files resume in place even in temporary mode. Cancellation retains
+partials; retry is explicit after cancellation or three failed attempts. Deploy a
+source-and-static-assets release with Elide on the host; see [deployment](deployment.md).
 
 ## Implementation slices
 
@@ -126,11 +123,11 @@ commitment to finish an entire feature in one PR. The initial reset is exempt.
 ### Dependencies and independent work
 
 Slice numbers identify scope, not a strictly sequential schedule. The initial
-scaffold is limited to slice 2: a verified Elide/Spring build, a minimal web
+scaffold was limited to slice 2: a verified Elide/Spring build, a minimal web
 endpoint, and HTTP/PostgreSQL integration tests. It includes database dependencies
 and Liquibase setup. A subsequent persistence foundation adds Spring Data JPA,
 the `sporesync_settings` table, and typed conversion of string values. SSH,
-transfers, scheduling, and settings APIs belong to later slices.
+transfers, scheduling, and settings APIs were implemented in the dependent slices.
 
 | Slice | Prerequisites | Work that can proceed independently |
 |-------|---------------|-------------------------------------|
@@ -163,12 +160,34 @@ paths or missing metadata. See the README for configuration and
 SSH host, port, username, source directory, and timeout are database-backed
 application settings; migrations seed port and timeout without overwriting values.
 Credentials and host-key trust remain external configuration.
-Transfers, scheduling, and the dashboard remain pending.
+All planned implementation slices are now implemented in the stacked PRs below.
+Application login remains explicitly deferred. Verification includes 50 backend
+integration tests, 9 scanner/SSH tests, strict TypeScript/Vite builds and real
+process-kill recovery. Browser visual verification was unavailable in this environment.
 
-### Remaining implementation decisions
+| PR | Outcome |
+|----|---------|
+| #63–64 | Backend SSH inventory and database-backed connection settings |
+| #65 | Validated settings API and defaults |
+| #66 | Durable queue, progress and lifecycle storage |
+| #67 | SFTP, content-verified resume and path confinement |
+| #68 | Background worker, cancellation, retry and exclusive ownership |
+| #69 | Scheduled discovery and automatic stable-file queue |
+| #70–71 | Settings, inventory and download dashboard |
+| #72–73 | Superseded: fixes folded into #65–70; acceptance script moved to #74 |
+| #74 | Deployment bundle, operational docs and process-crash acceptance check |
+| #75 | Optional password authentication, branching from #67 |
+
+Backend order is #65 → #66 → #67 → #68 → #69, starting from main (#64 merged).
+Settings UI #70 branches from #65; authentication #75 branches from #67.
+Dashboard #71 joins #69 and #70, and packaging #74 follows #71.
+Merge #70 before #71; its changes are included in #71 until then. Retarget each
+PR to main once its prerequisites merge. #75 can merge independently of the UI.
+
+### Implemented policies
 
 Use five-minute scans and temporary files by default. Preserve subdirectories.
-Use a completed-download directory when available; otherwise automatic queuing
+Use a completed-download directory when available; automatic queuing
 requires unchanged size and modification time in two consecutive scans. Compare
 existing bytes with the remote prefix before appending. Equal files require full
 comparison; smaller or replaced content fails safely without truncating local

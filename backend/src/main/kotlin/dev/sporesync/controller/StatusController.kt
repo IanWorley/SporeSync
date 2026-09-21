@@ -1,5 +1,6 @@
-package dev.sporesync
+package dev.sporesync.controller
 
+import dev.sporesync.model.ApplicationStatus
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.RestController
 
@@ -12,5 +13,3 @@ class StatusController {
     const val SERVICE_NAME = "sporesync"
   }
 }
-
-data class ApplicationStatus(val application: String)

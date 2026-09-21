@@ -10,6 +10,15 @@ Prefer simple, typed interfaces and named constants for policies.
 SSH connection settings live in `sporesync_settings`; credentials, known-hosts,
 and the local scanner path remain external. See README for setup and migration.
 
+## Source layout
+
+Use `model/`, `controller/`, and `config/` under the backend Kotlin package.
+Models include domain types, persistence, and business logic; controllers handle
+HTTP. The React frontend provides the view, with `model/`, `view/`, `controller/`,
+and `config/` under `frontend/src/`. Keep entry points and tool manifests at their
+standard locations, runtime backend configuration in `backend/config/`, and the
+remote scanner as one independently uploadable script. See README for the layout.
+
 ## Required checks
 
 - CI: `.github/workflows/ci.yml` runs backend build/format/tests, frontend

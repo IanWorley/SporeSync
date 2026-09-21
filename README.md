@@ -6,6 +6,25 @@ Kotlin/Spring Boot backend with SSH inventory discovery and a minimal
 Vite/React/TypeScript frontend. Downloads and dashboard features are subsequent
 slices in the plan.
 
+## Continuous integration
+
+[Build and test](.github/workflows/ci.yml) runs on every pull request, including
+PRs targeting feature branches, on pushes to `main`, and by manual dispatch.
+Three independent Ubuntu jobs check:
+
+- Backend dependency installation, `elide build`, Kotlin formatting, and
+  `elide test` with disposable PostgreSQL and SSH Testcontainers.
+- Frontend `npm ci` and `npm run build`, including TypeScript checking.
+- Scanner unit tests and real SSH tests with `SPORESYNC_SSH_TEST=1`.
+
+The runners use Docker directly; missing Docker fails the checks. Tests create
+their own temporary credentials and containers, so no seedbox or database secrets
+are needed. CI downloads the documented Elide release with a pinned Linux archive
+SHA-256 and uses Node 24 and Python 3.12. When upgrading Elide, update the workflow
+release/checksum along with `backend/.elideversion` and the backend build notes.
+The frontend has no unit-test suite yet; its CI check validates types and builds
+production assets. This workflow builds and tests only; it does not deploy.
+
 ## Build and test the backend
 
 Install [Elide](https://elide.help/docs/installation) and start Docker. The

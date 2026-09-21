@@ -810,6 +810,49 @@ class BackendIntegrationTest {
   }
 
   @Test
+  fun `published content preserves normal umask permissions`(@TempDir root: Path) {
+    val referenceDirectory = Files.createDirectory(root.resolve("reference"))
+    val referenceFile = Files.createFile(referenceDirectory.resolve("file"))
+    PosixDownloadStorage().open(root.toString(), "nested/file", true).use { download ->
+      download.publish()
+    }
+    assertEquals(
+        Files.getPosixFilePermissions(referenceDirectory),
+        Files.getPosixFilePermissions(root.resolve("nested")),
+    )
+    assertEquals(
+        Files.getPosixFilePermissions(referenceFile),
+        Files.getPosixFilePermissions(root.resolve("nested/file")),
+    )
+    assertEquals(
+        java.nio.file.attribute.PosixFilePermissions.fromString("rwx------"),
+        Files.getPosixFilePermissions(root.resolve(".sporesync")),
+    )
+  }
+
+  @Test
+  fun `failed publication sync retains staging and reports failure`(@TempDir root: Path) {
+    var failSync = false
+    val real = Posix().libc
+    val failingSync =
+        object : LibC by real {
+          override fun fsync(descriptor: Int): Int = if (failSync) -1 else real.fsync(descriptor)
+        }
+    PosixDownloadStorage(Posix(failingSync)).open(root.toString(), "file", true).use { download ->
+      download.file.write(ByteBuffer.wrap("download".toByteArray()))
+      download.file.force()
+      failSync = true
+      assertEquals(
+          "LOCAL_IO_FAILED",
+          assertThrows(DownloadFailure::class.java) { download.publish() }.code,
+      )
+      Files.list(root.resolve(".sporesync")).use { paths ->
+        assertTrue(paths.anyMatch { it.fileName.toString().endsWith(".part") })
+      }
+    }
+  }
+
+  @Test
   fun `resume transfers the suffix after a large verified prefix`() {
     val source = "/resume-source"
     val prefixBytes = 128 * 1024

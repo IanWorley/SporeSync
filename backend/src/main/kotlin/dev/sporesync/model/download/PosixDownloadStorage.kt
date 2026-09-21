@@ -13,6 +13,8 @@ import org.springframework.stereotype.Component
 private const val STAGING_DIRECTORY = ".sporesync"
 private const val OWNER_DIRECTORY_MODE = 448 // POSIX 0700
 private const val OWNER_FILE_MODE = 384 // POSIX 0600
+private const val CONTENT_DIRECTORY_MODE = 511 // POSIX 0777, reduced by umask
+private const val CONTENT_FILE_MODE = 438 // POSIX 0666, reduced by umask
 private const val ALREADY_EXISTS = 17 // POSIX EEXIST
 private const val NOT_FOUND = 2 // POSIX ENOENT
 private const val READ_WRITE = 2 // POSIX O_RDWR
@@ -67,7 +69,7 @@ class PosixDownloadStorage internal constructor(private val api: Posix) : Downlo
     try {
       // The configured root may be an explicit alias. Descendants are always opened without links.
       val root = own(api.root(Path.of(destination)))
-      val staging = own(root.directory(STAGING_DIRECTORY))
+      val staging = own(root.directory(STAGING_DIRECTORY, OWNER_DIRECTORY_MODE))
       staging.requirePrivate()
       own(staging.lock())
       var parent = root
@@ -86,8 +88,10 @@ class PosixDownloadStorage internal constructor(private val api: Posix) : Downlo
         override fun publish() {
           if (staged) {
             staging.link(key, parent, name)
+            parent.sync()
             staging.unlink(key)
-          }
+            staging.sync()
+          } else parent.sync()
         }
 
         override fun close() {
@@ -220,14 +224,13 @@ internal class Posix(val libc: LibC = Native.load(Platform.C_LIBRARY_NAME, LibC:
   }
 
   inner class Directory(private val descriptor: Int) : AutoCloseable {
-    fun directory(name: String): Directory {
+    fun directory(name: String, mode: Int = CONTENT_DIRECTORY_MODE): Directory {
       var child = libc.openat(descriptor, name, directoryFlags, NO_FLAGS)
       if (child < 0 && Native.getLastError() == NOT_FOUND) {
-        if (
-            libc.mkdirat(descriptor, name, OWNER_DIRECTORY_MODE) < 0 &&
-                Native.getLastError() != ALREADY_EXISTS
-        )
+        val created = libc.mkdirat(descriptor, name, mode)
+        if (created < 0 && Native.getLastError() != ALREADY_EXISTS)
             throw DownloadFailure("UNSAFE_DESTINATION")
+        if (created == 0) sync()
         child = libc.openat(descriptor, name, directoryFlags, NO_FLAGS)
       }
       return Directory(check(child))
@@ -271,13 +274,14 @@ internal class Posix(val libc: LibC = Native.load(Platform.C_LIBRARY_NAME, LibC:
               nonBlocking or
               (if (create) this@Posix.create else NO_FLAGS) or
               (if (exclusive) this@Posix.exclusive else NO_FLAGS)
-      val fd = libc.openat(descriptor, name, flags, OWNER_FILE_MODE)
+      val fd = libc.openat(descriptor, name, flags, CONTENT_FILE_MODE)
       if (fd < 0 && !create && Native.getLastError() == NOT_FOUND) return null
       check(fd)
       try {
         // These kernel descriptor paths refer to the held inode, not to its mutable original name.
         val handle = descriptorPath(fd)
         require(Files.isRegularFile(handle)) { "UNSAFE_DESTINATION" }
+        if (create) sync()
         return NativeFile(fd)
       } catch (error: Throwable) {
         libc.close(fd)
@@ -292,6 +296,10 @@ internal class Posix(val libc: LibC = Native.load(Platform.C_LIBRARY_NAME, LibC:
             else "UNSUPPORTED_DESTINATION"
         )
       }
+    }
+
+    fun sync() {
+      if (libc.fsync(descriptor) < 0) throw DownloadFailure("LOCAL_IO_FAILED")
     }
 
     fun unlink(name: String) {

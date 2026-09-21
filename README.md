@@ -266,7 +266,9 @@ descriptors without following descendant symlinks. Renaming a checked parent and
 replacing its name with a symlink cannot redirect writes or publication. The
 explicitly configured root may be a filesystem alias. `.sporesync` is reserved,
 must belong to the service account, and is secured to owner-only permissions,
-including when upgrading a staging directory from an earlier version. Do not
+including when upgrading a staging directory from an earlier version. Download
+content uses normal umask-controlled file and directory permissions. Directory
+entries are synced before completion is reported. Do not
 share the service account with untrusted processes or edit active download data.
 
 An existing final file resumes in place even when temporary mode is enabled;

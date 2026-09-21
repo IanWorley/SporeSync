@@ -6,6 +6,26 @@ Kotlin/Spring Boot backend with SSH inventory discovery and a minimal
 Vite/React/TypeScript frontend. Downloads and dashboard features are subsequent
 slices in the plan.
 
+## Source layout
+
+Application code follows model, view, controller, and config responsibilities:
+
+- `backend/src/main/kotlin/dev/sporesync/model/`: inventory types and scanning
+  logic, plus settings entities, repositories, and typed persistence services.
+- `backend/src/main/kotlin/dev/sporesync/controller/`: HTTP endpoints and error responses.
+- `backend/src/main/kotlin/dev/sporesync/config/`: external SSH configuration and
+  database-backed connection settings. Runtime properties and Liquibase migrations
+  remain in `backend/config/`.
+- `frontend/src/model/`: typed API data and response validation.
+- `frontend/src/view/`: React markup and styles; this frontend is the application's view.
+- `frontend/src/controller/`: hooks that load data and manage view state.
+- `frontend/src/config/`: browser API configuration, including endpoint paths.
+
+`Application.kt` and `main.tsx` remain small entry points. Vite, TypeScript, and
+Elide manifests stay at their tool-discovered locations. The remote scanner stays
+in `scanner/inventory.py` as a dependency-free, single-file SSH upload; its CLI
+and the existing build, test, and runtime configuration paths are unchanged.
+
 ## Continuous integration
 
 [Build and test](.github/workflows/ci.yml) runs on every pull request, including
@@ -156,7 +176,7 @@ To use another backend port, set `BACKEND_URL=http://127.0.0.1:9090 npm run dev`
 not a browser-exposed variable. It can also go in `frontend/.env.local`.
 
 Tailwind CSS 4 runs through the official `@tailwindcss/vite` plugin.
-`frontend/src/styles.css` imports Tailwind, and React components use utility classes
+`frontend/src/view/styles.css` imports Tailwind, and React components use utility classes
 directly. Vite handles CSS hot updates and emits the production stylesheet into
 `dist/assets/` for Spring to serve. No separate Tailwind CLI or PostCSS setup is needed.
 

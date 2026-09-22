@@ -3,152 +3,100 @@ package dev.sporesync.model.download
 import dev.sporesync.config.SshSettings
 import dev.sporesync.model.inventory.EntryType
 import java.nio.ByteBuffer
-import java.nio.channels.FileChannel
-import java.nio.file.Files
-import java.nio.file.LinkOption.NOFOLLOW_LINKS
-import java.nio.file.Path
-import java.nio.file.StandardCopyOption.ATOMIC_MOVE
-import java.nio.file.StandardOpenOption.*
 import java.security.MessageDigest
 import net.schmizz.sshj.SSHClient
 import net.schmizz.sshj.sftp.OpenMode
-import net.schmizz.sshj.sftp.RemoteFile
 import org.springframework.stereotype.Service
 
 private const val COPY_BUFFER_BYTES = 64 * 1024
-private const val NANOS_PER_SECOND = 1_000_000_000L
-private const val STAGING_DIRECTORY = ".sporesync"
+private const val PIPELINED_READS = 16
 
 class DownloadFailure(val code: String) : RuntimeException(code)
 
 @Service
-class SftpDownload(private val credentials: SshSettings) : FileDownloader {
+class SftpDownload(private val credentials: SshSettings, private val storage: DownloadStorage) :
+    FileDownloader {
   override fun transfer(spec: DownloadSpec, progress: (Long) -> Unit, cancelled: () -> Boolean) {
     spec.settings.validate()
-    val entry = spec.entry
-    require(entry.type == EntryType.file)
-    val configuredRoot = Path.of(spec.settings.destination).normalize()
-    Files.createDirectories(configuredRoot)
-    // Resolve the explicitly configured root once; only descendants must be link-free.
-    val root = configuredRoot.toRealPath()
-    val target = safeTarget(root, entry.path)
-    val lockPath = safeTarget(root, "$STAGING_DIRECTORY/worker.lock", internal = true)
-    FileChannel.open(lockPath, CREATE, WRITE, NOFOLLOW_LINKS).use { lockChannel ->
-      val lock = lockChannel.tryLock() ?: throw DownloadFailure("DESTINATION_BUSY")
-      lock.use {
-        val staging =
-            if (spec.settings.temporaryFiles && !Files.exists(target, NOFOLLOW_LINKS)) {
-              // Path-based staging survives growth and new inventory versions without name
-              // collisions.
-              val key =
-                  MessageDigest.getInstance("SHA-256")
-                      .digest(entry.path.toByteArray())
-                      .toHexString()
-              safeTarget(root, "$STAGING_DIRECTORY/$key.part", internal = true)
-            } else target
-        SSHClient().use { ssh ->
-          credentials.validate()
-          ssh.connectTimeout = spec.settings.timeoutMillis
-          ssh.timeout = spec.settings.timeoutMillis
-          ssh.loadKnownHosts(Path.of(credentials.knownHosts).toFile())
-          val key = ssh.loadKeys(credentials.privateKey, credentials.passphrase)
-          ssh.connect(spec.settings.host, spec.settings.port)
-          ssh.authPublickey(spec.settings.username, key)
-          ssh.newSFTPClient().use { sftp ->
-            val source = spec.settings.source.trimEnd('/') + "/" + entry.path
-            val canonicalRoot = sftp.canonicalize(spec.settings.source).trimEnd('/')
-            if (sftp.canonicalize(source) != "$canonicalRoot/${entry.path}")
-                throw DownloadFailure("REMOTE_SYMLINK")
-            sftp.open(source, setOf(OpenMode.READ)).use { remote ->
-              fun unchanged() {
-                val attributes = remote.fetchAttributes()
-                if (
-                    attributes.size != entry.sizeBytes ||
-                        attributes.mtime != entry.modifiedTimeNs / NANOS_PER_SECOND
-                ) {
-                  throw DownloadFailure("REMOTE_CHANGED")
-                }
-              }
-              unchanged()
-              FileChannel.open(staging, CREATE, READ, WRITE, NOFOLLOW_LINKS).use { local ->
-                if (local.size() > entry.sizeBytes) throw DownloadFailure("LOCAL_CONFLICT")
-                val initialSize = local.size()
-                val digest = MessageDigest.getInstance("SHA-256")
-                val buffer = ByteArray(COPY_BUFFER_BYTES)
-                var position = 0L
-                while (position < entry.sizeBytes) {
-                  if (cancelled()) throw DownloadFailure("CANCELLED")
-                  val length = minOf(buffer.size.toLong(), entry.sizeBytes - position).toInt()
-                  val count = remote.read(position, buffer, 0, length)
-                  if (count <= 0) throw DownloadFailure("REMOTE_CHANGED")
-                  val existing =
-                      minOf(count.toLong(), (initialSize - position).coerceAtLeast(0)).toInt()
-                  if (existing > 0) {
-                    val prefix = ByteBuffer.allocate(existing)
-                    while (prefix.hasRemaining()) {
-                      if (local.read(prefix, position + prefix.position()) <= 0)
-                          throw DownloadFailure("LOCAL_CONFLICT")
-                    }
-                    if (!prefix.array().contentEquals(buffer.copyOf(existing)))
-                        throw DownloadFailure("LOCAL_CONFLICT")
-                  }
-                  if (existing < count) {
-                    val bytes = ByteBuffer.wrap(buffer, existing, count - existing)
-                    local.position(position + existing)
+    require(spec.entry.type == EntryType.file && spec.entry.sizeBytes >= 0)
+    storage.open(spec.settings.destination, spec.entry.path, spec.settings.temporaryFiles).use {
+        target ->
+      val local = target.file
+      val initialSize = local.size()
+      if (initialSize > spec.entry.sizeBytes) throw DownloadFailure("LOCAL_CONFLICT")
+      val digest = MessageDigest.getInstance("SHA-256")
+      val buffer = ByteArray(COPY_BUFFER_BYTES)
+      local.position(0)
+      while (local.position() < initialSize) {
+        if (cancelled()) throw DownloadFailure("CANCELLED")
+        val count =
+            local.read(
+                ByteBuffer.wrap(
+                    buffer,
+                    0,
+                    minOf(buffer.size.toLong(), initialSize - local.position()).toInt(),
+                )
+            )
+        if (count <= 0) throw DownloadFailure("LOCAL_CONFLICT")
+        digest.update(buffer, 0, count)
+      }
+      val prefix = (digest.clone() as MessageDigest).digest().toHexString()
+      SSHClient().use { ssh ->
+        credentials.validate()
+        ssh.connectTimeout = spec.settings.timeoutMillis
+        ssh.timeout = spec.settings.timeoutMillis
+        ssh.transport.timeoutMs = spec.settings.timeoutMillis
+        ssh.connection.timeoutMs = spec.settings.timeoutMillis
+        ssh.loadKnownHosts(java.nio.file.Path.of(credentials.knownHosts).toFile())
+        val key = ssh.loadKeys(credentials.privateKey, credentials.passphrase)
+        ssh.connect(spec.settings.host, spec.settings.port)
+        ssh.authPublickey(spec.settings.username, key)
+        val before = RemoteChecksum.read(ssh, spec, initialSize, cancelled)
+        if (before.prefix != prefix) throw DownloadFailure("LOCAL_CONFLICT")
+        var position = initialSize
+        ssh.newSFTPClient().use { sftp ->
+          sftp.sftpEngine.timeoutMs = spec.settings.timeoutMillis
+          val source = spec.settings.source.trimEnd('/') + "/" + spec.entry.path
+          val root = sftp.canonicalize(spec.settings.source).trimEnd('/')
+          if (sftp.canonicalize(source) != "$root/${spec.entry.path}")
+              throw DownloadFailure("REMOTE_SYMLINK")
+          sftp.open(source, setOf(OpenMode.READ)).use { remote ->
+            remote
+                .ReadAheadRemoteFileInputStream(
+                    PIPELINED_READS,
+                    initialSize,
+                    spec.entry.sizeBytes - initialSize,
+                )
+                .use { input ->
+                  while (position < spec.entry.sizeBytes) {
+                    if (cancelled()) throw DownloadFailure("CANCELLED")
+                    val count =
+                        input.read(
+                            buffer,
+                            0,
+                            minOf(buffer.size.toLong(), spec.entry.sizeBytes - position).toInt(),
+                        )
+                    if (count <= 0) throw DownloadFailure("REMOTE_CHANGED")
+                    val bytes = ByteBuffer.wrap(buffer, 0, count)
                     while (bytes.hasRemaining()) local.write(bytes)
+                    digest.update(buffer, 0, count)
+                    position += count
+                    progress(position)
                   }
-                  digest.update(buffer, 0, count)
-                  position += count
-                  progress(position)
                 }
-                local.force(true)
-                unchanged()
-                // A second read detects content replacement even when size and timestamps are
-                // reused.
-                if (!digest.digest().contentEquals(hash(remote, entry.sizeBytes, cancelled)))
-                    throw DownloadFailure("REMOTE_CHANGED")
-                unchanged()
-              }
-            }
           }
         }
+        local.force()
         if (cancelled()) throw DownloadFailure("CANCELLED")
-        if (staging != target) {
-          if (Files.exists(target, NOFOLLOW_LINKS)) throw DownloadFailure("LOCAL_CONFLICT")
-          Files.move(staging, target, ATOMIC_MOVE)
-        }
-        progress(entry.sizeBytes)
+        if (
+            digest.digest().toHexString() != before.complete ||
+                RemoteChecksum.read(ssh, spec, initialSize, cancelled) != before
+        )
+            throw DownloadFailure("REMOTE_CHANGED")
       }
-    }
-  }
-
-  private fun hash(remote: RemoteFile, size: Long, cancelled: () -> Boolean): ByteArray {
-    val digest = MessageDigest.getInstance("SHA-256")
-    val buffer = ByteArray(COPY_BUFFER_BYTES)
-    var position = 0L
-    while (position < size) {
       if (cancelled()) throw DownloadFailure("CANCELLED")
-      val count =
-          remote.read(position, buffer, 0, minOf(buffer.size.toLong(), size - position).toInt())
-      if (count <= 0) throw DownloadFailure("REMOTE_CHANGED")
-      digest.update(buffer, 0, count)
-      position += count
+      target.publish()
+      progress(spec.entry.sizeBytes)
     }
-    return digest.digest()
-  }
-
-  internal fun safeTarget(root: Path, relative: String, internal: Boolean = false): Path {
-    val parts = relative.split('/')
-    require(parts.all { it.isNotEmpty() && it != "." && it != ".." && '\u0000' !in it })
-    require(internal || parts.first() != STAGING_DIRECTORY)
-    var parent = root
-    for (part in parts.dropLast(1)) {
-      parent = parent.resolve(part)
-      if (!Files.exists(parent, NOFOLLOW_LINKS)) Files.createDirectory(parent)
-      require(Files.isDirectory(parent, NOFOLLOW_LINKS))
-    }
-    val target = parent.resolve(parts.last())
-    require(!Files.exists(target, NOFOLLOW_LINKS) || Files.isRegularFile(target, NOFOLLOW_LINKS))
-    return target
   }
 }

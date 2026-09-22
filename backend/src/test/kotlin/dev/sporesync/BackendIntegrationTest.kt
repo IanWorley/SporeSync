@@ -1,5 +1,6 @@
 package dev.sporesync
 
+import com.sun.jna.Native
 import dev.sporesync.config.SshSettingKeys
 import dev.sporesync.config.SshSettings
 import dev.sporesync.model.ApplicationStatus
@@ -10,7 +11,10 @@ import dev.sporesync.model.download.DownloadRequest
 import dev.sporesync.model.download.DownloadSpec
 import dev.sporesync.model.download.DownloadWorker
 import dev.sporesync.model.download.JobState
+import dev.sporesync.model.download.LibC
 import dev.sporesync.model.download.MAX_DOWNLOAD_ATTEMPTS
+import dev.sporesync.model.download.Posix
+import dev.sporesync.model.download.PosixDownloadStorage
 import dev.sporesync.model.download.SftpDownload
 import dev.sporesync.model.download.WORKER_LOCK_ID
 import dev.sporesync.model.inventory.Discovery
@@ -31,6 +35,7 @@ import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
+import java.nio.ByteBuffer
 import java.nio.file.Files
 import java.nio.file.Path
 import java.security.KeyPairGenerator
@@ -143,22 +148,9 @@ class BackendIntegrationTest {
     settings.set(SshSettingKeys.TIMEOUT_MILLIS, SSH_TIMEOUT_MILLIS)
   }
 
-  @Test
-  fun `connection failures stop retrying after the configured attempt limit`() {
-    jobs.list().forEach { jobs.cancel(it.id) }
-    val spec = transferSpec(false)
-    java.net.ServerSocket(0).use { unavailable ->
-      val job = jobs.enqueue(spec.copy(settings = spec.settings.copy(port = unavailable.localPort)))
-      // A listening non-SSH socket times out; use its port after closure for immediate refusal.
-      unavailable.close()
-      repeat(MAX_DOWNLOAD_ATTEMPTS) { worker.tick() }
-      assertEquals(JobState.FAILED, jobs.find(job.id)?.state)
-      assertEquals(MAX_DOWNLOAD_ATTEMPTS, jobs.find(job.id)?.attempts)
-    }
-  }
-
-  @Test
-  fun `remote replacement during transfer prevents completion`() {
+  @ParameterizedTest
+  @ValueSource(booleans = [false, true])
+  fun `remote replacement during transfer prevents completion`(replaceByRename: Boolean) {
     val source = "/replacement-source"
     ssh.execInContainer("mkdir", "-p", source)
     ssh.execInContainer("sh", "-c", "printf original > $source/file")
@@ -174,7 +166,13 @@ class BackendIntegrationTest {
         assertThrows(DownloadFailure::class.java) {
               downloader.transfer(
                   spec,
-                  { ssh.execInContainer("sh", "-c", "printf replaced > $source/file") },
+                  {
+                    val command =
+                        if (replaceByRename)
+                            "printf replaced > $source/new; touch -r $source/file $source/new; mv $source/new $source/file"
+                        else "printf replaced > $source/file"
+                    assertEquals(0, ssh.execInContainer("sh", "-c", command).exitCode)
+                  },
               ) {
                 false
               }
@@ -711,12 +709,201 @@ class BackendIntegrationTest {
   }
 
   @Test
+  fun `overlapping transfer in the same JVM reports destination busy`() {
+    val spec = transferSpec(true)
+    var attempted = false
+    downloader.transfer(
+        spec,
+        {
+          if (!attempted) {
+            attempted = true
+            assertEquals(
+                "DESTINATION_BUSY",
+                assertThrows(DownloadFailure::class.java) {
+                      downloader.transfer(spec, {}) { false }
+                    }
+                    .code,
+            )
+          }
+        },
+    ) {
+      false
+    }
+    assertTrue(attempted)
+  }
+
+  @Test
+  fun `publishing never replaces a destination created during transfer`(@TempDir root: Path) {
+    PosixDownloadStorage().open(root.toString(), "file", true).use { download ->
+      download.file.write(ByteBuffer.wrap("download".toByteArray()))
+      val target = Files.writeString(root.resolve("file"), "existing data")
+      assertEquals(
+          "LOCAL_CONFLICT",
+          assertThrows(DownloadFailure::class.java) { download.publish() }.code,
+      )
+      assertEquals("existing data", Files.readString(target))
+      assertEquals("download".length.toLong(), download.file.size())
+    }
+  }
+
+  @Test
   fun `destination rejects traversal and symlink parents`(@TempDir root: Path) {
-    assertThrows(IllegalArgumentException::class.java) { downloader.safeTarget(root, "../escape") }
+    val storage = PosixDownloadStorage()
+    assertThrows(IllegalArgumentException::class.java) {
+      storage.open(root.toString(), "../escape", true)
+    }
     val outside = Files.createTempDirectory(temporary, "outside")
     Files.createSymbolicLink(root.resolve("link"), outside)
-    assertThrows(IllegalArgumentException::class.java) { downloader.safeTarget(root, "link/file") }
+    assertThrows(DownloadFailure::class.java) { storage.open(root.toString(), "link/file", true) }
     assertTrue(!Files.exists(outside.resolve("file")))
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = [true, false])
+  fun `replaced parent cannot redirect writes or publication`(
+      temporaryMode: Boolean,
+      @TempDir root: Path,
+  ) {
+    val outside = Files.createTempDirectory(temporary, "outside")
+    PosixDownloadStorage().open(root.toString(), "nested/file", temporaryMode).use { download ->
+      Files.move(root.resolve("nested"), root.resolve("held"))
+      Files.createSymbolicLink(root.resolve("nested"), outside)
+      download.file.write(ByteBuffer.wrap("download".toByteArray()))
+      download.publish()
+      assertEquals("download", Files.readString(root.resolve("held/file")))
+      assertTrue(!Files.exists(outside.resolve("file")))
+    }
+  }
+
+  @Test
+  fun `unsupported hard links fail before SSH authentication`(@TempDir root: Path) {
+    val unsupportedOperation = 95 // Linux ENOTSUP; only the stable failure category is asserted.
+    val real = Posix().libc
+    val noLinks =
+        object : LibC by real {
+          override fun linkat(
+              source: Int,
+              name: String,
+              destination: Int,
+              target: String,
+              flags: Int,
+          ): Int {
+            Native.setLastError(unsupportedOperation)
+            return -1
+          }
+        }
+    val downloader = SftpDownload(SshSettings(), PosixDownloadStorage(Posix(noLinks)))
+    val spec =
+        jobSpec("file").let { it.copy(settings = it.settings.copy(destination = root.toString())) }
+    assertEquals(
+        "UNSUPPORTED_DESTINATION",
+        assertThrows(DownloadFailure::class.java) { downloader.transfer(spec, {}) { false } }.code,
+    )
+    assertTrue(!Files.exists(root.resolve("file")))
+    Files.list(root.resolve(".sporesync")).use { paths ->
+      assertTrue(paths.noneMatch { it.fileName.toString().startsWith(".sporesync-probe-") })
+    }
+  }
+
+  @Test
+  fun `creates a missing destination beneath a configured filesystem alias`(@TempDir root: Path) {
+    val alias = root.resolve("alias")
+    val real = Files.createDirectory(root.resolve("real"))
+    Files.createSymbolicLink(alias, real)
+    PosixDownloadStorage().open(alias.resolve("new/downloads").toString(), "file", true).use {
+        download ->
+      download.file.write(ByteBuffer.wrap("download".toByteArray()))
+      download.publish()
+    }
+    assertEquals("download", Files.readString(real.resolve("new/downloads/file")))
+  }
+
+  @Test
+  fun `published content preserves normal umask permissions`(@TempDir root: Path) {
+    val referenceDirectory = Files.createDirectory(root.resolve("reference"))
+    val referenceFile = Files.createFile(referenceDirectory.resolve("file"))
+    PosixDownloadStorage().open(root.toString(), "nested/file", true).use { download ->
+      download.publish()
+    }
+    assertEquals(
+        Files.getPosixFilePermissions(referenceDirectory),
+        Files.getPosixFilePermissions(root.resolve("nested")),
+    )
+    assertEquals(
+        Files.getPosixFilePermissions(referenceFile),
+        Files.getPosixFilePermissions(root.resolve("nested/file")),
+    )
+    assertEquals(
+        java.nio.file.attribute.PosixFilePermissions.fromString("rwx------"),
+        Files.getPosixFilePermissions(root.resolve(".sporesync")),
+    )
+  }
+
+  @Test
+  fun `failed publication sync retains staging and reports failure`(@TempDir root: Path) {
+    var failSync = false
+    val real = Posix().libc
+    val failingSync =
+        object : LibC by real {
+          override fun fsync(descriptor: Int): Int = if (failSync) -1 else real.fsync(descriptor)
+        }
+    PosixDownloadStorage(Posix(failingSync)).open(root.toString(), "file", true).use { download ->
+      download.file.write(ByteBuffer.wrap("download".toByteArray()))
+      download.file.force()
+      failSync = true
+      assertEquals(
+          "LOCAL_IO_FAILED",
+          assertThrows(DownloadFailure::class.java) { download.publish() }.code,
+      )
+      Files.list(root.resolve(".sporesync")).use { paths ->
+        assertTrue(paths.anyMatch { it.fileName.toString().endsWith(".part") })
+      }
+    }
+  }
+
+  @Test
+  fun `resume transfers the suffix after a large verified prefix`() {
+    val source = "/resume-source"
+    val prefixBytes = 128 * 1024
+    val suffixBytes = 96 * 1024
+    assertEquals(0, ssh.execInContainer("mkdir", "-p", source).exitCode)
+    assertEquals(
+        0,
+        ssh.execInContainer(
+                "python3",
+                "-c",
+                "from pathlib import Path; Path('$source/file').write_bytes(b'a' * $prefixBytes + b'b' * $suffixBytes)",
+            )
+            .exitCode,
+    )
+    settings.set(SshSettingKeys.SOURCE, source)
+    val destination = Files.createTempDirectory(temporary, "resume")
+    val spec =
+        DownloadSpec(
+            configuration.read().copy(destination = destination.toString(), temporaryFiles = false),
+            inventory.scan().entries.single(),
+        )
+    val target = destination.resolve("file")
+    val prefix = "a".repeat(prefixBytes)
+    Files.writeString(target, prefix)
+    val progress = mutableListOf<Long>()
+    downloader.transfer(spec, progress::add) { false }
+    assertTrue(progress.isNotEmpty() && progress.all { it > prefixBytes })
+    assertEquals(prefix + "b".repeat(suffixBytes), Files.readString(target))
+  }
+
+  @Test
+  fun `connection failures stop retrying after the configured attempt limit`() {
+    jobs.list().forEach { jobs.cancel(it.id) }
+    val spec = transferSpec(false)
+    java.net.ServerSocket(0).use { unavailable ->
+      val job = jobs.enqueue(spec.copy(settings = spec.settings.copy(port = unavailable.localPort)))
+      // A listening non-SSH socket times out; use its port after closure for immediate refusal.
+      unavailable.close()
+      repeat(MAX_DOWNLOAD_ATTEMPTS) { worker.tick() }
+      assertEquals(JobState.FAILED, jobs.find(job.id)?.state)
+      assertEquals(MAX_DOWNLOAD_ATTEMPTS, jobs.find(job.id)?.attempts)
+    }
   }
 
   @Test
@@ -850,8 +1037,8 @@ class BackendIntegrationTest {
     private const val BAD_GATEWAY = 502
     private const val SPECIAL_SOURCE = "/seed 日本語 ' ; literal"
     private const val POSTGRES_IMAGE = "postgres:17.6-alpine"
-    private const val HTTP_BAD_REQUEST = 400
     private const val HTTP_ACCEPTED = 202
+    private const val HTTP_BAD_REQUEST = 400
     private const val HTTP_OK = 200
     private const val HTTP_NOT_FOUND = 404
     private const val INDEX_HTML = "<!doctype html><title>SporeSync static fixture</title>"

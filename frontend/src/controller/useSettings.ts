@@ -34,5 +34,10 @@ export function useSettings() {
     }
   }
 
-  return { settings, setSettings, message, error, saving, save };
+  function editSettings(value: Settings) {
+    setSettings(value);
+    setMessage('');
+    setError('');
+  }
+  return { settings, setSettings: editSettings, message, error, saving, save };
 }

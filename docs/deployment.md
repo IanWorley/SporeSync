@@ -1,10 +1,8 @@
 # Deploy SporeSync
 
-The release is a source-and-static-assets tarball. Elide compiles Kotlin on the
-target host and supplies its bundled JVM; no Maven, Gradle, standalone JDK, Node
-or npm is needed at runtime. This avoids bundling platform-specific Elide caches
-or pretending that compiled classes are an executable JAR. Use the verified
-Elide build from [backend-build.md](backend-build.md) on a supported host.
+The release contains source and built frontend assets. Elide compiles Kotlin on
+the target host and supplies its JVM. Use the verified Elide build from
+[backend-build.md](backend-build.md) on Linux or macOS.
 
 ## Build a release
 
@@ -64,10 +62,14 @@ keys fail closed; there is no trust-on-first-use option.
 
 ## Start and configure
 
-Run `scripts/start.sh` from anywhere; it establishes the correct backend working
-directory before starting Elide. A service supervisor can invoke this absolute
-script path, inject the variables above, and restart the process on failure.
-Allow at least the configured SSH timeout for graceful shutdown.
+Run `scripts/start.sh` from anywhere; it selects the backend working directory.
+Elide starts a separate JVM. Sending SIGTERM only to the Elide parent leaves the
+backend running. The supervisor must own and stop the entire process group or
+cgroup before restarting or switching releases. For systemd, use
+`KillMode=control-group`, `KillSignal=SIGTERM`, and `TimeoutStopSec=330s`, which
+allows more than the maximum configured SSH timeout. On macOS, leave launchd
+`AbandonProcessGroup` unset or false; for graceful shutdown, use a supervisor
+that sends SIGTERM to the entire process group. Do not signal only the parent PID.
 
 Open `http://127.0.0.1:8080`, select Settings, and save host/port/user, absolute
 source/destination directories and download preferences. Use your torrent client's
@@ -88,19 +90,20 @@ Dashboard progress polls every two seconds; closing it does not stop jobs.
   Back it up together with the download directory and keep them paired.
 - `.sporesync/` under the download root holds path-keyed partials and the worker
   lock. Retain it during upgrades. Source paths beginning with that name are reserved.
-- New temporary downloads are atomically renamed. Existing final files resume in
-  place in either mode. Local prefixes are compared byte for byte; conflicts fail
-  without truncation. Cancellation retains partial data; Retry reuses it.
-- Each transfer rereads remote content before completion, trading additional
-  bandwidth for replacement detection. Use trusted directories without concurrent
-  local edits. Discovery uses size/time metadata and cannot detect a completed
+- Temporary downloads publish through an atomic, non-replacing hard link after a
+  filesystem support probe. Existing final files resume in place. Remote SHA-256
+  checks verify local prefixes without truncation. Cancellation retains partials.
+- The seedbox hashes content before and after transfer; only the missing suffix
+  travels over SFTP. Use trusted directories without concurrent local edits.
+  Discovery uses size/time metadata and cannot detect a completed
   source replaced with identical size and timestamp until a transfer is requested
   under a new source version. A scan is not a filesystem snapshot.
 - Interrupted jobs resume after restart, with at most three attempts. Cancellation
   and terminal failures require explicit Retry. Browser closure has no effect.
 - Run one deployment per database/download root. PostgreSQL ownership and a local
   file lock prevent concurrent workers; network filesystems must provide reliable
-  locks and atomic rename semantics.
+  locks, hard links and directory synchronization. Linux requires `/proc/self/fd`;
+  macOS requires `/dev/fd` for descriptor-based metadata.
 - Stop the old process before switching release directories, preserve external
   state, then start the new release. Liquibase applies forward migrations at
   startup. Take a database backup before upgrades; do not edit applied migrations.

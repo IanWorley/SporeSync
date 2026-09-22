@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { DiscoverySnapshot, DownloadJob } from '../model/Inventory';
 import { POLL_MILLIS } from '../config/api';
 import { errorMessage, jsonBody, request } from './api';
@@ -12,16 +12,23 @@ export function useDashboard() {
   const [busy, setBusy] = useState('');
   const [notice, setNotice] = useState('');
   const [query, setQuery] = useState('');
+  const latestRefresh = useRef(0);
 
   async function refresh(signal?: AbortSignal) {
-    const [inventory, downloads] = await Promise.all([
-      request<DiscoverySnapshot>('/inventory', { signal }),
-      request<DownloadJob[]>('/downloads', { signal }),
-    ]);
-    if (!signal?.aborted) {
+    const generation = ++latestRefresh.current;
+    try {
+      const [inventory, downloads] = await Promise.all([
+        request<DiscoverySnapshot>('/inventory', { signal }),
+        request<DownloadJob[]>('/downloads', { signal }),
+      ]);
+      if (generation !== latestRefresh.current || signal?.aborted) return;
       setDiscovery(inventory);
       setJobs(downloads);
       setConnected(true);
+    } catch (reason) {
+      if (generation !== latestRefresh.current || signal?.aborted) return;
+      setConnected(false);
+      throw reason;
     }
   }
 
@@ -29,11 +36,7 @@ export function useDashboard() {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
     async function poll() {
-      try {
-        await refresh(controller.signal);
-      } catch {
-        if (!controller.signal.aborted) setConnected(false);
-      }
+      await refresh(controller.signal).catch(() => undefined);
       if (!controller.signal.aborted) timer = setTimeout(() => void poll(), POLL_MILLIS);
     }
     void poll();

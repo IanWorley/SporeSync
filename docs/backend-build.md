@@ -17,6 +17,7 @@ Gradle build files or an independently installed JDK.
 | SLF4J API | 2.0.18 |
 | Testcontainers | 2.0.5 |
 | SSHJ | 0.40.0 |
+| JNA | 5.18.1 |
 | PostgreSQL test image | postgres:17.6-alpine |
 
 The manifest names direct versions once. Jackson, JDBC, Testcontainers,
@@ -118,6 +119,20 @@ served the actual Vite HTML and JavaScript without Vite running. Vite then
 successfully proxied `/api/status` to a custom backend port via `BACKEND_URL`;
 an unknown API path returned 404. The backend suite also verifies external
 static fixtures and missing assets. Scanner/SSH files were unchanged.
+
+## Download storage and verification
+
+Transfer storage uses JNA POSIX calls on Linux and macOS to retain directory/file
+descriptors through creation, transfer and publication. The metadata paths
+`/proc/self/fd` (Linux) and `/dev/fd` (macOS) must be available. JNA loads its
+platform native library from the resolved dependency. Windows downloads are not
+supported. The integration suite exercises parent replacement, hard-link
+preflight failures, resume and content replacement; run the existing Elide checks
+on macOS and the GitHub Linux runner when changing this native boundary.
+
+Remote verification uses the seedbox's existing Python 3 installation over SSH.
+Two server-side SHA-256 passes preserve content checks without fetching the whole
+file twice over SFTP; SFTP uses bounded read-ahead for the missing suffix.
 
 ## Full application verification (2026-09-20)
 

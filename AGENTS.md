@@ -56,3 +56,12 @@ Aim for 200–400 changed lines per implementation PR; keep each under 500.
 The initial repository reset is the authorized exception. Use conventional
 commits. PR descriptions must identify the agent, model, provider, and reasoning
 setting when available. Do not commit credentials or generated artifacts.
+
+## Transfer platform requirements
+
+The SFTP downloader supports Linux and macOS using JNA for descriptor-relative
+POSIX storage. Linux needs `/proc/self/fd`; macOS needs `/dev/fd` for metadata.
+Temporary-file publication probes hard-link support before connecting. The
+seedbox must have Python 3 for checksum verification; hashing heartbeats use the
+configured SSH inactivity timeout. Keep platform-specific flags named and verify
+native storage changes on macOS locally and Linux CI.

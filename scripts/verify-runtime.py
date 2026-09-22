@@ -125,6 +125,7 @@ def verify(root):
             def sample_job():
                 return next(item for item in api("/api/downloads") if item["id"] == sample["id"])
 
+            (downloads / sample_path).write_text("stale local content\n")
             api(f"/api/downloads/{sample['id']}/delete-local", "POST")
             wait_for(lambda: sample_job()["state"] == "COMPLETE" and sample_job()["action"] is None)
             assert (downloads / sample_path).read_text() == "sample\n"
@@ -132,7 +133,7 @@ def verify(root):
             api("/api/inventory/scan", "POST")
             wait_for(lambda: sample_job()["state"] == "COMPLETE")
             assert (downloads / sample_path).read_text() == "sample\n"
-            command("docker", "exec", ssh, "chown", "scanner:scanner", "/seed/nested")
+            command("docker", "exec", ssh, "chown", "scanner:scanner", "/seed", "/seed/nested")
             api(f"/api/downloads/{sample['id']}/delete-remote", "POST")
             wait_for(lambda: sample_job()["state"] == "REMOTE_DELETED" and sample_job()["action"] is None)
             command("docker", "exec", ssh, "test", "!", "-e", f"/seed/{sample_path}")

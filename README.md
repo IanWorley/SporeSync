@@ -258,6 +258,14 @@ already queued jobs retain their original source and destination.
 
 ## Safe transfer policy
 
+Explicit server deletion first captures the file under the source directory's
+private `.sporesync/delete-<identity>/entry` quarantine. It validates the captured
+file before removing it, so a replacement at the original path stays intact.
+Retries recover interrupted captures. A mismatched capture is restored without
+overwriting an existing path; if restoration is blocked, it stays in quarantine
+and the action reports an error. Server deletion requires a writable source root
+and a source file on the same filesystem as that quarantine.
+
 Downloads currently support Linux and macOS. JNA supplies descriptor-relative
 POSIX operations; Linux requires `/proc/self/fd` and macOS requires `/dev/fd` for
 file metadata inspection. Windows is not supported by this transfer implementation.

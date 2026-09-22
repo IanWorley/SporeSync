@@ -16,6 +16,30 @@ class DownloadFailure(val code: String) : RuntimeException(code)
 @Service
 class SftpDownload(private val credentials: SshSettings, private val storage: DownloadStorage) :
     FileDownloader {
+  override fun deleteLocal(spec: DownloadSpec) {
+    spec.settings.validate()
+    storage.delete(spec.settings.destination, spec.entry.path)
+  }
+
+  override fun deleteRemote(spec: DownloadSpec) {
+    spec.settings.validate()
+    connected(spec) { RemoteDeletion.delete(it, spec) }
+  }
+
+  private fun <T> connected(spec: DownloadSpec, operation: (SSHClient) -> T): T =
+      SSHClient().use { ssh ->
+        credentials.validate()
+        ssh.connectTimeout = spec.settings.timeoutMillis
+        ssh.timeout = spec.settings.timeoutMillis
+        ssh.transport.timeoutMs = spec.settings.timeoutMillis
+        ssh.connection.timeoutMs = spec.settings.timeoutMillis
+        ssh.loadKnownHosts(java.nio.file.Path.of(credentials.knownHosts).toFile())
+        val authenticate = credentials.prepareAuthentication(ssh, spec.settings.username)
+        ssh.connect(spec.settings.host, spec.settings.port)
+        authenticate()
+        operation(ssh)
+      }
+
   override fun transfer(spec: DownloadSpec, progress: (Long) -> Unit, cancelled: () -> Boolean) {
     spec.settings.validate()
     require(spec.entry.type == EntryType.file && spec.entry.sizeBytes >= 0)
@@ -41,16 +65,7 @@ class SftpDownload(private val credentials: SshSettings, private val storage: Do
         digest.update(buffer, 0, count)
       }
       val prefix = (digest.clone() as MessageDigest).digest().toHexString()
-      SSHClient().use { ssh ->
-        credentials.validate()
-        ssh.connectTimeout = spec.settings.timeoutMillis
-        ssh.timeout = spec.settings.timeoutMillis
-        ssh.transport.timeoutMs = spec.settings.timeoutMillis
-        ssh.connection.timeoutMs = spec.settings.timeoutMillis
-        ssh.loadKnownHosts(java.nio.file.Path.of(credentials.knownHosts).toFile())
-        val authenticate = credentials.prepareAuthentication(ssh, spec.settings.username)
-        ssh.connect(spec.settings.host, spec.settings.port)
-        authenticate()
+      connected(spec) { ssh ->
         val before = RemoteChecksum.read(ssh, spec, initialSize, cancelled)
         if (before.prefix != prefix) throw DownloadFailure("LOCAL_CONFLICT")
         var position = initialSize

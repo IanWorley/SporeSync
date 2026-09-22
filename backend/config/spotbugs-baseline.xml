@@ -162,4 +162,16 @@
     <Field classname="dev.sporesync.model.inventory.Discovery" name="jobs" signature="Ldev/sporesync/model/download/DownloadJobRepository;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
     <LocalVariable name="jobs" register="3" pc="34" role="LOCAL_VARIABLE_NAMED" />
   </BugInstance>
+  <BugInstance type="EI_EXPOSE_REP2" priority="2" rank="18" abbrev="EI2" category="MALICIOUS_CODE" instanceHash="ee8489e5f16473451bba46355be41952" instanceOccurrenceNum="0" instanceOccurrenceMax="0" cweid="374">
+    <Class classname="dev.sporesync.model.download.DownloadWorker" primary="true" classAnnotationNames="org.springframework.stereotype.Service,kotlin.Metadata,kotlin.jvm.internal.SourceDebugExtension" />
+    <Method classname="dev.sporesync.model.download.DownloadWorker" name="&lt;init&gt;" signature="(Ljavax/sql/DataSource;Ldev/sporesync/model/download/DownloadJobRepository;Ldev/sporesync/model/download/FileDownloader;Z)V" isStatic="false" primary="true" />
+    <Field classname="dev.sporesync.model.download.DownloadWorker" name="downloader" signature="Ldev/sporesync/model/download/FileDownloader;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
+    <LocalVariable name="downloader" register="3" pc="34" role="LOCAL_VARIABLE_NAMED" />
+  </BugInstance>
+  <BugInstance type="EI_EXPOSE_REP2" priority="2" rank="18" abbrev="EI2" category="MALICIOUS_CODE" instanceHash="72e85a89f39bf0decc20ee170e201cc7" instanceOccurrenceNum="0" instanceOccurrenceMax="0" cweid="374">
+    <Class classname="dev.sporesync.model.download.SftpDownload" primary="true" classAnnotationNames="org.springframework.stereotype.Service,kotlin.Metadata" />
+    <Method classname="dev.sporesync.model.download.SftpDownload" name="&lt;init&gt;" signature="(Ldev/sporesync/config/SshSettings;Ldev/sporesync/model/download/DownloadStorage;)V" isStatic="false" primary="true" />
+    <Field classname="dev.sporesync.model.download.SftpDownload" name="storage" signature="Ldev/sporesync/model/download/DownloadStorage;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
+    <LocalVariable name="storage" register="2" pc="23" role="LOCAL_VARIABLE_NAMED" />
+  </BugInstance>
 </BugCollection>

@@ -61,9 +61,7 @@ class PosixDownloadStorage internal constructor(private val api: Posix) : Downlo
   constructor() : this(Posix())
 
   override fun open(destination: String, relative: String, temporary: Boolean): DownloadTarget {
-    val parts = relative.split('/')
-    require(parts.all { it.isNotEmpty() && it != "." && it != ".." && '\u0000' !in it })
-    require(parts.first() != STAGING_DIRECTORY)
+    val parts = pathParts(relative)
     val owned = mutableListOf<AutoCloseable>()
     fun <T : AutoCloseable> own(value: T): T = value.also { owned.add(it) }
     try {
@@ -77,9 +75,7 @@ class PosixDownloadStorage internal constructor(private val api: Posix) : Downlo
       val name = parts.last()
       val existing = parent.file(name, create = false)
       val staged = temporary && existing == null
-      val key =
-          MessageDigest.getInstance("SHA-256").digest(relative.toByteArray()).toHexString() +
-              ".part"
+      val key = stagingKey(relative)
       val file = own(existing ?: if (staged) staging.file(key)!! else parent.file(name)!!)
       if (staged) staging.probeLink(parent)
       return object : DownloadTarget {
@@ -109,6 +105,48 @@ class PosixDownloadStorage internal constructor(private val api: Posix) : Downlo
       throw error
     }
   }
+
+  override fun missing(destination: String, relative: String): Boolean =
+      inspect(destination, relative) { parent, name, _ ->
+        if (parent == null) true else parent.file(name, create = false)?.use { false } ?: true
+      }
+
+  override fun delete(destination: String, relative: String) {
+    inspect(destination, relative) { parent, name, staging ->
+      parent?.removeFile(name)
+      staging.removeFile(stagingKey(relative))
+    }
+  }
+
+  private fun <T> inspect(
+      destination: String,
+      relative: String,
+      operation: (Posix.Directory?, String, Posix.Directory) -> T,
+  ): T {
+    val parts = pathParts(relative)
+    val owned = mutableListOf<AutoCloseable>()
+    fun <R : AutoCloseable> own(value: R): R = value.also { owned.add(it) }
+    try {
+      val root = own(api.root(Path.of(destination)))
+      val staging = own(root.directory(STAGING_DIRECTORY, OWNER_DIRECTORY_MODE))
+      staging.requirePrivate()
+      own(staging.lock())
+      var parent: Posix.Directory? = root
+      for (part in parts.dropLast(1)) parent = parent?.existingDirectory(part)?.let(::own)
+      return operation(parent, parts.last(), staging)
+    } finally {
+      owned.asReversed().forEach { it.close() }
+    }
+  }
+
+  private fun pathParts(relative: String): List<String> =
+      relative.split('/').also { parts ->
+        require(parts.all { it.isNotEmpty() && it != "." && it != ".." && '\u0000' !in it })
+        require(parts.first() != STAGING_DIRECTORY)
+      }
+
+  private fun stagingKey(relative: String) =
+      MessageDigest.getInstance("SHA-256").digest(relative.toByteArray()).toHexString() + ".part"
 }
 
 internal class Posix(val libc: LibC = Native.load(Platform.C_LIBRARY_NAME, LibC::class.java)) {
@@ -234,6 +272,20 @@ internal class Posix(val libc: LibC = Native.load(Platform.C_LIBRARY_NAME, LibC:
         child = libc.openat(descriptor, name, directoryFlags, NO_FLAGS)
       }
       return Directory(check(child))
+    }
+
+    fun existingDirectory(name: String): Directory? {
+      val child = libc.openat(descriptor, name, directoryFlags, NO_FLAGS)
+      if (child < 0 && Native.getLastError() == NOT_FOUND) return null
+      return Directory(check(child))
+    }
+
+    fun removeFile(name: String) {
+      file(name, create = false)?.use {
+        if (libc.unlinkat(descriptor, name, NO_FLAGS) < 0 && Native.getLastError() != NOT_FOUND)
+            throw DownloadFailure("LOCAL_IO_FAILED")
+        sync()
+      }
     }
 
     fun requirePrivate() {

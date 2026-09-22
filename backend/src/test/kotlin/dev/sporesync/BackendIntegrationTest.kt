@@ -1131,6 +1131,45 @@ class BackendIntegrationTest {
     }
   }
 
+  @Test
+  fun `server deletion refuses a symlink parent without removing the outside file`() {
+    val spec = deletableSpec()
+    val source = spec.settings.source
+    assertEquals(0, ssh.execInContainer("mkdir", "$source/nested").exitCode)
+    assertEquals(0, ssh.execInContainer("mv", "$source/file", "$source/nested/file").exitCode)
+    val nested = spec.copy(entry = inventory.scan().entries.single { it.type == EntryType.file })
+    assertEquals(0, ssh.execInContainer("mv", "$source/nested", "$source/held").exitCode)
+    assertEquals(0, ssh.execInContainer("ln", "-s", "$source/held", "$source/nested").exitCode)
+    assertThrows(DownloadFailure::class.java) { downloader.deleteRemote(nested) }
+    assertEquals("sample\n", ssh.execInContainer("cat", "$source/held/file").stdout)
+  }
+
+  @Test
+  fun `deletion and missing checks reject local symlink parents`(@TempDir root: Path) {
+    val outside = Files.createTempDirectory(temporary, "delete-outside")
+    Files.writeString(outside.resolve("file"), "retained")
+    Files.createSymbolicLink(root.resolve("link"), outside)
+    val storage = PosixDownloadStorage()
+    assertThrows(DownloadFailure::class.java) { storage.delete(root.toString(), "link/file") }
+    assertThrows(DownloadFailure::class.java) { storage.missing(root.toString(), "link/file") }
+    assertEquals("retained", Files.readString(outside.resolve("file")))
+    assertTrue(storage.missing(root.toString(), "absent/file"))
+  }
+
+  private fun deletableSpec(): DownloadSpec {
+    val source = "/home/scanner/delete-${UUID.randomUUID()}"
+    assertEquals(0, ssh.execInContainer("mkdir", "-p", source).exitCode)
+    assertEquals(0, ssh.execInContainer("sh", "-c", "printf 'sample\\n' > '$source/file'").exitCode)
+    assertEquals(0, ssh.execInContainer("chown", "-R", "scanner:scanner", source).exitCode)
+    settings.set(SshSettingKeys.SOURCE, source)
+    return DownloadSpec(
+        configuration
+            .read()
+            .copy(destination = Files.createTempDirectory(temporary, "delete").toString()),
+        inventory.scan().entries.single(),
+    )
+  }
+
   private fun transferSpec(temporaryMode: Boolean): DownloadSpec {
     val destination = Files.createTempDirectory(temporary, "downloads").toRealPath().toString()
     val settings =

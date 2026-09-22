@@ -26,11 +26,15 @@ data class DownloadSettings(
     val timeoutMillis: Int = DEFAULT_TIMEOUT_MILLIS,
 ) {
   fun validate() {
+    validateDiscovery()
+    require(destination.isNotBlank() && Path.of(destination).isAbsolute)
+  }
+
+  fun validateDiscovery() {
     require(host.isNotBlank() && username.isNotBlank())
     require(port in MIN_SSH_PORT..MAX_SSH_PORT)
     require(timeoutMillis in 1..MAX_TIMEOUT_MILLIS)
     require(source.startsWith('/') && '\u0000' !in source)
-    require(destination.isNotBlank() && Path.of(destination).isAbsolute)
     require(scanSeconds in MIN_SCAN_SECONDS..MAX_SCAN_SECONDS)
   }
 }

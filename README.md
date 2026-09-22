@@ -1,10 +1,10 @@
 # SporeSync
 
-SporeSync is being rebuilt around the [starting brief](docs/plan.md).
-The implementation includes a dependency-free Python remote scanner and a
-Kotlin/Spring Boot backend with SSH inventory discovery and a minimal
-Vite/React/TypeScript frontend. Downloads and dashboard features are subsequent
-slices in the plan.
+SporeSync copies files from one seedbox to your local storage over verified SSH/SFTP.
+A Kotlin/Spring Boot backend owns discovery, durable transfers and recovery; the
+React/TypeScript dashboard provides settings, inventory and download progress.
+Source files stay on the seedbox. See the [implementation plan](docs/plan.md) and
+[deployment guide](docs/deployment.md).
 
 ## Source layout
 
@@ -72,27 +72,13 @@ See [backend build notes](docs/backend-build.md) for versions and limitations.
 
 ## Scan through the backend
 
-Configure the database as above. Liquibase seeds `ssh.port = 22` and
-`ssh.timeout.millis = 30000` in `sporesync_settings`, preserving existing values.
-A follow-up migration seeds empty host, username, and source rows without
-overwriting configured values. Fill these required values through `ApplicationSettings`
-using `SshSettingKeys`, or run this SQL against the configured database:
-
-```sql
-INSERT INTO sporesync_settings (name, value) VALUES
-  ('ssh.host', 'seedbox.example.com'),
-  ('ssh.username', 'scanner'),
-  ('remote.source.directory', '/absolute/remote/source')
-ON CONFLICT (name) DO UPDATE
-SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP;
-```
-
-Each scan reads these five database settings once; changes apply to the next scan
-without restarting. Missing or invalid values return `CONFIGURATION`. Port must
-be between 1 and 65535; timeout is a positive integer in milliseconds. Existing
-`SPORESYNC_SSH_*` environment values for host, port, username, source, and timeout
-must be moved to their database rows; those environment overrides are no longer
-used.
+Configure PostgreSQL and the external SSH material below, then open the dashboard's
+Settings section. Save host, port, username, source/destination directories, scan
+interval and transfer preferences. Liquibase seeds port 22 and timeout 30000 ms;
+existing database values are preserved. Connection/download settings live in
+`sporesync_settings`; old host/user/source environment overrides are not used.
+The SSH timeout is configurable from 1 to 300000 milliseconds and is captured
+with each job. Settings changes apply to new scans/jobs without restarting.
 
 Credentials, host trust, and the local scanner path remain external configuration.
 Set these environment variables before running `elide run` from `backend/`:
@@ -129,7 +115,7 @@ Scans are serialized. The backend atomically uploads the scanner into the remote
 `~/.sporesync/` directory under a SHA-256 filename and reuses that version on
 subsequent scans. Old versions are retained. Output is limited to 16 MiB, stderr
 to 64 KiB; SSH operations and command execution have bounded waits.
-Failures return HTTP 502 with an `error` category: `CONFIGURATION`, `CONNECTION`
+Invalid configuration returns HTTP 400. Remote failures return HTTP 502 with an `error` category: `CONFIGURATION`, `CONNECTION`
 (including host-key rejection), `AUTHENTICATION`, `UPLOAD`, `EXECUTION`, `TIMEOUT`,
 or `PROTOCOL`. Remote stderr and credentials are not included in responses.
 
@@ -147,21 +133,12 @@ the migration time for both timestamps. Spring Data JPA provides persistence thr
 `ApplicationSettingRepository`. `ApplicationSettings` reads and writes typed
 values using a `SettingKey<T>` that pairs a name with parsing and formatting:
 
-```kotlin
-val scanInterval = SettingKey(SettingNames.SCAN_INTERVAL, Duration::parse, Duration::toString)
-settings.set(scanInterval, Duration.ofMinutes(5))
-val interval: Duration? = settings.get(scanInterval)
-```
-
-Search `SettingNames.kt` for application setting names. These constants reserve
-names for settings. `SshSettingKeys` defines the typed keys used by inventory;
-other reserved names do not enable planned features.
-
-This is an example, not a configured default. Declare each real key once alongside
-its consuming feature. Missing values return `null`; malformed values propagate
-parser errors. Use strict parsers (such as `String::toBooleanStrict`) to reject
-invalid input. Settings are application-wide; no user accounts or settings HTTP
-API are introduced yet.
+The dashboard saves all form fields in one repository transaction. `scan.interval`
+is stored as integer seconds, booleans as `true`/`false`, and paths as strings.
+`DownloadSettings` provides the typed browser/job contract. Credentials are external.
+`download_jobs` stores immutable source/destination snapshots, byte progress,
+attempt counts and explicit lifecycle state through JDBC. Liquibase manages both
+schemas; generated files and credentials are not stored in Git.
 
 ## Frontend development and production assets
 
@@ -206,7 +183,8 @@ When deploying, ship the contents of `frontend/dist/` alongside the backend and
 its configuration/dependencies. The default static directory is
 `../frontend/dist/` relative to `backend/`. Override it with
 `SPORESYNC_STATIC_LOCATION=file:/absolute/path/to/dist/` (include the trailing slash).
-These files are not embedded in a JAR; Elide packaging remains deferred.
+These files are not embedded in a JAR. `scripts/package.sh OUTPUT_DIRECTORY`
+builds a source-and-assets release; see [deployment](docs/deployment.md).
 Rebuild after frontend changes and restart the backend if the build directory
 was absent at startup. `npm run preview` previews only the frontend bundle;
 use Spring to verify production API integration.
@@ -234,9 +212,8 @@ Links are reported without traversal. Consumers must only queue regular files.
 
 A filesystem error exits nonzero, writes a diagnostic to stderr, and emits no
 JSON. A scan is not a filesystem snapshot: files can change during traversal.
-The scanner holds the inventory in memory before publishing it. Transfer-time
-validation and protection against concurrent directory replacement belong to
-later work; this scanner is intended for a trusted seedbox directory.
+The scanner holds the inventory in memory before publishing it. Transfers verify remote metadata and content and reject symlink destinations.
+Use trusted source/destination directories; scans are not filesystem snapshots.
 
 ## Verify real SSH upload and execution
 
@@ -293,3 +270,33 @@ with the locally accumulated checksum before publication. This still reads the
 source disk twice, but does not send those two full-file reads over the network.
 Hashing emits heartbeats so the configured timeout bounds inactivity rather than
 total hash duration. Cancellation and failures retain partial data.
+
+`POST /api/downloads` with `{"path":"nested/file.ext"}` discovers and queues a
+regular file. `GET /api/downloads` returns durable state and byte progress;
+`POST /api/downloads/{id}/cancel` retains partial data, and `/retry` explicitly
+requeues failed or cancelled work. A backend worker processes one file at a time,
+independently of the browser. Interrupted jobs recover at startup, with three
+attempts maximum. Both a PostgreSQL session lock and destination filesystem lock
+protect writes. Run one deployment against a given destination and database.
+
+Automatic discovery runs at the saved interval (five minutes by default). Only
+regular files unchanged in two consecutive successful scans enter the automatic
+queue. Prefer your torrent client's completed-download directory; stability checks
+reduce but cannot eliminate races with active writers. `GET /api/inventory` reports
+the last inventory, attempt/success times and a safe error code. Manual scans use
+`POST /api/inventory/scan`. Disabling automatic downloads keeps discovery active
+and does not cancel already queued jobs. After a restart, two new scans establish
+stability; persisted completed/cancelled jobs remain deduplicated.
+
+The dashboard at `/` includes file filtering, manual scan/download actions,
+settings, and a durable queue with progress, cancellation and retry. It polls every
+two seconds, keeps only the newest refresh result, and leaves transfers running when closed.
+
+## Process recovery acceptance check
+
+After building the frontend and backend, run `python3 scripts/verify-runtime.py`
+from the repository root with Elide on PATH. Python 3.9+, Docker and ssh-keygen
+are required. It creates disposable PostgreSQL/SSH containers, serves the built
+frontend, verifies automatic downloading, cancels and retries a 128 MiB transfer,
+kills its own backend process, and checks exact content after restart. All
+fixture containers, keys and partial files are cleaned up.

@@ -42,6 +42,13 @@ and Gradle test reports after every run.
 The frontend has no unit-test suite yet; its CI check validates types and builds
 production assets. This workflow builds and tests only; it does not deploy.
 
+[Publish container](.github/workflows/container.yml) runs only on Git tag pushes.
+It runs the same checks, builds the combined backend/frontend image, verifies it
+with disposable PostgreSQL, and publishes `ghcr.io/ianworley/sporesync:<git-tag>`.
+Tags must be valid Docker tags (for example, `v0.1.0`). No image is built on
+ordinary branch pushes or pull requests. See [Docker deployment](docs/deployment.md#run-with-docker)
+for local build, verification, and startup commands.
+
 ## Build and test the backend
 
 Install Java 17 and Temurin Java 25, then start Docker. Set `JAVA_HOME` to the

@@ -116,3 +116,47 @@ remote replacement, stable scans, and exclusive worker ownership.
 
 Fresh Gradle packaging and runtime validation is pending. Do not treat the
 historical Elide release checks as evidence for this release format.
+
+## Run with Docker
+
+Build and verify the image from the repository root. Docker supplies Node 24,
+Java 17 and Java 25, so these tools are not required on your host:
+
+```bash
+docker build -t sporesync:verify .
+bash scripts/verify-container.sh sporesync:verify
+```
+
+The verification script requires Bash, curl, Python 3 and Docker. It starts an
+isolated PostgreSQL 17 instance and the real application image, then checks the
+dashboard HTML, JavaScript, CSS and database-backed settings API over HTTP.
+Its exit trap removes only its own containers and network.
+
+For deployment, create an environment file outside the checkout with
+`SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, and
+`SPRING_DATASOURCE_PASSWORD`. Use a database hostname reachable from the
+container; `127.0.0.1` inside Docker refers to the application container.
+Add the SSH environment variables described above, with paths under `/ssh`.
+Prepare a downloads directory writable by UID 10001 and SSH files readable by
+that UID. Replace the version and host paths below with your own:
+
+```bash
+docker run --detach --name sporesync --restart unless-stopped \
+  --publish 127.0.0.1:8080:8080 \
+  --env-file /srv/sporesync/runtime.env \
+  --mount type=bind,src=/srv/sporesync/downloads,dst=/downloads \
+  --mount type=bind,src=/srv/sporesync/ssh,dst=/ssh,readonly \
+  ghcr.io/ianworley/sporesync:v0.1.0
+```
+
+Open `http://127.0.0.1:8080` and set the download destination to `/downloads`.
+Spring serves both the frontend and API on port 8080. The image binds to all
+container interfaces; the example publishes the port only on host loopback.
+Keep PostgreSQL, downloads and SSH material outside the image. The runtime runs
+as UID 10001 and includes the scanner and Liquibase migrations.
+
+Push a Git tag to build and publish an image to GitHub Packages. The workflow
+runs the existing CI checks and container verification before publishing. Each
+image uses the exact Git tag; tags must be valid Docker tags. It does not update
+`latest`. CI publishes Linux amd64 images; local builds use the Docker host's
+architecture. Package visibility is managed in GitHub Packages settings.

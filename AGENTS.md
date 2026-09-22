@@ -61,6 +61,10 @@ persistence, and settings storage); keep immutable data models concrete.
 - Runtime/recovery changes: after building frontend and backend, run
   `python3 scripts/verify-runtime.py` from the root (Java 25, Docker and
   ssh-keygen required). It kills only its own disposable backend process.
+- Container changes: run `docker build -t sporesync:verify .` and
+  `bash scripts/verify-container.sh sporesync:verify`. The tag-only
+  `.github/workflows/container.yml` runs CI checks, builds and verifies the image,
+  then publishes it to GHCR under the Git tag. Keep image builds off PR/branch triggers.
 - Packaging changes: run `scripts/package.sh OUTPUT_DIRECTORY`, extract the
   archive, and verify `scripts/start.sh` serves built assets and `/api/status`
   against disposable PostgreSQL. See `docs/deployment.md`.

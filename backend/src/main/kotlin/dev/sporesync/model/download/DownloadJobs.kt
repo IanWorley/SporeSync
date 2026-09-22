@@ -134,10 +134,11 @@ class DownloadJobs(
 
   override fun finish(id: String, state: JobState, error: String?) {
     jdbc.update(
-        "UPDATE download_jobs SET state = CASE WHEN cancel_requested THEN 'CANCELLED' ELSE ? END, error = ?, updated_at = now() WHERE id = ? AND action IS NULL",
+        "UPDATE download_jobs SET state = CASE WHEN cancel_requested THEN 'CANCELLED' ELSE ? END, action = NULL, error = ?, updated_at = now() WHERE id = ? AND (action IS NULL OR (? AND action = 'PAUSE'))",
         state.name,
         error,
         id,
+        state == JobState.COMPLETE,
     )
   }
 

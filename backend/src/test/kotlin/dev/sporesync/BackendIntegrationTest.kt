@@ -1173,6 +1173,17 @@ class BackendIntegrationTest {
   }
 
   @Test
+  fun `completion consumes a late pause without allowing stale action completion`() {
+    val job = jobs.enqueue(transferSpec(true))
+    jobs.start(job.id)
+    val paused = requireNotNull(jobs.requestAction(job.id, JobAction.PAUSE))
+    jobs.finish(job.id, JobState.COMPLETE)
+    jobs.completeAction(paused)
+    assertEquals(JobState.COMPLETE, jobs.find(job.id)?.state)
+    assertNull(jobs.find(job.id)?.action)
+  }
+
+  @Test
   fun `persisted action recovers before queued transfers and rejects competing commands`() {
     jobs.list().forEach { jobs.cancel(it.id) }
     val job = jobs.enqueue(transferSpec(true))
@@ -1199,6 +1210,7 @@ class BackendIntegrationTest {
     val older = jobs.enqueue(job.spec.copy(entry = job.spec.entry.copy(modifiedTimeNs = 0)))
     jobs.finish(older.id, JobState.COMPLETE)
     assertEquals(JobAction.DELETE_LOCAL, postAction(job.id, "delete-local").action)
+    jobs.finish(job.id, JobState.COMPLETE)
     worker.tick()
     assertTrue(!Files.exists(target))
     assertEquals(JobState.CANCELLED, jobs.find(older.id)?.state)

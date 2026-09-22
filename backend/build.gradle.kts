@@ -19,6 +19,7 @@ val kotlinVersion = "2.4.20"
 val sshjVersion = "0.40.0"
 val jnaVersion = "5.18.1"
 val spotbugsVersion = "4.10.4"
+val tomcatVersion = "11.0.26"
 val javaVersion = 25
 
 repositories { mavenCentral() }
@@ -40,6 +41,13 @@ elide {
 }
 
 dependencies {
+  constraints {
+    listOf("tomcat-embed-core", "tomcat-embed-el", "tomcat-embed-websocket").forEach { module ->
+      implementation("org.apache.tomcat.embed:$module:$tomcatVersion") {
+        because("Tomcat 11.0.24 has known vulnerabilities fixed in 11.0.25.")
+      }
+    }
+  }
   implementation(platform("org.springframework.boot:spring-boot-dependencies:$springBootVersion"))
   implementation(platform("org.jetbrains.kotlin:kotlin-bom:$kotlinVersion"))
   implementation("org.springframework.boot:spring-boot-starter-webmvc")

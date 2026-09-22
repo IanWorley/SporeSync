@@ -15,6 +15,7 @@ Elide Gradle plugin, Kotlin, Spring Boot, and SpotBugs.
 | SpotBugs | 4.10.4 |
 | Kotlin | 2.4.20 |
 | Spring Boot | 4.1.1 |
+| Embedded Tomcat | 11.0.26 |
 | Jackson Kotlin module | 3.1.5 |
 | PostgreSQL JDBC | 42.7.13 |
 | Liquibase (through the Spring starter) | 5.0.3 |

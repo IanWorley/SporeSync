@@ -78,7 +78,7 @@ for automatic eligibility. Verify all existing bytes before appending; equal fil
 require full comparison, and smaller/replaced remote content fails without truncation.
 Existing final files resume in place even in temporary mode. Cancellation retains
 partials; retry is explicit after cancellation or three failed attempts. Deploy a
-source-and-static-assets release with Elide on the host; see [deployment](deployment.md).
+`sporesync.jar` and static assets with Java 25 on the host; see [deployment](deployment.md).
 
 ## Implementation slices
 

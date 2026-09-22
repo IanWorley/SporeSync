@@ -61,7 +61,7 @@ jobs:
             backend/build/reports/spotbugs/main.xml
             backend/build/reports/spotbugs/main.html
             backend/build/reports/tests/test
-          if-no-files-found: ignore
+          if-no-files-found: error
 
   frontend:
     name: Frontend type-check and build

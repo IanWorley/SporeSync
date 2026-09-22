@@ -1144,6 +1144,82 @@ class BackendIntegrationTest {
     assertEquals("sample\n", ssh.execInContainer("cat", "$source/held/file").stdout)
   }
 
+  @ParameterizedTest
+  @EnumSource(DeletionRace::class)
+  fun `server deletion preserves replacements and recovers interrupted quarantine`(
+      race: DeletionRace
+  ) {
+    val spec = deletableSpec()
+    val source = spec.settings.source
+    val wrapper =
+        """
+        #!/usr/bin/python3
+        import os, sys
+        original_stat, original_rename = os.stat, os.rename
+        replacements = 0
+        def replace(parent):
+            global replacements
+            replacements += 1
+            with open('$source/replacement', 'w') as output: output.write('replacement' if replacements == 1 else 'newer replacement')
+            os.replace('replacement', 'file', src_dir_fd=parent, dst_dir_fd=parent)
+        def checked_stat(path, *args, **kwargs):
+            result = original_stat(path, *args, **kwargs)
+            if path == 'file' and ${if (race == DeletionRace.BEFORE_CAPTURE || race == DeletionRace.CONFLICT) "True" else "False"}: replace(kwargs['dir_fd'])
+            return result
+        def checked_rename(path, target, *args, **kwargs):
+            result = original_rename(path, target, *args, **kwargs)
+            if path == 'file' and ${if (race == DeletionRace.INTERRUPTED) "True" else "False"}: os._exit(1)
+            if path == 'file' and ${if (race == DeletionRace.AFTER_CAPTURE || race == DeletionRace.CONFLICT) "True" else "False"}: replace(kwargs['src_dir_fd'])
+            return result
+        os.stat, os.rename = checked_stat, checked_rename
+        script = sys.argv[2]
+        sys.argv = ['-c'] + sys.argv[3:]
+        exec(script)
+        """
+            .trimIndent()
+    assertEquals(
+        0,
+        ssh.execInContainer(
+                "/usr/bin/python3",
+                "-c",
+                "import pathlib,sys; p=pathlib.Path(sys.argv[1]); p.write_text(sys.argv[2]); p.chmod(0o755)",
+                DELETE_TEST_WRAPPER,
+                wrapper,
+            )
+            .exitCode,
+    )
+    try {
+      if (race == DeletionRace.AFTER_CAPTURE) downloader.deleteRemote(spec)
+      else
+          assertEquals(
+              if (race == DeletionRace.INTERRUPTED) "REMOTE_DELETE_FAILED" else "REMOTE_CHANGED",
+              assertThrows(DownloadFailure::class.java) { downloader.deleteRemote(spec) }.code,
+          )
+      if (race != DeletionRace.INTERRUPTED)
+          assertEquals(
+              if (race == DeletionRace.CONFLICT) "newer replacement" else "replacement",
+              ssh.execInContainer("cat", "$source/file").stdout,
+          )
+    } finally {
+      assertEquals(0, ssh.execInContainer("rm", DELETE_TEST_WRAPPER).exitCode)
+    }
+    if (race == DeletionRace.CONFLICT) {
+      val retained = inventory.scan().entries.single { it.path.endsWith("/entry") }
+      assertEquals("replacement", ssh.execInContainer("cat", "$source/${retained.path}").stdout)
+    }
+    if (race == DeletionRace.INTERRUPTED) {
+      downloader.deleteRemote(spec)
+      assertTrue(inventory.scan().entries.none { it.type == EntryType.file })
+    }
+  }
+
+  enum class DeletionRace {
+    BEFORE_CAPTURE,
+    AFTER_CAPTURE,
+    INTERRUPTED,
+    CONFLICT,
+  }
+
   @Test
   fun `deletion and missing checks reject local symlink parents`(@TempDir root: Path) {
     val outside = Files.createTempDirectory(temporary, "delete-outside")
@@ -1199,6 +1275,7 @@ class BackendIntegrationTest {
   }
 
   companion object {
+    private const val DELETE_TEST_WRAPPER = "/usr/local/bin/python3"
     private const val SSH_PORT = 22
     private const val CUSTOM_SSH_PORT = 2222
     private const val DEFAULT_SSH_TIMEOUT_MILLIS = 30000

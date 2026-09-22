@@ -27,32 +27,48 @@ persistence, and settings storage); keep immutable data models concrete.
 PRs targeting feature branches, on pushes to `main`, and by manual dispatch.
 Three independent Ubuntu jobs check:
 
-- Backend dependency installation, `elide build`, Kotlin formatting, and
-  `elide test` with disposable PostgreSQL and SSH Testcontainers.
+- The Gradle backend build, tests, SpotBugs, and Kotlin formatting with
+  disposable PostgreSQL and SSH Testcontainers.
 - Frontend `npm ci` and `npm run build`, including TypeScript checking.
 - Scanner unit tests and real SSH tests with `SPORESYNC_SSH_TEST=1`.
 
 The runners use Docker directly; missing Docker fails the checks. Tests create
 their own temporary credentials and containers, so no seedbox or database secrets
-are needed. CI downloads the documented Elide release with a pinned Linux archive
-SHA-256 and uses Node 24 and Python 3.12. When upgrading Elide, update the workflow
-release/checksum along with `backend/.elideversion` and the backend build notes.
+are needed. CI uses Temurin Java 17 for the included Elide plugin, Temurin Java
+25 for the backend, Node 24, and Python 3.12. The bootstrap script downloads the
+Elide Gradle plugin source at commit `a1bb1307203acb44fa0d622aad4870c69f1144e1`
+and verifies its SHA-256. The backend job uploads SpotBugs XML and HTML reports
+and Gradle test reports after every run.
 The frontend has no unit-test suite yet; its CI check validates types and builds
 production assets. This workflow builds and tests only; it does not deploy.
 
 ## Build and test the backend
 
-Install [Elide](https://elide.help/docs/installation) and start Docker. The
-backend selects Elide 1.5.3, verified with build `1.5.3+20260917.e2442e4`,
-including Java 25 and Kotlin 2.4.20.
-No separate Maven, Gradle, or JDK installation is needed.
+Install Java 17 and Temurin Java 25, then start Docker. Set `JAVA_HOME` to the
+Java 25 installation. Gradle 9.7.1 uses Java 17 to compile the included Elide
+plugin and Java 25 to compile the backend. The Elide plugin downloads runtime
+`1.5.3+20260917` through its managed runtime setting. Kotlin uses version 2.4.20
+and Spring Boot uses version 4.1.1.
+SpotBugs compares medium and high findings against
+`backend/config/spotbugs-baseline.xml`. The baseline records 29 existing
+findings. It analyzes production classes only. Review each baseline update before
+committing it.
 
 ```bash
 cd backend
-elide install --slim
-elide build
-elide test
-elide format -- -n src
+bash scripts/prepare-elide-plugin.sh
+./gradlew build
+```
+
+`./gradlew build` runs tests, `spotbugsMain`, and `elideCheckFormat`. Run
+`./gradlew elideFormat` to apply Kotlin formatting.
+
+For a Java 17 installation outside Gradle's usual locations, set `JDK17` and
+pass its path explicitly:
+
+```bash
+export JDK17=/absolute/path/to/java-17
+./gradlew -Porg.gradle.java.installations.paths="$JDK17,$JAVA_HOME" build
 ```
 
 Tests start disposable PostgreSQL and SSH/Python containers through Testcontainers
@@ -61,13 +77,13 @@ JPA settings persistence. Docker is required; tests do not silently skip.
 
 To run against your own PostgreSQL database, provide `SPRING_DATASOURCE_URL`,
 `SPRING_DATASOURCE_USERNAME`, and `SPRING_DATASOURCE_PASSWORD` in the environment,
-then run `elide run` from `backend/`. Do not put credentials in tracked files.
+then run `./gradlew bootRun` from `backend/`. Do not put credentials in tracked files.
 The server binds to loopback by default; `GET http://127.0.0.1:8080/api/status`
 returns `{"application":"sporesync"}`. `SERVER_PORT` overrides the default port.
 
-For development, run `elide run -fDEV`; in another terminal run
-`elide build -fDEV` after editing Kotlin. DevTools watches compiled classes,
-not source files. It is excluded unless the `DEV` build flag is set.
+For development, run `./gradlew bootRun`; in another terminal run
+`./gradlew classes` after editing Kotlin. DevTools watches compiled classes,
+not source files. It is included in the development runtime.
 See [backend build notes](docs/backend-build.md) for versions and limitations.
 
 ## Scan through the backend
@@ -81,7 +97,7 @@ The SSH timeout is configurable from 1 to 300000 milliseconds and is captured
 with each job. Settings changes apply to new scans/jobs without restarting.
 
 Credentials, host trust, and the local scanner path remain external configuration.
-Set these environment variables before running `elide run` from `backend/`:
+Set these environment variables before running `./gradlew bootRun` from `backend/`:
 
 ```bash
 export SPORESYNC_SSH_AUTHENTICATION=KEY # Default; existing key setups still work.
@@ -151,10 +167,10 @@ npm run dev
 ```
 
 Open `http://127.0.0.1:5173`. Run the backend separately from `backend/` with
-`elide run -fDEV` and the database environment variables described above.
+`./gradlew bootRun` and the database environment variables described above.
 Vite forwards `/api` and `/api/*` to `http://127.0.0.1:8080`, preserving the path.
 React calls relative URLs such as `/api/status`, so no CORS configuration is needed.
-Vite handles frontend hot updates; Kotlin still needs `elide build -fDEV`.
+Vite handles frontend hot updates; Kotlin still needs `./gradlew classes`.
 To use another backend port, set `BACKEND_URL=http://127.0.0.1:9090 npm run dev`
 (and set `SERVER_PORT=9090` for the backend). `BACKEND_URL` is only proxy configuration,
 not a browser-exposed variable. It can also go in `frontend/.env.local`.
@@ -170,21 +186,22 @@ For a production frontend build:
 cd frontend
 npm run build
 cd ../backend
-elide build
-elide run
+./gradlew bootJar
+java -jar build/libs/sporesync.jar
 ```
 
 `npm run build` type-checks and writes `frontend/dist/`. Spring serves its
 `index.html` at `/` and hashed assets at `/assets/*`; `/api/*` stays on the backend.
 Visit `http://127.0.0.1:8080` with Vite stopped to verify this mode.
-Elide and Vite remain separate build steps. Generated files are ignored by Git.
+Gradle and Vite remain separate build steps. Generated files are ignored by Git.
 
 When deploying, ship the contents of `frontend/dist/` alongside the backend and
 its configuration/dependencies. The default static directory is
 `../frontend/dist/` relative to `backend/`. Override it with
 `SPORESYNC_STATIC_LOCATION=file:/absolute/path/to/dist/` (include the trailing slash).
-These files are not embedded in a JAR. `scripts/package.sh OUTPUT_DIRECTORY`
-builds a source-and-assets release; see [deployment](docs/deployment.md).
+These files are not embedded in the backend JAR. `scripts/package.sh OUTPUT_DIRECTORY`
+builds a release with the backend JAR, configuration, scanner, frontend assets, and
+startup script. See [deployment](docs/deployment.md).
 Rebuild after frontend changes and restart the backend if the build directory
 was absent at startup. `npm run preview` previews only the frontend bundle;
 use Spring to verify production API integration.

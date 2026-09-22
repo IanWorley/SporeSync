@@ -1,15 +1,19 @@
 # Kotlin/Spring backend build
 
-## Verified toolchain
+## Build toolchain
 
-Verified on macOS arm64 on 2026-09-20 using Elide directly, without Maven or
-Gradle build files or an independently installed JDK.
+The checked-in Gradle 9.7.1 wrapper builds the backend. It uses an included
+Elide Gradle plugin, Kotlin, Spring Boot, and SpotBugs.
 
 | Component | Version |
 |-----------|---------|
-| Elide | 1.5.3+20260917.e2442e4 |
-| Bundled Java | 25.0.4.1; target 25 |
-| Bundled Kotlin compiler and Kotlin reflection | 2.4.20 |
+| Gradle | 9.7.1 |
+| Elide Gradle plugin source | `a1bb1307203acb44fa0d622aad4870c69f1144e1` |
+| Managed Elide runtime | 1.5.3+20260917 |
+| Java for the Elide plugin | 17 |
+| Java for the backend | 25 |
+| SpotBugs | 4.10.4 |
+| Kotlin | 2.4.20 |
 | Spring Boot | 4.1.1 |
 | Jackson Kotlin module | 3.1.5 |
 | PostgreSQL JDBC | 42.7.13 |
@@ -20,105 +24,100 @@ Gradle build files or an independently installed JDK.
 | JNA | 5.18.1 |
 | PostgreSQL test image | postgres:17.6-alpine |
 
-The manifest names direct versions once. Jackson, JDBC, Testcontainers,
-and SLF4J versions follow Spring Boot 4.1.1's dependency BOM; Kotlin follows Elide's
-bundled compiler. Spring starters supply their transitive dependencies. This is
-not a separately imported Boot BOM or a committed transitive dependency lock.
-Review the resolved classpaths when changing versions. SLF4J is pinned directly
-because adding JPA otherwise resolved its incompatible 1.7.36 API under Elide.
+`scripts/prepare-elide-plugin.sh` downloads the Elide Gradle plugin source at
+the listed commit and verifies its pinned SHA-256 before Gradle includes it.
+The plugin settings select the managed Elide runtime. Gradle downloads that
+runtime and verifies the release's published SHA-256. The wrapper archive also
+has a pinned SHA-256. Gradle owns dependency resolution through the Spring Boot
+and Kotlin BOMs, with selected versions recorded in `gradle.lockfile`.
+Build and configuration caching are enabled in `gradle.properties`.
+After changing dependencies, run `./gradlew build --write-locks` and review the
+lockfile diff. A populated dependency and runtime cache supports `--offline`.
 
-`backend/.elideversion` selects 1.5.3. This is a release-version selector, not an
-exact nightly pin. The dated selector triggered repeated downloads in this
-verification, while the full build identifier failed resolution. The exact
-binary tested is available from the [20260917 release](https://github.com/elide-dev/elide/releases/tag/1.5.3%2B20260917).
-The macOS arm64 archive's published SHA-256 was verified before execution:
-`c342f4a4843a451a8bf98ed203f3b63c5b4684301e405551e2bfb1d73835895e`.
+The pinned plugin uses deprecated Gradle APIs. Keep Gradle below 10 until the
+upstream plugin supports that version.
 
 ## Commands and scope
 
 Run these commands **from `backend/`**:
 
 ```bash
-elide install --slim
-elide build
-elide test
-elide format -- -n src
+bash scripts/prepare-elide-plugin.sh
+./gradlew build
 ```
 
-`elide test` requires Docker and starts disposable PostgreSQL and SSH/Python
-containers. It checks HTTP inventory, scanner caching, host-key verification,
-authentication failures, execution timeouts, protocol validation, Liquibase,
-typed settings persistence through Spring Data JPA, and SSH defaults migration
-on fresh and previously configured databases.
-Temporary SSH credentials are generated in Java; no local OpenSSH tool is needed
-for backend tests. Containers and temporary keys are cleaned up after the tests.
+Install Java 17 and Temurin Java 25. `JAVA_HOME` must identify Java 25 because
+it launches the Gradle daemon and the managed runtime. Gradle finds Java 17 in
+its usual installation locations. For a Java 17 installation outside those
+locations, set `JDK17` and run:
 
-Initial scaffold verification passed: `elide build`, `elide test` (2 passed, 0 skipped), and
-`elide format -- -n src`. Both `elide run` and `elide run -fDEV` served the
-expected response against disposable PostgreSQL; changing a compiled class
-timestamp triggered a DevTools restart. Scanner/SSH tests were not rerun because
-those files were unchanged. SSH inventory integration now passes 26 backend tests
-with no skips, plus all 9 Python tests with the SSH fixture enabled.
+```bash
+./gradlew -Porg.gradle.java.installations.paths="$JDK17,$JAVA_HOME" build
+```
 
-Settings foundation verification passed: `elide build`, `elide test` (9 passed,
-0 skipped against disposable PostgreSQL), and `elide format -- -n src`.
+`./gradlew build` runs tests, `spotbugsMain`, and `elideCheckFormat`. Tests
+require Docker for PostgreSQL and SSH Testcontainers.
 
-For normal startup, set `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`,
-and `SPRING_DATASOURCE_PASSWORD` for an existing PostgreSQL database, then run
-`elide run`. The server defaults to loopback port 8080. The status endpoint only
-identifies the running application; it does not report seedbox or transfer health.
+Run a focused check when needed:
 
-`elide run -fDEV` includes DevTools; `elide build -fDEV` recompiles changes for
-its restart watcher. Normal builds/runs exclude DevTools. LiveReload is disabled; Vite handles frontend hot updates. This does not provide a source compiler watcher.
+```bash
+./gradlew spotbugsMain
+./gradlew elideCheckFormat
+./gradlew elideFormat
+```
 
-## Elide constraints
+SpotBugs analyzes production classes only. `spotbugsTest` is disabled. SpotBugs
+compares medium and high findings with `config/spotbugs-baseline.xml`, which
+records 29 existing findings. Review each baseline update before committing it.
+SpotBugs writes `build/reports/spotbugs/main.xml` and
+`build/reports/spotbugs/main.html`. Gradle writes test reports to
+`build/reports/tests/test`.
 
-- The embedded `elide:` manifest schema works with the verified binary. The
-  documentation's versioned `pkl.elide.dev/1.5.3/project.pkl` URL returned 404.
-- Source-set compilation did not copy resource files in the feasibility probe.
-  Spring reads external `config/application.properties`, and Liquibase reads
-  `config/db/changelog.yaml` relative to the working directory. Do not run from
-  the repository root with only `-p backend`; that does not establish Spring's
-  configuration working directory.
-- `elide build` compiles classes. Releases carry source, configuration and built
-  frontend assets; the target resolves dependencies and compiles with native Elide.
-  See [deployment](deployment.md) for the verified bundle/startup workflow.
-- Kotlin configuration uses `proxyBeanMethods = false`, avoiding an all-open
-  compiler plugin for the scaffold. Revisit proxy requirements when adding
-  transactional services; do not assume final Kotlin classes can be proxied.
+Liquibase creates `sporesync_settings` and `download_jobs`; Hibernate validates
+the mapped schema. SSHJ supplies inventory and SFTP connections. JDBC stores
+durable job state. Transfers, scheduling, and settings APIs are implemented.
+Application login remains deferred.
 
-Liquibase creates `sporesync_settings`; Hibernate validates the schema rather
-than creating or updating it. Spring Data JPA repositories supply transaction
-boundaries for settings reads and writes. The entity has an explicit protected
-no-argument constructor and open properties for JPA, without compiler plugins.
-The settings service does not need transactional proxying for its single repository
-calls. SSHJ supplies inventory and SFTP connections; JDBC supplies durable job
-state. Transfers, scheduling and settings APIs are implemented. Application login
-remains deferred.
+For local development, run `./gradlew bootRun`. Run `./gradlew classes` after
+editing Kotlin so DevTools can reload the compiled classes. To build the backend
+JAR, run `./gradlew bootJar`, then start
+`java -jar build/libs/sporesync.jar`. Spring reads
+`config/application.properties` and the Liquibase changelog from the backend
+working directory. Keep the frontend output in `../frontend/dist/` or set
+`SPORESYNC_STATIC_LOCATION`.
 
-Sources: [JVM workflow](https://elide.help/docs/jvm),
-[manifest reference](https://elide.help/docs/elide-pkl-reference),
-[build flags](https://elide.help/docs/tooling-build-flags), and
-[Spring Boot dependency BOM](https://repo.maven.apache.org/maven2/org/springframework/boot/spring-boot-dependencies/4.1.1/spring-boot-dependencies-4.1.1.pom).
+For deployment, `scripts/package.sh` builds the backend JAR and packages it with
+configuration, scanner, frontend assets, and `scripts/start.sh`. The target host
+needs Java 25. It does not need Gradle or an Elide installation. See
+[deployment](deployment.md).
 
 ## Frontend assets
 
 Vite builds the React/TypeScript frontend separately with `npm run build` from
 `frontend/`. Spring reads its output through `spring.web.resources.static-locations`,
 defaulting to `file:../frontend/dist/`. Set `SPORESYNC_STATIC_LOCATION` to a directory
-URL ending in `/` for a different deployment layout. This avoids relying on Elide
-resource copying; the build does not embed assets into compiled classes or a JAR.
+URL ending in `/` for a different deployment layout. The build keeps frontend
+assets external rather than embedding them in the backend JAR.
 The frontend uses relative `/api` URLs in both modes. Vite proxies those paths in
 development; Spring handles them directly when serving the production bundle.
 See the [README](../README.md) for startup and verification commands.
 
-Frontend integration verification (2026-09-20): `npm ci` and `npm run build`
-passed with Node 24.20.0; `elide build`, `elide test` (6 passed, 0 skipped), and
-`elide format -- -n src` passed. A running backend with disposable PostgreSQL
-served the actual Vite HTML and JavaScript without Vite running. Vite then
-successfully proxied `/api/status` to a custom backend port via `BACKEND_URL`;
-an unknown API path returned 404. The backend suite also verifies external
-static fixtures and missing assets. Scanner/SSH files were unchanged.
+## Gradle migration validation
+
+The Gradle build passed 74 tests with no failures or skips: 69 backend
+integration tests, three SSH settings tests, and two download request tests.
+Formatting passed for 33 Kotlin sources. SpotBugs accepted the 29 reviewed
+baseline findings with no new findings, analysis errors, or missing classes.
+All nine scanner tests passed with the real SSH fixture enabled.
+`scripts/package.sh` built the frontend and JAR. The extracted archive's
+`scripts/start.sh` served `/api/status` and the exact frontend HTML and JavaScript
+against disposable PostgreSQL. The JAR excluded DevTools.
+`python3 scripts/verify-runtime.py` passed automatic discovery, SFTP content,
+cancellation, retry, process kill/restart, durable progress, and resumed checksum
+verification using Java 25 and disposable PostgreSQL and SSH containers.
+Earlier migration checks also verified offline builds, configuration-cache reuse,
+and rejection of an injected null dereference by the Gradle SpotBugs task.
+These checks ran on macOS arm64. Linux verification runs in CI.
 
 ## Download storage and verification
 
@@ -127,17 +126,9 @@ descriptors through creation, transfer and publication. The metadata paths
 `/proc/self/fd` (Linux) and `/dev/fd` (macOS) must be available. JNA loads its
 platform native library from the resolved dependency. Windows downloads are not
 supported. The integration suite exercises parent replacement, hard-link
-preflight failures, resume and content replacement; run the existing Elide checks
+preflight failures, resume and content replacement; run the Gradle checks
 on macOS and the GitHub Linux runner when changing this native boundary.
 
 Remote verification uses the seedbox's existing Python 3 installation over SSH.
 Two server-side SHA-256 passes preserve content checks without fetching the whole
 file twice over SFTP; SFTP uses bounded read-ahead for the missing suffix.
-
-## Full application verification (2026-09-20)
-
-`elide build`, `elide test` (50 passed, zero skipped), and
-`elide format -- -n src` passed. Frontend `npm ci`/`npm run build` and all 9
-scanner/SSH tests passed. `python3 scripts/verify-runtime.py` verifies production
-assets, automatic real-SFTP download, cancellation/retry, and process-kill recovery
-with exact SHA-256 comparison of a 128 MiB transfer against disposable PostgreSQL.

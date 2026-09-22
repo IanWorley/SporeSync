@@ -29,9 +29,9 @@ the new implementation; it is not a migration plan for the earlier codebase.
 Vite is the chosen frontend tooling, with React and TypeScript the preferred
 frontend stack and Tailwind CSS 4 for styling. The Vite/React/TypeScript
 dashboard proxies API requests during development and builds external static
-assets for Spring to serve. Settings, inventory and queue screens are implemented. Elide builds the
-Kotlin/Spring Boot scaffold; compatibility has been verified for the versions recorded below.
-Do not silently substitute Maven or Gradle.
+assets for Spring to serve. Settings, inventory and queue screens are implemented.
+Gradle builds the Kotlin/Spring Boot backend. The Elide Gradle plugin is built
+from pinned source and supplies formatting and managed runtime provisioning.
 Spring Web, PostgreSQL, Liquibase, validation, and Kotlin JSON support are included
 in the scaffold, with JUnit/Testcontainers for tests and opt-in Spring DevTools.
 See [backend build notes](backend-build.md) for dependency versions.
@@ -156,7 +156,7 @@ against disposable SSH and PostgreSQL containers. SSHJ verifies known host keys,
 authenticates with a private key, uploads scanner versions over SFTP, and executes
 bounded scans. Kotlin inventory validation rejects unsupported schemas and invalid
 paths or missing metadata. See the README for configuration and
-[backend build notes](backend-build.md) for the Elide workflow.
+[backend build notes](backend-build.md) for the Gradle workflow.
 SSH host, port, username, source directory, and timeout are database-backed
 application settings; migrations seed port and timeout without overwriting values.
 Credentials and host-key trust remain external configuration.
@@ -192,5 +192,5 @@ requires unchanged size and modification time in two consecutive scans. Compare
 existing bytes with the remote prefix before appending. Equal files require full
 comparison; smaller or replaced content fails safely without truncating local
 files. Cancellation retains partial data and retry is explicit after bounded
-failures. Browser progress uses polling. Deploy the Elide application and Vite
+failures. Browser progress uses polling. Deploy the Spring Boot JAR and Vite
 assets together with external PostgreSQL and persistent downloads/SSH material.

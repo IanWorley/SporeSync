@@ -14,9 +14,8 @@ if [ -e "$archive" ]; then
   exit 1
 fi
 (cd "$repository/frontend" && npm ci && npm run build)
-(cd "$repository/backend" && "${ELIDE_BIN:-elide}" build)
-# Ship source plus built static assets; the target compiles with its native Elide runtime.
+(cd "$repository/backend" && bash scripts/prepare-elide-plugin.sh && ./gradlew bootJar)
 tar -czf "$archive" -C "$repository" \
-  backend/elide.pkl backend/.elideversion backend/config backend/src/main \
+  backend/build/libs/sporesync.jar backend/config \
   scanner/inventory.py frontend/dist scripts/start.sh docs README.md
 printf '%s\n' "$archive"

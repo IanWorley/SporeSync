@@ -5,4 +5,5 @@ repository=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 : "${SPRING_DATASOURCE_USERNAME:?Set the PostgreSQL username}"
 : "${SPRING_DATASOURCE_PASSWORD:?Set the PostgreSQL password}"
 cd "$repository/backend"
-exec "${ELIDE_BIN:-elide}" run
+java="${JAVA_HOME:+$JAVA_HOME/bin/}java"
+exec "$java" -jar build/libs/sporesync.jar

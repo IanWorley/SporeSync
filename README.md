@@ -281,3 +281,11 @@ with the locally accumulated checksum before publication. This still reads the
 source disk twice, but does not send those two full-file reads over the network.
 Hashing emits heartbeats so the configured timeout bounds inactivity rather than
 total hash duration. Cancellation and failures retain partial data.
+
+`POST /api/downloads` with `{"path":"nested/file.ext"}` discovers and queues a
+regular file. `GET /api/downloads` returns durable state and byte progress;
+`POST /api/downloads/{id}/cancel` retains partial data, and `/retry` explicitly
+requeues failed or cancelled work. A backend worker processes one file at a time,
+independently of the browser. Interrupted jobs recover at startup, with three
+attempts maximum. Both a PostgreSQL session lock and destination filesystem lock
+protect writes. Run one deployment against a given destination and database.

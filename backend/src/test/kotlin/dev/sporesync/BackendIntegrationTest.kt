@@ -5,14 +5,18 @@ import dev.sporesync.config.SshSettingKeys
 import dev.sporesync.config.SshSettings
 import dev.sporesync.model.ApplicationStatus
 import dev.sporesync.model.download.DownloadFailure
+import dev.sporesync.model.download.DownloadJob
 import dev.sporesync.model.download.DownloadJobs
+import dev.sporesync.model.download.DownloadRequest
 import dev.sporesync.model.download.DownloadSpec
+import dev.sporesync.model.download.DownloadWorker
 import dev.sporesync.model.download.JobState
 import dev.sporesync.model.download.LibC
 import dev.sporesync.model.download.MAX_DOWNLOAD_ATTEMPTS
 import dev.sporesync.model.download.Posix
 import dev.sporesync.model.download.PosixDownloadStorage
 import dev.sporesync.model.download.SftpDownload
+import dev.sporesync.model.download.WORKER_LOCK_ID
 import dev.sporesync.model.inventory.EntryType
 import dev.sporesync.model.inventory.Inventory
 import dev.sporesync.model.inventory.InventoryEntry
@@ -70,12 +74,16 @@ import tools.jackson.databind.json.JsonMapper
 
 @Testcontainers
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(
+    webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+    properties = ["sporesync.background.enabled=false"],
+)
 class BackendIntegrationTest {
   @LocalServerPort private var port: Int = 0
   @Autowired private lateinit var dataSource: DataSource
   @Autowired private lateinit var jsonMapper: JsonMapper
   @Autowired private lateinit var sshSettings: SshSettings
+  @Autowired private lateinit var worker: DownloadWorker
   @Autowired private lateinit var downloader: SftpDownload
   @Autowired private lateinit var configuration: DownloadConfiguration
   @Autowired private lateinit var jobs: DownloadJobs
@@ -883,6 +891,74 @@ class BackendIntegrationTest {
     assertEquals(prefix + "b".repeat(suffixBytes), Files.readString(target))
   }
 
+  @Test
+  fun `connection failures stop retrying after the configured attempt limit`() {
+    jobs.list().forEach { jobs.cancel(it.id) }
+    val spec = transferSpec(false)
+    java.net.ServerSocket(0).use { unavailable ->
+      val job = jobs.enqueue(spec.copy(settings = spec.settings.copy(port = unavailable.localPort)))
+      // A listening non-SSH socket times out; use its port after closure for immediate refusal.
+      unavailable.close()
+      repeat(MAX_DOWNLOAD_ATTEMPTS) { worker.tick() }
+      assertEquals(JobState.FAILED, jobs.find(job.id)?.state)
+      assertEquals(MAX_DOWNLOAD_ATTEMPTS, jobs.find(job.id)?.attempts)
+    }
+  }
+
+  @Test
+  fun `HTTP queued transfer completes in worker after request finishes`() {
+    jobs.list().forEach { jobs.cancel(it.id) }
+    val spec = transferSpec(true)
+    configuration.save(spec.settings)
+    val request =
+        HttpRequest.newBuilder(URI("http://127.0.0.1:$port/api/downloads"))
+            .header("Content-Type", "application/json")
+            .POST(
+                HttpRequest.BodyPublishers.ofString(
+                    jsonMapper.writeValueAsString(DownloadRequest(spec.entry.path))
+                )
+            )
+            .build()
+    val response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString())
+    assertEquals(HTTP_ACCEPTED, response.statusCode(), response.body())
+    val job = jsonMapper.readValue(response.body(), DownloadJob::class.java)
+    assertEquals(JobState.QUEUED, job.state)
+    worker.tick()
+    assertEquals(JobState.COMPLETE, jobs.find(job.id)?.state)
+    assertEquals(SAMPLE_BYTES, jobs.find(job.id)?.bytesDone)
+    assertEquals(
+        "sample\n",
+        Files.readString(Path.of(spec.settings.destination).resolve(spec.entry.path)),
+    )
+  }
+
+  @Test
+  fun `worker recovers persisted running job with a fresh worker instance`() {
+    jobs.list().forEach { jobs.cancel(it.id) }
+    val job = jobs.enqueue(transferSpec(true))
+    jobs.start(job.id)
+    DownloadWorker(dataSource, jobs, downloader, false).tick()
+    assertEquals(JobState.COMPLETE, jobs.find(job.id)?.state)
+    assertEquals(2, jobs.find(job.id)?.attempts)
+  }
+
+  @Test
+  fun `second worker cannot claim a job while advisory lock is owned`() {
+    jobs.list().forEach { jobs.cancel(it.id) }
+    val job = jobs.enqueue(transferSpec(false))
+    dataSource.connection.use { connection ->
+      connection.createStatement().use { statement ->
+        statement.execute("SELECT pg_advisory_lock($WORKER_LOCK_ID)")
+        try {
+          DownloadWorker(dataSource, jobs, downloader, false).tick()
+          assertEquals(JobState.QUEUED, jobs.find(job.id)?.state)
+        } finally {
+          statement.execute("SELECT pg_advisory_unlock($WORKER_LOCK_ID)")
+        }
+      }
+    }
+  }
+
   private fun transferSpec(temporaryMode: Boolean): DownloadSpec {
     val destination = Files.createTempDirectory(temporary, "downloads").toRealPath().toString()
     val settings =
@@ -923,6 +999,7 @@ class BackendIntegrationTest {
     private const val BAD_GATEWAY = 502
     private const val SPECIAL_SOURCE = "/seed 日本語 ' ; literal"
     private const val POSTGRES_IMAGE = "postgres:17.6-alpine"
+    private const val HTTP_ACCEPTED = 202
     private const val HTTP_BAD_REQUEST = 400
     private const val HTTP_OK = 200
     private const val HTTP_NOT_FOUND = 404

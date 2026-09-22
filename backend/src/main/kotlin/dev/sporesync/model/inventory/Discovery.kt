@@ -60,6 +60,7 @@ class Discovery(
     snapshot = snapshot.copy(lastAttempt = Instant.now(), error = null)
     try {
       val settings = configuration.read()
+      if (settings.automatic) settings.validate() else settings.validateDiscovery()
       val connection =
           SshConnectionSettings(
               settings.host,
@@ -82,8 +83,7 @@ class Discovery(
   @Synchronized
   internal fun accept(settings: DownloadSettings, inventory: Inventory) {
     val stable = if (settings == previousSettings) previousEntries else emptyMap()
-    if (settings.automatic && settings.destination.isNotBlank()) {
-      settings.validate()
+    if (settings.automatic) {
       inventory.entries
           .filter {
             it.type == EntryType.file &&

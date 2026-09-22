@@ -1,6 +1,7 @@
 package dev.sporesync
 
 import com.sun.jna.Native
+import dev.sporesync.config.SshConnectionSettings
 import dev.sporesync.config.SshSettingKeys
 import dev.sporesync.config.SshSettings
 import dev.sporesync.model.ApplicationStatus
@@ -23,6 +24,7 @@ import dev.sporesync.model.inventory.Inventory
 import dev.sporesync.model.inventory.InventoryEntry
 import dev.sporesync.model.inventory.InventoryException
 import dev.sporesync.model.inventory.InventoryFailure
+import dev.sporesync.model.inventory.InventoryScanner
 import dev.sporesync.model.inventory.RemoteInventory
 import dev.sporesync.model.settings.ApplicationSetting
 import dev.sporesync.model.settings.ApplicationSettingRepository
@@ -31,6 +33,7 @@ import dev.sporesync.model.settings.DownloadConfiguration
 import dev.sporesync.model.settings.DownloadSettings
 import dev.sporesync.model.settings.MAX_TIMEOUT_MILLIS
 import dev.sporesync.model.settings.SettingKey
+import dev.sporesync.model.settings.SettingNames
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -995,6 +998,47 @@ class BackendIntegrationTest {
     repeat(2) { discovery.accept(spec.settings.copy(automatic = false), snapshot) }
     assertNull(jobs.find(spec.identity()))
     assertEquals(snapshot, discovery.state().inventory)
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = [SettingNames.SCAN_INTERVAL, SettingNames.SSH_TIMEOUT_MILLIS])
+  fun `invalid persisted discovery bounds fail before scanning`(name: String) {
+    val configured = transferSpec(true).settings.copy(automatic = false)
+    configuration.save(configured)
+    settings.set(SettingKey(name, String::toInt, Int::toString), MAX_TIMEOUT_MILLIS + 1)
+    val scanner =
+        object : InventoryScanner {
+          override fun scan(connectionOverride: SshConnectionSettings?): Inventory =
+              throw AssertionError("Invalid configuration reached the scanner")
+        }
+    val discovery = Discovery(scanner, configuration, jobs, false)
+    try {
+      assertThrows(IllegalArgumentException::class.java) { discovery.scan() }
+      assertEquals("CONFIGURATION", discovery.state().error)
+    } finally {
+      configuration.save(configured)
+    }
+  }
+
+  @Test
+  fun `discovery without a destination requires automatic downloads disabled`() {
+    val configured = transferSpec(true).settings.copy(automatic = true)
+    configuration.save(configured)
+    settings.set(SettingKey(SettingNames.LOCAL_DOWNLOAD_DIRECTORY, { it }, { it }), "")
+    val discovery = Discovery(inventory, configuration, jobs, false)
+    try {
+      assertThrows(IllegalArgumentException::class.java) { discovery.scan() }
+      assertEquals("CONFIGURATION", discovery.state().error)
+      settings.set(SettingKey(SettingNames.AUTOMATIC_DOWNLOAD_ENABLED, { it }, { it }), "false")
+      val scanned = discovery.scan()
+      assertEquals(
+          SAMPLE_BYTES,
+          scanned.entries.single { it.path == "nested/日本語 file.txt" }.sizeBytes,
+      )
+      assertNull(discovery.state().error)
+    } finally {
+      configuration.save(configured)
+    }
   }
 
   private fun transferSpec(temporaryMode: Boolean): DownloadSpec {

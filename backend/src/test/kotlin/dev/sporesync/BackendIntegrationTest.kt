@@ -1,6 +1,7 @@
 package dev.sporesync
 
 import com.sun.jna.Native
+import dev.sporesync.config.SshAuthentication
 import dev.sporesync.config.SshConnectionSettings
 import dev.sporesync.config.SshSettingKeys
 import dev.sporesync.config.SshSettings
@@ -45,6 +46,7 @@ import java.security.KeyPairGenerator
 import java.time.Duration
 import java.time.Instant
 import java.util.Base64
+import java.util.UUID
 import javax.sql.DataSource
 import liquibase.integration.spring.SpringLiquibase
 import net.schmizz.sshj.common.Buffer
@@ -61,6 +63,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
 import org.junit.jupiter.api.io.TempDir
 import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.EnumSource
 import org.junit.jupiter.params.provider.ValueSource
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
@@ -94,6 +97,7 @@ class BackendIntegrationTest {
   @Autowired private lateinit var inventory: RemoteInventory
   private lateinit var temporary: Path
   private lateinit var ssh: GenericContainer<*>
+  private val sshPassword = " ${UUID.randomUUID()} "
 
   @BeforeAll
   fun startSsh(@TempDir directory: Path) {
@@ -115,9 +119,29 @@ class BackendIntegrationTest {
                     .withFileFromPath("Dockerfile", Path.of("../tests/ssh/Dockerfile"))
                     .withFileFromPath("authorized_keys", temporary.resolve("key.pub"))
             )
+            .withCommand(
+                "/usr/sbin/sshd",
+                "-D",
+                "-e",
+                "-o",
+                "PasswordAuthentication=yes",
+                "-o",
+                "PermitRootLogin=no",
+            )
             .withExposedPorts(SSH_PORT)
             .waitingFor(Wait.forListeningPort())
     ssh.start()
+    assertEquals(
+        0,
+        ssh.execInContainer(
+                "sh",
+                "-c",
+                "printf '%s\n' \"$1\" | chpasswd",
+                "sh",
+                "scanner:$sshPassword",
+            )
+            .exitCode,
+    )
     val hostKey =
         ssh.execInContainer("cat", "/etc/ssh/ssh_host_ed25519_key.pub").stdout.trim().split(" ")
     Files.writeString(
@@ -144,11 +168,21 @@ class BackendIntegrationTest {
     settings.set(SshSettingKeys.HOST, ssh.host)
     settings.set(SshSettingKeys.PORT, ssh.getMappedPort(SSH_PORT))
     settings.set(SshSettingKeys.USERNAME, "scanner")
+    sshSettings.authentication = SshAuthentication.KEY
+    sshSettings.password = ""
     sshSettings.privateKey = temporary.resolve("key").toString()
     sshSettings.knownHosts = temporary.resolve("known_hosts").toString()
     settings.set(SshSettingKeys.SOURCE, SPECIAL_SOURCE)
     sshSettings.scanner = "../scanner/inventory.py"
     settings.set(SshSettingKeys.TIMEOUT_MILLIS, SSH_TIMEOUT_MILLIS)
+    settings.set(
+        SettingKey(
+            SettingNames.AUTOMATIC_DOWNLOAD_ENABLED,
+            String::toBooleanStrict,
+            Boolean::toString,
+        ),
+        false,
+    )
   }
 
   @ParameterizedTest
@@ -254,8 +288,10 @@ class BackendIntegrationTest {
     }
   }
 
-  @Test
-  fun `returns remote inventory over HTTP and reuses uploaded scanner`() {
+  @ParameterizedTest
+  @EnumSource(SshAuthentication::class)
+  fun `returns remote inventory over HTTP and reuses uploaded scanner`(mode: SshAuthentication) {
+    useAuthentication(mode)
     val request =
         HttpRequest.newBuilder(URI("http://127.0.0.1:$port/api/inventory/scan"))
             .timeout(HTTP_TIMEOUT)
@@ -302,8 +338,10 @@ class BackendIntegrationTest {
     assertEquals("{\"error\":\"EXECUTION\"}", response.body())
   }
 
-  @Test
-  fun `rejects untrusted host keys`() {
+  @ParameterizedTest
+  @EnumSource(SshAuthentication::class)
+  fun `rejects untrusted host keys`(mode: SshAuthentication) {
+    useAuthentication(mode)
     sshSettings.knownHosts = temporary.resolve("untrusted").toString()
     Files.writeString(Path.of(sshSettings.knownHosts), "")
     assertEquals(
@@ -319,6 +357,56 @@ class BackendIntegrationTest {
         InventoryFailure.AUTHENTICATION,
         assertThrows(InventoryException::class.java) { inventory.scan() }.code,
     )
+  }
+
+  @Test
+  fun `wrong password returns a safe error without falling back to a valid key`() {
+    sshSettings.authentication = SshAuthentication.PASSWORD
+    sshSettings.password = UUID.randomUUID().toString()
+    val request =
+        HttpRequest.newBuilder(URI("http://127.0.0.1:$port/api/inventory/scan"))
+            .timeout(HTTP_TIMEOUT)
+            .POST(HttpRequest.BodyPublishers.noBody())
+            .build()
+    val response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString())
+    assertEquals(BAD_GATEWAY, response.statusCode())
+    assertEquals("{\"error\":\"AUTHENTICATION\"}", response.body())
+  }
+
+  @Test
+  fun `password mode requires a nonempty password even with a valid key`() {
+    sshSettings.authentication = SshAuthentication.PASSWORD
+    assertEquals(
+        InventoryFailure.CONFIGURATION,
+        assertThrows(InventoryException::class.java) { inventory.scan() }.code,
+    )
+  }
+
+  @Test
+  fun `key mode requires a key even with a valid password`() {
+    sshSettings.password = sshPassword
+    sshSettings.privateKey = ""
+    assertEquals(
+        InventoryFailure.CONFIGURATION,
+        assertThrows(InventoryException::class.java) { inventory.scan() }.code,
+    )
+  }
+
+  @Test
+  fun `downloads over SFTP using only a password`() {
+    useAuthentication(SshAuthentication.PASSWORD)
+    val spec = transferSpec(true)
+    downloader.transfer(spec, {}) { false }
+    assertEquals(
+        "sample\n",
+        Files.readString(Path.of(spec.settings.destination).resolve(spec.entry.path)),
+    )
+  }
+
+  private fun useAuthentication(mode: SshAuthentication) {
+    sshSettings.authentication = mode
+    sshSettings.password = sshPassword
+    if (mode == SshAuthentication.PASSWORD) sshSettings.privateKey = ""
   }
 
   @Test
@@ -593,9 +681,11 @@ class BackendIntegrationTest {
             .build()
     val response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString())
     assertEquals(HTTP_OK, response.statusCode())
+    sshSettings.password = sshPassword
     val loaded = get("/api/settings")
     assertEquals(value, jsonMapper.readValue(loaded.body(), DownloadSettings::class.java))
     assertTrue(!loaded.body().contains("privateKey") && !loaded.body().contains("passphrase"))
+    assertTrue(!loaded.body().contains("password") && !loaded.body().contains(sshPassword))
   }
 
   @Test

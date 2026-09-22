@@ -43,11 +43,11 @@ class RemoteInventory(
         ssh.transport.timeoutMs = connection.timeoutMillis
         ssh.connection.timeoutMs = connection.timeoutMillis
         ssh.loadKnownHosts(Path.of(settings.knownHosts).toFile())
-        val key = ssh.loadKeys(settings.privateKey, settings.passphrase)
+        val authenticate = settings.prepareAuthentication(ssh, connection.username)
         stage = InventoryFailure.CONNECTION
         ssh.connect(connection.host, connection.port)
         stage = InventoryFailure.AUTHENTICATION
-        ssh.authPublickey(connection.username, key)
+        authenticate()
         stage = InventoryFailure.UPLOAD
         val remoteScanner = ssh.newSFTPClient().use { upload(it, scanner) }
         stage = InventoryFailure.EXECUTION

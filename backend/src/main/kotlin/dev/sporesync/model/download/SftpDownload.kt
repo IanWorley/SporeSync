@@ -48,9 +48,9 @@ class SftpDownload(private val credentials: SshSettings, private val storage: Do
         ssh.transport.timeoutMs = spec.settings.timeoutMillis
         ssh.connection.timeoutMs = spec.settings.timeoutMillis
         ssh.loadKnownHosts(java.nio.file.Path.of(credentials.knownHosts).toFile())
-        val key = ssh.loadKeys(credentials.privateKey, credentials.passphrase)
+        val authenticate = credentials.prepareAuthentication(ssh, spec.settings.username)
         ssh.connect(spec.settings.host, spec.settings.port)
-        ssh.authPublickey(spec.settings.username, key)
+        authenticate()
         val before = RemoteChecksum.read(ssh, spec, initialSize, cancelled)
         if (before.prefix != prefix) throw DownloadFailure("LOCAL_CONFLICT")
         var position = initialSize

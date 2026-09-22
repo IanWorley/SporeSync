@@ -69,7 +69,7 @@ Run a focused check when needed:
 
 SpotBugs analyzes production classes only. `spotbugsTest` is disabled. SpotBugs
 compares medium and high findings with `config/spotbugs-baseline.xml`, which
-records 31 reviewed findings. Review each baseline update before committing it.
+records 32 reviewed findings. Review each baseline update before committing it.
 SpotBugs writes `build/reports/spotbugs/main.xml` and
 `build/reports/spotbugs/main.html`. Gradle writes test reports to
 `build/reports/tests/test`.

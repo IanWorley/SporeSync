@@ -3,6 +3,9 @@ package dev.sporesync.model.inventory
 import dev.sporesync.config.SshConnectionSettings
 import dev.sporesync.model.download.DownloadJobRepository
 import dev.sporesync.model.download.DownloadSpec
+import dev.sporesync.model.download.DownloadStorage
+import dev.sporesync.model.download.JobState
+import dev.sporesync.model.download.PosixDownloadStorage
 import dev.sporesync.model.settings.DEFAULT_SCAN_SECONDS
 import dev.sporesync.model.settings.DownloadSettings
 import dev.sporesync.model.settings.DownloadSettingsStore
@@ -29,6 +32,7 @@ class Discovery(
     private val configuration: DownloadSettingsStore,
     private val jobs: DownloadJobRepository,
     @param:Value("\${sporesync.background.enabled:true}") private val enabled: Boolean,
+    private val storage: DownloadStorage = PosixDownloadStorage(),
 ) {
   @Volatile private var snapshot = DiscoverySnapshot()
   private var previousSettings: DownloadSettings? = null
@@ -90,7 +94,18 @@ class Discovery(
                 it == stable[it.path] &&
                 it.path.substringBefore('/') != ".sporesync"
           }
-          .forEach { jobs.enqueue(DownloadSpec(settings, it)) }
+          .forEach {
+            val job = jobs.enqueue(DownloadSpec(settings, it))
+            if (job.state == JobState.COMPLETE && job.action == null) {
+              val missing =
+                  try {
+                    storage.missing(settings.destination, it.path)
+                  } catch (_: Exception) {
+                    false
+                  }
+              if (missing) jobs.requeueMissing(job.id)
+            }
+          }
     }
     previousSettings = settings
     previousEntries = inventory.entries.associateBy { it.path }

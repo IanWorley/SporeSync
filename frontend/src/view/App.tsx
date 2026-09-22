@@ -1,4 +1,5 @@
-import type { JobState } from '../model/Inventory';
+import { useEffect, useRef, useState } from 'react';
+import type { DownloadJob, JobAction, JobState } from '../model/Inventory';
 import { useDashboard } from '../controller/useDashboard';
 import { SettingsPanel } from './SettingsPanel';
 
@@ -6,15 +7,24 @@ const BYTE_FRACTION_DIGITS = 1;
 const BYTES_PER_UNIT = 1024;
 const PERCENT = 100;
 const BYTE_UNITS = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
-const BUTTON =
-  'rounded-lg border border-slate-700 px-3 py-2 text-sm font-medium text-slate-200 hover:border-emerald-400 hover:text-emerald-300 disabled:cursor-wait disabled:opacity-40';
+const BUTTON_BASE = 'rounded-lg border px-3 py-2 text-sm font-medium disabled:cursor-wait disabled:opacity-40';
+const BUTTON = `${BUTTON_BASE} border-slate-700 text-slate-200 hover:border-emerald-400 hover:text-emerald-300`;
+const DELETE_BUTTON = `${BUTTON_BASE} border-rose-800 text-rose-300 hover:border-rose-400 hover:text-rose-200`;
 const STATE_COLORS: Record<JobState, string> = {
   QUEUED: 'bg-slate-800 text-slate-300',
   RUNNING: 'bg-sky-950 text-sky-300',
   COMPLETE: 'bg-emerald-950 text-emerald-300',
   FAILED: 'bg-rose-950 text-rose-300',
   CANCELLED: 'bg-amber-950 text-amber-300',
+  PAUSED: 'bg-amber-950 text-amber-300',
+  REMOTE_DELETED: 'bg-slate-800 text-slate-400',
 };
+const ACTION_LABELS: Record<JobAction, string> = {
+  PAUSE: 'Pausing…',
+  DELETE_LOCAL: 'Deleting local copy…',
+  DELETE_REMOTE: 'Deleting server copy…',
+};
+type Deletion = { job: DownloadJob; target: 'local' | 'remote' };
 
 function bytes(value: number): string {
   let amount = value;
@@ -28,6 +38,13 @@ function bytes(value: number): string {
 
 export function App() {
   const { tab, setTab, discovery, jobs, error, connected, busy, notice, query, setQuery, act, entries, files, filtered, running, queued, completed } = useDashboard();
+  const [deletion, setDeletion] = useState<Deletion | null>(null);
+  const confirmation = useRef<HTMLDialogElement>(null);
+
+  useEffect(() => {
+    if (deletion) confirmation.current?.showModal();
+    else confirmation.current?.close();
+  }, [deletion]);
 
   return (
     <main className="min-h-screen bg-slate-950 px-4 py-8 text-slate-100 sm:px-8 sm:py-12">
@@ -200,7 +217,7 @@ export function App() {
                         <p className="mt-1 break-all text-xs text-slate-500">{job.spec.settings.destination}</p>
                       </div>
                       <span className={`rounded-full px-2.5 py-1 text-xs ${STATE_COLORS[job.state]}`}>
-                        {job.cancelRequested && job.state === 'RUNNING' ? 'Cancelling…' : job.state.toLowerCase()}
+                        {job.action ? ACTION_LABELS[job.action] : job.cancelRequested && job.state === 'RUNNING' ? 'Cancelling…' : job.state.replaceAll('_', ' ').toLowerCase()}
                       </span>
                     </div>
                     <progress
@@ -214,24 +231,64 @@ export function App() {
                         {bytes(job.bytesDone)} / {bytes(job.spec.entry.sizeBytes)} · {Math.floor(progress)}% · Attempts:{' '}
                         {job.attempts}
                       </p>
-                      {(job.state === 'QUEUED' || job.state === 'RUNNING') && (
+                      <div className="flex flex-wrap gap-2">
+                        {(job.state === 'QUEUED' || job.state === 'RUNNING') && (
+                          <button
+                            className={BUTTON}
+                            disabled={!!busy || !!job.action || job.cancelRequested || !connected}
+                            aria-label={`Pause ${job.spec.entry.path}`}
+                            onClick={() => void act(job.id, `/downloads/${job.id}/pause`)}
+                          >
+                            Pause
+                          </button>
+                        )}
+                        {job.state === 'PAUSED' && (
+                          <button
+                            className={BUTTON}
+                            disabled={!!busy || !!job.action || !connected}
+                            aria-label={`Resume ${job.spec.entry.path}`}
+                            onClick={() => void act(job.id, `/downloads/${job.id}/resume`)}
+                          >
+                            Resume
+                          </button>
+                        )}
+                        {(job.state === 'QUEUED' || job.state === 'RUNNING') && (
+                          <button
+                            className={BUTTON}
+                            disabled={!!busy || !!job.action || job.cancelRequested || !connected}
+                            onClick={() => void act(job.id, `/downloads/${job.id}/cancel`)}
+                          >
+                            Cancel
+                          </button>
+                        )}
+                        {(job.state === 'FAILED' || job.state === 'CANCELLED') && (
+                          <button
+                            className={BUTTON}
+                            disabled={!!busy || !!job.action || !connected}
+                            onClick={() => void act(job.id, `/downloads/${job.id}/retry`)}
+                          >
+                            Retry
+                          </button>
+                        )}
                         <button
                           className={BUTTON}
-                          disabled={!!busy || job.cancelRequested || !connected}
-                          onClick={() => void act(job.id, `/downloads/${job.id}/cancel`)}
+                          disabled={!!busy || !!job.action || !connected}
+                          aria-label={`Delete local copy of ${job.spec.entry.path}`}
+                          onClick={() => setDeletion({ job, target: 'local' })}
                         >
-                          Cancel
+                          Delete local
                         </button>
-                      )}
-                      {(job.state === 'FAILED' || job.state === 'CANCELLED') && (
-                        <button
-                          className={BUTTON}
-                          disabled={!!busy || !connected}
-                          onClick={() => void act(job.id, `/downloads/${job.id}/retry`)}
-                        >
-                          Retry
-                        </button>
-                      )}
+                        {job.state !== 'REMOTE_DELETED' && (
+                          <button
+                            className={BUTTON}
+                            disabled={!!busy || !!job.action || !connected}
+                            aria-label={`Delete server copy of ${job.spec.entry.path}`}
+                            onClick={() => setDeletion({ job, target: 'remote' })}
+                          >
+                            Delete from server
+                          </button>
+                        )}
+                      </div>
                     </div>
                     {job.error && <p className="mt-3 text-xs text-amber-300">{job.error}</p>}
                   </article>
@@ -241,10 +298,48 @@ export function App() {
           </section>
         )}
         <footer className="mt-8 text-xs leading-6 text-slate-500">
-          One-way copies. Source files stay on your seedbox. Progress refreshes automatically.
+          One-way copies. Server files stay in place unless you delete them explicitly. Progress refreshes automatically.
         </footer>
+        <dialog
+          ref={confirmation}
+          aria-labelledby="delete-title"
+          aria-describedby="delete-description"
+          onCancel={() => setDeletion(null)}
+          className="m-auto w-full max-w-lg rounded-2xl border border-slate-700 bg-slate-900 p-6 text-slate-100 shadow-xl backdrop:bg-black/70"
+        >
+          {deletion && (
+            <>
+              <h2 id="delete-title" className="text-xl font-semibold">
+                Delete {deletion.target === 'local' ? 'local' : 'server'} copy?
+              </h2>
+              <p className="mt-4 break-all text-sm font-medium">{deletion.job.spec.entry.path}</p>
+              <p className="mt-2 break-all text-xs text-slate-400">
+                {deletion.target === 'local' ? deletion.job.spec.settings.destination : `${deletion.job.spec.settings.host}:${deletion.job.spec.settings.source}`}
+              </p>
+              <p id="delete-description" className="mt-4 text-sm text-slate-300">
+                {deletion.target === 'local'
+                  ? deletion.job.state === 'REMOTE_DELETED'
+                    ? 'This permanently removes the local copy and any partial download. The server copy was deleted, so it cannot be downloaded again.'
+                    : 'This permanently removes the local copy and any partial download, then queues the file to download again. The server copy stays in place.'
+                  : 'This permanently deletes the file from the server and stops its downloads. Your local copy stays in place.'}
+              </p>
+              <div className="mt-6 flex justify-end gap-3">
+                <button autoFocus className={BUTTON} onClick={() => setDeletion(null)}>Keep file</button>
+                <button
+                  className={DELETE_BUTTON}
+                  disabled={!!busy || !connected}
+                  onClick={() => {
+                    void act(deletion.job.id, `/downloads/${deletion.job.id}/delete-${deletion.target}`);
+                    setDeletion(null);
+                  }}
+                >
+                  {deletion.target === 'local' ? 'Delete local copy' : 'Delete server copy'}
+                </button>
+              </div>
+            </>
+          )}
+        </dialog>
       </div>
     </main>
   );
 }
-

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify built assets, automatic queueing, cancellation and process-crash recovery.
+"""Verify built assets, queue controls, file deletion and process-crash recovery.
 
 Requires Java 25, Docker, ssh-keygen, and a built backend JAR and frontend assets.
 All containers, keys and downloaded content belong to this disposable fixture.
@@ -119,6 +119,25 @@ def verify(root):
             wait_for(lambda: any(job["state"] == "COMPLETE" for job in api("/api/downloads")))
             assert (downloads / "nested/日本語 file.txt").read_text() == "sample\n"
             print("PASS: production assets, settings, automatic discovery and SFTP content", flush=True)
+            sample_path = "nested/日本語 file.txt"
+            sample = next(item for item in api("/api/downloads") if item["spec"]["entry"]["path"] == sample_path)
+
+            def sample_job():
+                return next(item for item in api("/api/downloads") if item["id"] == sample["id"])
+
+            api(f"/api/downloads/{sample['id']}/delete-local", "POST")
+            wait_for(lambda: sample_job()["state"] == "COMPLETE" and sample_job()["action"] is None)
+            assert (downloads / sample_path).read_text() == "sample\n"
+            (downloads / sample_path).unlink()
+            api("/api/inventory/scan", "POST")
+            wait_for(lambda: sample_job()["state"] == "COMPLETE")
+            assert (downloads / sample_path).read_text() == "sample\n"
+            command("docker", "exec", ssh, "chown", "scanner:scanner", "/seed/nested")
+            api(f"/api/downloads/{sample['id']}/delete-remote", "POST")
+            wait_for(lambda: sample_job()["state"] == "REMOTE_DELETED" and sample_job()["action"] is None)
+            command("docker", "exec", ssh, "test", "!", "-e", f"/seed/{sample_path}")
+            assert (downloads / sample_path).read_text() == "sample\n"
+            print("PASS: local deletion, external deletion reconciliation and server deletion retaining local content", flush=True)
             settings["automatic"] = False
             api("/api/settings", "PUT", settings)
             command("docker", "exec", ssh, "truncate", "-s", str(LARGE_FILE_BYTES), "/seed/large.bin")
@@ -128,6 +147,17 @@ def verify(root):
                 return next(item for item in api("/api/downloads") if item["id"] == job["id"])
 
             wait_for(lambda: current()["state"] == "RUNNING" and current()["bytesDone"] > 0)
+            api(f"/api/downloads/{job['id']}/pause", "POST")
+            wait_for(lambda: current()["state"] == "PAUSED" and current()["action"] is None)
+            paused_bytes = current()["bytesDone"]
+            assert 0 < paused_bytes < LARGE_FILE_BYTES
+            stop(process)
+            process = start(environment, log)
+            assert current()["state"] == "PAUSED"
+            assert current()["bytesDone"] == paused_bytes
+            api(f"/api/downloads/{job['id']}/resume", "POST")
+            wait_for(lambda: current()["state"] == "RUNNING")
+            print("PASS: active pause, retained progress across restart and resume", flush=True)
             api(f"/api/downloads/{job['id']}/cancel", "POST")
             wait_for(lambda: current()["state"] == "CANCELLED")
             assert not (downloads / "large.bin").exists()

@@ -34,12 +34,18 @@ class DownloadWorker(
       try {
         jobs.recover()
         val job = jobs.next() ?: return
+        if (job.action != null) {
+          check(connection.isValid(CONNECTION_CHECK_SECONDS))
+          performAction(job)
+          return
+        }
         if (!jobs.start(job.id)) return
         try {
           downloader.transfer(job.spec, { bytes -> jobs.progress(job.id, bytes) }) {
             if (Thread.currentThread().isInterrupted) throw InterruptedException()
             check(connection.isValid(CONNECTION_CHECK_SECONDS))
-            jobs.find(job.id)?.cancelRequested != false
+            val current = jobs.find(job.id)
+            current == null || current.cancelRequested || current.action != null
           }
           jobs.finish(job.id, JobState.COMPLETE)
         } catch (error: Exception) {
@@ -53,11 +59,33 @@ class DownloadWorker(
               }
           jobs.finish(job.id, state, code)
         }
+        jobs
+            .find(job.id)
+            ?.takeIf { it.action != null }
+            ?.let {
+              check(connection.isValid(CONNECTION_CHECK_SECONDS))
+              performAction(it)
+            }
       } finally {
         // Session locks must be released before returning a live connection to the pool.
         if (!connection.isClosed) lock(connection, "pg_advisory_unlock")
       }
     }
+  }
+
+  private fun performAction(job: DownloadJob) {
+    val failure =
+        try {
+          when (requireNotNull(job.action)) {
+            JobAction.PAUSE -> Unit
+            JobAction.DELETE_LOCAL -> downloader.deleteLocal(job.spec)
+            JobAction.DELETE_REMOTE -> downloader.deleteRemote(job.spec)
+          }
+          null
+        } catch (error: Exception) {
+          (error as? DownloadFailure)?.code ?: "FILE_ACTION_FAILED"
+        }
+    jobs.completeAction(job, failure)
   }
 
   private fun lock(connection: Connection, operation: String): Boolean =

@@ -12,17 +12,17 @@
     <Field classname="dev.sporesync.controller.DownloadController" name="requests" signature="Ldev/sporesync/model/download/DownloadRequests;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
     <LocalVariable name="requests" register="2" pc="23" role="LOCAL_VARIABLE_NAMED" />
   </BugInstance>
-  <BugInstance type="EI_EXPOSE_REP2" priority="2" rank="18" abbrev="EI2" category="MALICIOUS_CODE" instanceHash="39a088c2c3804b5e4c62160b719123fe" instanceOccurrenceNum="0" instanceOccurrenceMax="0" cweid="374">
-    <Class classname="dev.sporesync.model.download.DownloadJobs" primary="true" classAnnotationNames="org.springframework.stereotype.Component,kotlin.Metadata" />
-    <Method classname="dev.sporesync.model.download.DownloadJobs" name="&lt;init&gt;" signature="(Lorg/springframework/jdbc/core/JdbcTemplate;Ltools/jackson/databind/json/JsonMapper;)V" isStatic="false" primary="true" />
+  <BugInstance type="EI_EXPOSE_REP2" priority="2" rank="18" abbrev="EI2" category="MALICIOUS_CODE" instanceHash="f19f0e8795559f8982155d15787fd549" instanceOccurrenceNum="0" instanceOccurrenceMax="0" cweid="374">
+    <Class classname="dev.sporesync.model.download.DownloadJobs" primary="true" classAnnotationNames="org.springframework.stereotype.Component,kotlin.Metadata,kotlin.jvm.internal.SourceDebugExtension" />
+    <Method classname="dev.sporesync.model.download.DownloadJobs" name="&lt;init&gt;" signature="(Lorg/springframework/jdbc/core/JdbcTemplate;Ltools/jackson/databind/json/JsonMapper;Lorg/springframework/transaction/PlatformTransactionManager;)V" isStatic="false" primary="true" />
     <Field classname="dev.sporesync.model.download.DownloadJobs" name="jdbc" signature="Lorg/springframework/jdbc/core/JdbcTemplate;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
-    <LocalVariable name="jdbc" register="1" pc="18" role="LOCAL_VARIABLE_NAMED" />
+    <LocalVariable name="jdbc" register="1" pc="24" role="LOCAL_VARIABLE_NAMED" />
   </BugInstance>
-  <BugInstance type="EI_EXPOSE_REP2" priority="2" rank="18" abbrev="EI2" category="MALICIOUS_CODE" instanceHash="ded45d2f16c1cb0a69189693c7b90be8" instanceOccurrenceNum="0" instanceOccurrenceMax="0" cweid="374">
-    <Class classname="dev.sporesync.model.download.DownloadJobs" primary="true" classAnnotationNames="org.springframework.stereotype.Component,kotlin.Metadata" />
-    <Method classname="dev.sporesync.model.download.DownloadJobs" name="&lt;init&gt;" signature="(Lorg/springframework/jdbc/core/JdbcTemplate;Ltools/jackson/databind/json/JsonMapper;)V" isStatic="false" primary="true" />
+  <BugInstance type="EI_EXPOSE_REP2" priority="2" rank="18" abbrev="EI2" category="MALICIOUS_CODE" instanceHash="92f7d2288d121e400772a709b2b673a3" instanceOccurrenceNum="0" instanceOccurrenceMax="0" cweid="374">
+    <Class classname="dev.sporesync.model.download.DownloadJobs" primary="true" classAnnotationNames="org.springframework.stereotype.Component,kotlin.Metadata,kotlin.jvm.internal.SourceDebugExtension" />
+    <Method classname="dev.sporesync.model.download.DownloadJobs" name="&lt;init&gt;" signature="(Lorg/springframework/jdbc/core/JdbcTemplate;Ltools/jackson/databind/json/JsonMapper;Lorg/springframework/transaction/PlatformTransactionManager;)V" isStatic="false" primary="true" />
     <Field classname="dev.sporesync.model.download.DownloadJobs" name="mapper" signature="Ltools/jackson/databind/json/JsonMapper;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
-    <LocalVariable name="mapper" register="2" pc="23" role="LOCAL_VARIABLE_NAMED" />
+    <LocalVariable name="mapper" register="2" pc="29" role="LOCAL_VARIABLE_NAMED" />
   </BugInstance>
   <BugInstance type="EI_EXPOSE_REP2" priority="2" rank="18" abbrev="EI2" category="MALICIOUS_CODE" instanceHash="601b171b09a791726b3de1b2c2ef646d" instanceOccurrenceNum="0" instanceOccurrenceMax="0" cweid="374">
     <Class classname="dev.sporesync.model.download.DownloadRequests" primary="true" classAnnotationNames="org.springframework.stereotype.Service,kotlin.Metadata,kotlin.jvm.internal.SourceDebugExtension" />

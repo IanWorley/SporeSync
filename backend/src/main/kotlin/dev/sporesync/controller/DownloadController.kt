@@ -4,6 +4,7 @@ import dev.sporesync.model.download.DownloadJob
 import dev.sporesync.model.download.DownloadJobRepository
 import dev.sporesync.model.download.DownloadRequest
 import dev.sporesync.model.download.DownloadRequests
+import dev.sporesync.model.download.JobAction
 import dev.sporesync.model.inventory.InventoryException
 import dev.sporesync.model.inventory.InventoryFailure
 import org.springframework.http.HttpStatus
@@ -30,6 +31,21 @@ class DownloadController(
 
   @PostMapping("/{id}/retry")
   fun retry(@PathVariable id: String): DownloadJob = jobs.retry(id) ?: missing()
+
+  @PostMapping("/{id}/pause")
+  fun pause(@PathVariable id: String): DownloadJob =
+      jobs.requestAction(id, JobAction.PAUSE) ?: missing()
+
+  @PostMapping("/{id}/resume")
+  fun resume(@PathVariable id: String): DownloadJob = jobs.resume(id) ?: missing()
+
+  @PostMapping("/{id}/delete-local")
+  fun deleteLocal(@PathVariable id: String): DownloadJob =
+      jobs.requestAction(id, JobAction.DELETE_LOCAL) ?: missing()
+
+  @PostMapping("/{id}/delete-remote")
+  fun deleteRemote(@PathVariable id: String): DownloadJob =
+      jobs.requestAction(id, JobAction.DELETE_REMOTE) ?: missing()
 
   private fun missing(): Nothing = throw ResponseStatusException(HttpStatus.NOT_FOUND)
 

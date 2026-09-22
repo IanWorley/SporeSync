@@ -13,8 +13,13 @@ the new implementation; it is not a migration plan for the earlier codebase.
 - Download files over SFTP and show their progress in the frontend.
 - Enable automatic downloading by default. Make scanning configurable, including
   the source directory and scan interval.
-- Copy one way from the seedbox to the host, retaining source files. Do not
-  propagate deletions or upload local changes.
+- Copy one way from the seedbox to the host, retaining source files unless the user
+  explicitly deletes them. Do not propagate local deletions or upload local changes.
+- Support per-file pause and resume. Retain partial data and paused state across
+  restarts. Confirm local or server deletion in the dashboard. Local deletion
+  requeues the file; server deletion retains local data and stops that source's jobs.
+- With automatic downloads enabled, stable scans requeue completed files deleted
+  outside SporeSync when the matching remote file is still present.
 - When a remote file is larger than the existing local file, resume downloading
   from the local byte count and append the remaining bytes. In temporary-file
   mode, apply the same behavior to the partial download. Size alone does not

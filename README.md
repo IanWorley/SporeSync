@@ -304,6 +304,18 @@ independently of the browser. Interrupted jobs recover at startup, with three
 attempts maximum. Both a PostgreSQL session lock and destination filesystem lock
 protect writes. Run one deployment against a given destination and database.
 
+In the download queue, **Pause** retains the partial file and **Resume** continues
+after verifying its contents. Paused jobs stay paused across restarts and scans.
+The API accepts `POST /api/downloads/{id}/pause` and `/resume`.
+
+**Delete local** removes the local copy and any partial download, then requeues
+the file. **Delete from server** removes the source file and retains local data.
+Both actions require confirmation in the dashboard. The corresponding API routes
+are `POST /api/downloads/{id}/delete-local` and `/delete-remote`.
+The worker stops an active transfer before deleting files. Requested actions
+persist across restarts; the queue shows pending actions and any failure.
+Deleting local data after the server copy was deleted cannot requeue the file.
+
 Automatic discovery runs at the saved interval (five minutes by default). Only
 regular files unchanged in two consecutive successful scans enter the automatic
 queue. Prefer your torrent client's completed-download directory; stability checks
@@ -312,9 +324,12 @@ the last inventory, attempt/success times and a safe error code. Manual scans us
 `POST /api/inventory/scan`. Disabling automatic downloads keeps discovery active
 and does not cancel already queued jobs. After a restart, two new scans establish
 stability; persisted completed/cancelled jobs remain deduplicated.
+With automatic downloads enabled, stable scans also requeue completed files whose
+local copy is missing, including files deleted in Finder or a terminal. The remote
+file must still match the completed job. Paused and cancelled jobs stay stopped.
 
 The dashboard at `/` includes file filtering, manual scan/download actions,
-settings, and a durable queue with progress, cancellation and retry. It polls every
+settings, and a durable queue with progress, pause, resume, deletion, cancellation and retry. It polls every
 two seconds, keeps only the newest refresh result, and leaves transfers running when closed.
 
 ## Process recovery acceptance check
@@ -322,6 +337,7 @@ two seconds, keeps only the newest refresh result, and leaves transfers running 
 After building the frontend and backend, run `python3 scripts/verify-runtime.py`
 from the repository root with Elide on PATH. Python 3.9+, Docker and ssh-keygen
 are required. It creates disposable PostgreSQL/SSH containers, serves the built
-frontend, verifies automatic downloading, cancels and retries a 128 MiB transfer,
-kills its own backend process, and checks exact content after restart. All
+frontend, verifies local and server deletion, detects externally deleted downloads,
+and pauses, resumes, cancels, and retries a 128 MiB transfer. It kills its own
+backend process and checks retained pause state and exact content after restart. All
 fixture containers, keys and partial files are cleaned up.

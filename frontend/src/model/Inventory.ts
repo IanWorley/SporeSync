@@ -19,7 +19,8 @@ export interface DiscoverySnapshot {
   error: string | null;
 }
 
-export type JobState = 'QUEUED' | 'RUNNING' | 'COMPLETE' | 'FAILED' | 'CANCELLED';
+export type JobState = 'QUEUED' | 'RUNNING' | 'COMPLETE' | 'FAILED' | 'CANCELLED' | 'PAUSED' | 'REMOTE_DELETED';
+export type JobAction = 'PAUSE' | 'DELETE_LOCAL' | 'DELETE_REMOTE';
 export interface DownloadSpec {
   settings: Settings;
   entry: InventoryEntry;
@@ -33,4 +34,5 @@ export interface DownloadJob {
   attempts: number;
   error: string | null;
   cancelRequested: boolean;
+  action: JobAction | null;
 }

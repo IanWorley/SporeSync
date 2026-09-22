@@ -1457,6 +1457,33 @@ class BackendIntegrationTest {
     assertTrue(storage.missing(root.toString(), "absent/file"))
   }
 
+  @Test
+  fun `stable scans requeue missing completed files but preserve paused and unsafe paths`() {
+    jobs.list().forEach { jobs.cancel(it.id) }
+    val spec = transferSpec(true)
+    val job = jobs.enqueue(spec)
+    worker.tick()
+    val target = Path.of(spec.settings.destination).resolve(spec.entry.path)
+    val discovery = Discovery(inventory, configuration, jobs, false)
+    val snapshot = Inventory(1, listOf(spec.entry))
+    Files.delete(target)
+    discovery.accept(spec.settings.copy(automatic = true), snapshot)
+    assertEquals(JobState.COMPLETE, jobs.find(job.id)?.state)
+    discovery.accept(spec.settings.copy(automatic = true), snapshot)
+    assertEquals(JobState.QUEUED, jobs.find(job.id)?.state)
+    assertEquals(0L, jobs.find(job.id)?.bytesDone)
+    jobs.requestAction(job.id, JobAction.PAUSE)
+    worker.tick()
+    discovery.accept(spec.settings.copy(automatic = true), snapshot)
+    assertEquals(JobState.PAUSED, jobs.find(job.id)?.state)
+    jobs.resume(job.id)
+    worker.tick()
+    Files.delete(target)
+    Files.createSymbolicLink(target, temporary.resolve("missing-target"))
+    discovery.accept(spec.settings.copy(automatic = true), snapshot)
+    assertEquals(JobState.COMPLETE, jobs.find(job.id)?.state)
+  }
+
   private fun deletableSpec(): DownloadSpec {
     val source = "/home/scanner/delete-${UUID.randomUUID()}"
     assertEquals(0, ssh.execInContainer("mkdir", "-p", source).exitCode)

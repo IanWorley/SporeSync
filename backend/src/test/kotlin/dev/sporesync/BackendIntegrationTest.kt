@@ -175,6 +175,14 @@ class BackendIntegrationTest {
     settings.set(SshSettingKeys.SOURCE, SPECIAL_SOURCE)
     sshSettings.scanner = "../scanner/inventory.py"
     settings.set(SshSettingKeys.TIMEOUT_MILLIS, SSH_TIMEOUT_MILLIS)
+    settings.set(
+        SettingKey(
+            SettingNames.AUTOMATIC_DOWNLOAD_ENABLED,
+            String::toBooleanStrict,
+            Boolean::toString,
+        ),
+        false,
+    )
   }
 
   @ParameterizedTest

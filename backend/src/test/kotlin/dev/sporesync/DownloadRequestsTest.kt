@@ -6,6 +6,7 @@ import dev.sporesync.model.download.DownloadJobRepository
 import dev.sporesync.model.download.DownloadRequest
 import dev.sporesync.model.download.DownloadRequests
 import dev.sporesync.model.download.DownloadSpec
+import dev.sporesync.model.download.JobAction
 import dev.sporesync.model.download.JobState
 import dev.sporesync.model.inventory.EntryType
 import dev.sporesync.model.inventory.Inventory
@@ -98,6 +99,15 @@ class DownloadRequestsTest {
     override fun cancel(id: String): DownloadJob? = error("Unexpected cancellation")
 
     override fun retry(id: String): DownloadJob? = error("Unexpected retry")
+
+    override fun requestAction(id: String, action: JobAction): DownloadJob? =
+        error("Unexpected action")
+
+    override fun resume(id: String): DownloadJob? = error("Unexpected resume")
+
+    override fun requeueMissing(id: String): Unit = error("Unexpected requeue")
+
+    override fun completeAction(job: DownloadJob, error: String?): Unit = error("Unexpected action")
   }
 
   private companion object {

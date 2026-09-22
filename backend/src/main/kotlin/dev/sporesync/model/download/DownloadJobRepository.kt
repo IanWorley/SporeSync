@@ -21,4 +21,12 @@ interface DownloadJobRepository {
   fun cancel(id: String): DownloadJob?
 
   fun retry(id: String): DownloadJob?
+
+  fun requestAction(id: String, action: JobAction): DownloadJob?
+
+  fun resume(id: String): DownloadJob?
+
+  fun requeueMissing(id: String)
+
+  fun completeAction(job: DownloadJob, error: String? = null)
 }

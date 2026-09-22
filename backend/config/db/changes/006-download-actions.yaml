@@ -1,0 +1,13 @@
+databaseChangeLog:
+  - changeSet:
+      id: 006-download-actions
+      author: sporesync
+      changes:
+        - sql:
+            dbms: postgresql
+            sql: |
+              ALTER TABLE download_jobs DROP CONSTRAINT download_jobs_state_check;
+              ALTER TABLE download_jobs ADD CONSTRAINT download_jobs_state_check
+                CHECK (state IN ('QUEUED','RUNNING','COMPLETE','FAILED','CANCELLED','PAUSED','REMOTE_DELETED'));
+              ALTER TABLE download_jobs ADD COLUMN action text
+                CHECK (action IN ('PAUSE','DELETE_LOCAL','DELETE_REMOTE'));

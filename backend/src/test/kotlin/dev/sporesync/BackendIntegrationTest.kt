@@ -8,10 +8,13 @@ import dev.sporesync.config.SshSettings
 import dev.sporesync.model.ApplicationStatus
 import dev.sporesync.model.download.DownloadFailure
 import dev.sporesync.model.download.DownloadJob
+import dev.sporesync.model.download.DownloadJobRepository
 import dev.sporesync.model.download.DownloadJobs
 import dev.sporesync.model.download.DownloadRequest
 import dev.sporesync.model.download.DownloadSpec
 import dev.sporesync.model.download.DownloadWorker
+import dev.sporesync.model.download.FileDownloader
+import dev.sporesync.model.download.JobAction
 import dev.sporesync.model.download.JobState
 import dev.sporesync.model.download.LibC
 import dev.sporesync.model.download.MAX_DOWNLOAD_ATTEMPTS
@@ -1132,6 +1135,228 @@ class BackendIntegrationTest {
   }
 
   @Test
+  fun `pause stops an active transfer and resume retains verified bytes`() {
+    jobs.list().forEach { jobs.cancel(it.id) }
+    val job = jobs.enqueue(transferSpec(true))
+    val pausing =
+        object : FileDownloader by downloader {
+          override fun transfer(
+              spec: DownloadSpec,
+              progress: (Long) -> Unit,
+              cancelled: () -> Boolean,
+          ) {
+            downloader.transfer(
+                spec,
+                {
+                  progress(it)
+                  jobs.requestAction(job.id, JobAction.PAUSE)
+                  assertEquals(JobAction.PAUSE, jobs.resume(job.id)?.action)
+                },
+                cancelled,
+            )
+          }
+        }
+    DownloadWorker(dataSource, jobs, pausing, false).tick()
+    assertEquals(JobState.PAUSED, jobs.find(job.id)?.state)
+    assertNull(jobs.find(job.id)?.action)
+    assertEquals(SAMPLE_BYTES, jobs.find(job.id)?.bytesDone)
+    assertTrue(!Files.exists(Path.of(job.spec.settings.destination).resolve(job.spec.entry.path)))
+    worker.tick()
+    assertEquals(JobState.PAUSED, jobs.find(job.id)?.state)
+    assertEquals(JobState.QUEUED, jobs.resume(job.id)?.state)
+    worker.tick()
+    assertEquals(JobState.COMPLETE, jobs.find(job.id)?.state)
+    assertEquals(
+        "sample\n",
+        Files.readString(Path.of(job.spec.settings.destination).resolve(job.spec.entry.path)),
+    )
+  }
+
+  @Test
+  fun `completion consumes a late pause without allowing stale action completion`() {
+    val job = jobs.enqueue(transferSpec(true))
+    jobs.start(job.id)
+    val paused = requireNotNull(jobs.requestAction(job.id, JobAction.PAUSE))
+    jobs.finish(job.id, JobState.COMPLETE)
+    jobs.completeAction(paused)
+    assertEquals(JobState.COMPLETE, jobs.find(job.id)?.state)
+    assertNull(jobs.find(job.id)?.action)
+  }
+
+  @Test
+  fun `persisted action recovers before queued transfers and rejects competing commands`() {
+    jobs.list().forEach { jobs.cancel(it.id) }
+    val job = jobs.enqueue(transferSpec(true))
+    jobs.start(job.id)
+    jobs.requestAction(job.id, JobAction.PAUSE)
+    assertEquals(JobAction.PAUSE, jobs.requestAction(job.id, JobAction.DELETE_REMOTE)?.action)
+    assertEquals(JobAction.PAUSE, jobs.cancel(job.id)?.action)
+    assertEquals(false, jobs.start(job.id))
+    DownloadWorker(dataSource, jobs, downloader, false).tick()
+    assertEquals(JobState.PAUSED, jobs.find(job.id)?.state)
+    assertNull(jobs.find(job.id)?.error)
+    jobs.enqueue(job.spec)
+    assertEquals(JobState.PAUSED, jobs.find(job.id)?.state)
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = [false, true])
+  fun `local deletion removes completed and staged data before requeueing`(temporaryMode: Boolean) {
+    jobs.list().forEach { jobs.cancel(it.id) }
+    val job = jobs.enqueue(transferSpec(temporaryMode))
+    worker.tick()
+    val target = Path.of(job.spec.settings.destination).resolve(job.spec.entry.path)
+    assertEquals("sample\n", Files.readString(target))
+    val older = jobs.enqueue(job.spec.copy(entry = job.spec.entry.copy(modifiedTimeNs = 0)))
+    jobs.finish(older.id, JobState.COMPLETE)
+    assertEquals(JobAction.DELETE_LOCAL, postAction(job.id, "delete-local").action)
+    jobs.finish(job.id, JobState.COMPLETE)
+    worker.tick()
+    assertTrue(!Files.exists(target))
+    assertEquals(JobState.CANCELLED, jobs.find(older.id)?.state)
+    assertEquals(JobState.QUEUED, jobs.find(job.id)?.state)
+    assertEquals(0, jobs.find(job.id)?.attempts)
+    assertEquals(0L, jobs.find(job.id)?.bytesDone)
+    worker.tick()
+    assertEquals(JobState.COMPLETE, jobs.find(job.id)?.state)
+    assertEquals("sample\n", Files.readString(target))
+    jobs.requestAction(job.id, JobAction.DELETE_LOCAL)
+    Files.delete(target)
+    worker.tick()
+    assertEquals(JobState.QUEUED, jobs.find(job.id)?.state)
+    jobs.cancel(job.id)
+  }
+
+  @Test
+  fun `local deletion invalidates jobs using a destination alias`() {
+    jobs.list().forEach { jobs.cancel(it.id) }
+    val spec = transferSpec(true)
+    val original = jobs.enqueue(spec)
+    worker.tick()
+    val alias = temporary.resolve(UUID.randomUUID().toString())
+    Files.createSymbolicLink(alias, Path.of(spec.settings.destination))
+    val aliased =
+        jobs.enqueue(spec.copy(settings = spec.settings.copy(destination = alias.toString())))
+    worker.tick()
+    jobs.requestAction(aliased.id, JobAction.DELETE_LOCAL)
+    worker.tick()
+    assertEquals(JobState.CANCELLED, jobs.find(original.id)?.state)
+    assertEquals(0L, jobs.find(original.id)?.bytesDone)
+    assertEquals(JobState.QUEUED, jobs.find(aliased.id)?.state)
+    jobs.cancel(aliased.id)
+  }
+
+  @Test
+  fun `local deletion removes retained partial content`() {
+    jobs.list().forEach { jobs.cancel(it.id) }
+    val job = jobs.enqueue(transferSpec(true))
+    var cancel = false
+    assertThrows(DownloadFailure::class.java) {
+      downloader.transfer(job.spec, { cancel = true }) { cancel }
+    }
+    jobs.requestAction(job.id, JobAction.DELETE_LOCAL)
+    worker.tick()
+    Files.list(Path.of(job.spec.settings.destination).resolve(".sporesync")).use { files ->
+      assertTrue(files.noneMatch { it.fileName.toString().endsWith(".part") })
+    }
+    assertEquals(JobState.QUEUED, jobs.find(job.id)?.state)
+    jobs.cancel(job.id)
+  }
+
+  @Test
+  fun `server deletion retains local content and invalidates every source version`() {
+    jobs.list().forEach { jobs.cancel(it.id) }
+    val spec = deletableSpec()
+    val job = jobs.enqueue(spec)
+    worker.tick()
+    val older = jobs.enqueue(spec.copy(entry = spec.entry.copy(modifiedTimeNs = 0)))
+    jobs.requestAction(older.id, JobAction.PAUSE)
+    postAction(job.id, "delete-remote")
+    worker.tick()
+    assertEquals(JobState.REMOTE_DELETED, jobs.find(job.id)?.state)
+    assertEquals(JobState.REMOTE_DELETED, jobs.find(older.id)?.state)
+    assertNull(jobs.find(older.id)?.action)
+    assertEquals(JobState.REMOTE_DELETED, jobs.resume(older.id)?.state)
+    assertEquals(JobState.REMOTE_DELETED, jobs.retry(older.id)?.state)
+    assertEquals(
+        "sample\n",
+        Files.readString(Path.of(spec.settings.destination).resolve(spec.entry.path)),
+    )
+    assertTrue(inventory.scan().entries.none { it.path == spec.entry.path })
+    val elsewhere =
+        spec.copy(
+            settings =
+                spec.settings.copy(
+                    destination = temporary.resolve(UUID.randomUUID().toString()).toString()
+                )
+        )
+    assertEquals(JobState.REMOTE_DELETED, jobs.enqueue(elsewhere).state)
+    jobs.requestAction(job.id, JobAction.DELETE_REMOTE)
+    worker.tick()
+    assertEquals(JobState.REMOTE_DELETED, jobs.find(job.id)?.state)
+    jobs.requestAction(job.id, JobAction.DELETE_LOCAL)
+    worker.tick()
+    assertEquals(JobState.REMOTE_DELETED, jobs.find(job.id)?.state)
+    assertTrue(!Files.exists(Path.of(spec.settings.destination).resolve(spec.entry.path)))
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = JobAction::class, names = ["DELETE_LOCAL", "DELETE_REMOTE"])
+  fun `deleted file is reconciled after database acknowledgement fails`(action: JobAction) {
+    jobs.list().forEach { jobs.cancel(it.id) }
+    val job = jobs.enqueue(deletableSpec())
+    worker.tick()
+    jobs.requestAction(job.id, action)
+    val unavailable =
+        object : DownloadJobRepository by jobs {
+          override fun completeAction(job: DownloadJob, error: String?) {
+            throw IllegalStateException("Database unavailable")
+          }
+        }
+    assertThrows(IllegalStateException::class.java) {
+      DownloadWorker(dataSource, unavailable, downloader, false).tick()
+    }
+    assertEquals(action, jobs.find(job.id)?.action)
+    assertEquals(JobState.COMPLETE, jobs.find(job.id)?.state)
+    DownloadWorker(dataSource, jobs, downloader, false).tick()
+    assertNull(jobs.find(job.id)?.action)
+    assertEquals(
+        if (action == JobAction.DELETE_LOCAL) JobState.QUEUED else JobState.REMOTE_DELETED,
+        jobs.find(job.id)?.state,
+    )
+    jobs.cancel(job.id)
+  }
+
+  @Test
+  fun `remote replacement prevents deletion and clears the failed action`() {
+    jobs.list().forEach { jobs.cancel(it.id) }
+    val spec = deletableSpec()
+    val job = jobs.enqueue(spec)
+    val source = spec.settings.source + "/" + spec.entry.path
+    assertEquals(0, ssh.execInContainer("sh", "-c", "printf replacement > '$source'").exitCode)
+    jobs.requestAction(job.id, JobAction.DELETE_REMOTE)
+    worker.tick()
+    assertNull(jobs.find(job.id)?.action)
+    assertEquals("REMOTE_CHANGED", jobs.find(job.id)?.error)
+    assertEquals("replacement", ssh.execInContainer("cat", source).stdout)
+    jobs.cancel(job.id)
+  }
+
+  @Test
+  fun `server deletion reports denied permissions and retains the file`() {
+    jobs.list().forEach { jobs.cancel(it.id) }
+    val spec = deletableSpec()
+    val job = jobs.enqueue(spec)
+    assertEquals(0, ssh.execInContainer("chmod", "a-w", spec.settings.source).exitCode)
+    jobs.requestAction(job.id, JobAction.DELETE_REMOTE)
+    worker.tick()
+    assertEquals("REMOTE_DELETE_DENIED", jobs.find(job.id)?.error)
+    assertEquals(JobState.FAILED, jobs.find(job.id)?.state)
+    assertNull(jobs.find(job.id)?.action)
+    assertEquals("sample\n", ssh.execInContainer("cat", spec.settings.source + "/file").stdout)
+  }
+
+  @Test
   fun `server deletion refuses a symlink parent without removing the outside file`() {
     val spec = deletableSpec()
     val source = spec.settings.source
@@ -1244,6 +1469,16 @@ class BackendIntegrationTest {
             .copy(destination = Files.createTempDirectory(temporary, "delete").toString()),
         inventory.scan().entries.single(),
     )
+  }
+
+  private fun postAction(id: String, action: String): DownloadJob {
+    val request =
+        HttpRequest.newBuilder(URI("http://127.0.0.1:$port/api/downloads/$id/$action"))
+            .POST(HttpRequest.BodyPublishers.noBody())
+            .build()
+    val response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString())
+    assertEquals(HTTP_OK, response.statusCode(), response.body())
+    return jsonMapper.readValue(response.body(), DownloadJob::class.java)
   }
 
   private fun transferSpec(temporaryMode: Boolean): DownloadSpec {

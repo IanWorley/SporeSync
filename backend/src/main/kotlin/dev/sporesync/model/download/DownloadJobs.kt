@@ -3,6 +3,9 @@ package dev.sporesync.model.download
 import dev.sporesync.model.inventory.EntryType
 import dev.sporesync.model.inventory.InventoryEntry
 import dev.sporesync.model.settings.DownloadSettings
+import java.io.IOException
+import java.nio.file.Files
+import java.nio.file.Path
 import java.security.MessageDigest
 import java.sql.ResultSet
 import org.springframework.jdbc.core.JdbcTemplate
@@ -198,7 +201,7 @@ class DownloadJobs(
             if (related.id == job.id) continue
             val sharesFile =
                 if (action == JobAction.DELETE_LOCAL)
-                    related.spec.settings.destination == spec.settings.destination &&
+                    sameDestination(related.spec.settings.destination, spec.settings.destination) &&
                         related.spec.entry.path == spec.entry.path
                 else sameRemote(related.spec, spec)
             if (!sharesFile) continue
@@ -229,6 +232,14 @@ class DownloadJobs(
             action.name,
         )
       }
+
+  private fun sameDestination(left: String, right: String): Boolean =
+      left == right ||
+          try {
+            Files.isSameFile(Path.of(left), Path.of(right))
+          } catch (_: IOException) {
+            false
+          }
 
   private fun mutationLock() {
     jdbc.execute("SELECT pg_advisory_xact_lock($JOB_MUTATION_LOCK_ID)")

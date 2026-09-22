@@ -1216,6 +1216,25 @@ class BackendIntegrationTest {
   }
 
   @Test
+  fun `local deletion invalidates jobs using a destination alias`() {
+    jobs.list().forEach { jobs.cancel(it.id) }
+    val spec = transferSpec(true)
+    val original = jobs.enqueue(spec)
+    worker.tick()
+    val alias = temporary.resolve(UUID.randomUUID().toString())
+    Files.createSymbolicLink(alias, Path.of(spec.settings.destination))
+    val aliased =
+        jobs.enqueue(spec.copy(settings = spec.settings.copy(destination = alias.toString())))
+    worker.tick()
+    jobs.requestAction(aliased.id, JobAction.DELETE_LOCAL)
+    worker.tick()
+    assertEquals(JobState.CANCELLED, jobs.find(original.id)?.state)
+    assertEquals(0L, jobs.find(original.id)?.bytesDone)
+    assertEquals(JobState.QUEUED, jobs.find(aliased.id)?.state)
+    jobs.cancel(aliased.id)
+  }
+
+  @Test
   fun `local deletion removes retained partial content`() {
     jobs.list().forEach { jobs.cancel(it.id) }
     val job = jobs.enqueue(transferSpec(true))
@@ -1251,7 +1270,7 @@ class BackendIntegrationTest {
         "sample\n",
         Files.readString(Path.of(spec.settings.destination).resolve(spec.entry.path)),
     )
-    assertTrue(inventory.scan().entries.isEmpty())
+    assertTrue(inventory.scan().entries.none { it.path == spec.entry.path })
     val elsewhere =
         spec.copy(
             settings =

@@ -1,39 +1,37 @@
 # Deploy SporeSync
 
-The release contains source and built frontend assets. Elide compiles Kotlin on
-the target host and supplies its JVM. Use the verified Elide build from
-[backend-build.md](backend-build.md) on Linux or macOS.
+The release contains the backend JAR, configuration, scanner, built frontend
+assets, and startup script. The target host runs the JAR with Java 25. It does
+not compile Kotlin or need Gradle, Elide, dependency caches, or backend source.
 
 ## Build a release
 
-From a checkout, install Elide and Node 22.12+ (24 recommended), then run:
+From a checkout, install Java 17, Temurin Java 25, and Node 22.12+ (24
+recommended). Set `JAVA_HOME` to Java 25, then run:
 
 ```bash
 scripts/package.sh /absolute/output/directory
 ```
 
-This runs frontend `npm ci`/`npm run build` and backend `elide build`, then writes
-`sporesync-<commit>.tar.gz`. It refuses to overwrite an existing archive. Generated
-assets, caches and release archives must not be committed. Run the required tests
-before shipping; packaging does not claim to run them.
+This runs frontend `npm ci`/`npm run build` and backend `./gradlew bootJar`, then
+writes `sporesync-<commit>.tar.gz`. The archive contains
+`backend/build/libs/sporesync.jar`, configuration, scanner, frontend assets,
+`scripts/start.sh`, docs, and the README. It refuses to overwrite an existing
+archive. Generated assets, caches, and release archives must not be committed.
+Run the required tests before shipping; packaging does not claim to run them.
 
 ## Prepare the host
 
 Extract the archive into a new release directory. Keep PostgreSQL data, downloads,
 private keys and known-hosts files outside that directory so upgrades preserve them.
-Install the same verified Elide runtime on the target and put it on PATH (or set
-`ELIDE_BIN` to its absolute path). From the extracted `backend/` directory run:
-
-```bash
-elide install --slim
-elide build
-```
-
-Dependency resolution requires network access on first installation. The runtime
-user needs a writable Elide cache and build directory. Use a dedicated unprivileged
-account with write access to the download root and read access to SSH material.
-The seedbox requires Python 3.9+, SFTP, shell command access and a writable home.
-PostgreSQL 17 is the verified database version.
+Install Java 25 on the target. Set `JAVA_HOME` to that installation, or make its
+`java` executable available on `PATH`. The packaged JAR is
+`backend/build/libs/sporesync.jar`. The target does not need Java 17, Gradle,
+Elide, dependency caches, network access for dependency resolution, or a writable
+build directory. Use a dedicated unprivileged account with write access to the
+download root and read access to SSH material. The seedbox requires Python 3.9+,
+SFTP, shell command access, and a writable home. PostgreSQL 17 is the verified
+database version.
 
 Set these variables in the service environment, never in tracked files:
 
@@ -46,7 +44,7 @@ export SPORESYNC_SSH_KNOWNHOSTS=/srv/sporesync/ssh/known_hosts
 # Optional for encrypted private keys: SPORESYNC_SSH_PASSPHRASE
 ```
 
-When optional password authentication (#75) is included, set
+For password authentication, set
 `SPORESYNC_SSH_AUTHENTICATION=PASSWORD` and inject `SPORESYNC_SSH_PASSWORD`
 through the service's secret mechanism instead of supplying a private key.
 KEY remains the default. Both modes require known-host verification and never
@@ -62,14 +60,11 @@ keys fail closed; there is no trust-on-first-use option.
 
 ## Start and configure
 
-Run `scripts/start.sh` from anywhere; it selects the backend working directory.
-Elide starts a separate JVM. Sending SIGTERM only to the Elide parent leaves the
-backend running. The supervisor must own and stop the entire process group or
-cgroup before restarting or switching releases. For systemd, use
-`KillMode=control-group`, `KillSignal=SIGTERM`, and `TimeoutStopSec=330s`, which
-allows more than the maximum configured SSH timeout. On macOS, leave launchd
-`AbandonProcessGroup` unset or false; for graceful shutdown, use a supervisor
-that sends SIGTERM to the entire process group. Do not signal only the parent PID.
+Run `scripts/start.sh` from anywhere; it selects the backend working directory
+and executes `java -jar backend/build/libs/sporesync.jar`. The script uses
+`$JAVA_HOME/bin/java` when `JAVA_HOME` is set, otherwise it uses `java` from
+`PATH`. A supervisor can signal the Java process directly. Set its shutdown
+timeout above the maximum configured SSH timeout.
 
 Open `http://127.0.0.1:8080`, select Settings, and save host/port/user, absolute
 source/destination directories and download preferences. Use your torrent client's
@@ -111,15 +106,13 @@ Dashboard progress polls every two seconds; closing it does not stop jobs.
 
 ## Verification
 
-From the development checkout, build frontend and backend, then run
-`python3 scripts/verify-runtime.py` with Elide on PATH, Docker and ssh-keygen.
-It tests production assets, real SSH/SFTP, automatic queueing, cancellation/retry
-and process-kill recovery of a 128 MiB file with SHA-256 comparison. It uses only
-disposable fixtures. The backend suite additionally verifies PostgreSQL migrations,
-path confinement, remote replacement, stable scans and exclusive worker ownership.
+From the development checkout, run `scripts/package.sh` and then
+`python3 scripts/verify-runtime.py` with Java 25, Docker, and ssh-keygen. The
+runtime probe invokes `scripts/start.sh` and tests production assets, real
+SSH/SFTP, automatic queueing, cancellation/retry, and process-crash recovery of
+a 128 MiB file with SHA-256 comparison. It uses only disposable fixtures. The
+backend suite additionally verifies PostgreSQL migrations, path confinement,
+remote replacement, stable scans, and exclusive worker ownership.
 
-Verified on 2026-09-20: the extracted archive resolved Elide dependencies, built,
-started through `scripts/start.sh` from another working directory, served the real
-frontend assets and `/api/status`, retained existing jobs, and completed a new
-SFTP download against disposable PostgreSQL/SSH containers. This verification
-used macOS arm64; other host platforms require their own compatible Elide runtime.
+Fresh Gradle packaging and runtime validation is pending. Do not treat the
+historical Elide release checks as evidence for this release format.

@@ -3,9 +3,9 @@
 SporeSync is being rebuilt. Read `docs/plan.md` for scope and agreed behavior.
 The implementation includes a Python scanner, Kotlin/Spring Boot SSH inventory,
 durable SFTP downloads, scheduled discovery, and a Vite/React/TypeScript dashboard.
-Elide is the
-backend build tool; do not substitute another build tool. See
-`docs/backend-build.md` for verified compatibility and limitations.
+Gradle is the backend build tool. The included Elide Gradle plugin downloads the
+managed Elide runtime. See `docs/backend-build.md` for toolchain and bootstrap
+instructions.
 Prefer simple, typed interfaces and named constants for policies.
 SSH connection settings live in `sporesync_settings`; credentials, known-hosts,
 and the local scanner path remain external. Choose KEY (default) or PASSWORD via
@@ -29,16 +29,29 @@ persistence, and settings storage); keep immutable data models concrete.
 
 ## Required checks
 
-- CI: `.github/workflows/ci.yml` runs backend build/format/tests, frontend
-  type-check/build, and scanner unit/SSH tests on every PR (including stacked
-  PRs), pushes to `main`, and manual dispatch. Keep these checks aligned with
-  the local commands below. The Elide Linux archive is release- and checksum-pinned.
+- CI: `.github/workflows/ci.yml` runs the Gradle backend build, SpotBugs,
+  formatting, and tests; frontend type-check/build; and scanner unit/SSH tests
+  on every PR (including stacked PRs), pushes to `main`, and manual dispatch.
+  Keep these checks aligned with the local commands below. The bootstrap script
+  downloads the Elide Gradle plugin source at
+  `a1bb1307203acb44fa0d622aad4870c69f1144e1` with a pinned SHA-256.
 
-- Backend changes: from `backend/`, run `elide build` and `elide test`.
+- Backend changes: from `backend/`, set `JAVA_HOME` to Temurin Java 25, run
+  `bash scripts/prepare-elide-plugin.sh`, then run `./gradlew build`. The included
+  Elide plugin compiles with Java 17. The backend compiles with Java 25. For a
+  Java 17 installation outside Gradle's usual locations, pass
+  `-Porg.gradle.java.installations.paths="$JDK17,$JAVA_HOME"` to Gradle.
+  `spotbugsTest` is disabled because SpotBugs analyzes production classes only.
   Tests require Docker and use disposable PostgreSQL and SSH Testcontainers; missing
   Docker must fail rather than silently skip integration verification.
-- Kotlin formatting: from `backend/`, run `elide format -- -n src`.
+- Kotlin formatting: from `backend/`, run `./gradlew elideCheckFormat` to check
+  formatting and `./gradlew elideFormat` to apply it.
 - Backend commands must run from `backend/` so Spring finds `config/`.
+- SpotBugs compares medium and high findings with `config/spotbugs-baseline.xml`.
+  The baseline records 29 existing findings. Review each baseline update before
+  committing it. SpotBugs writes `build/reports/spotbugs/main.xml` and
+  `build/reports/spotbugs/main.html`. Gradle writes test reports to
+  `build/reports/tests/test`.
 - Frontend changes: from `frontend/`, run `npm ci` and `npm run build`.
   Verify `/api/status` through Vite against a running backend when changing the proxy.
   Spring serves `frontend/dist/` externally; build it before production-mode verification.
@@ -46,7 +59,7 @@ persistence, and settings storage); keep immutable data models concrete.
 - SSH or fixture changes: also run
   `SPORESYNC_SSH_TEST=1 python3 -m unittest discover -s tests -v` (requires Docker).
 - Runtime/recovery changes: after building frontend and backend, run
-  `python3 scripts/verify-runtime.py` from the root (Elide on PATH, Docker and
+  `python3 scripts/verify-runtime.py` from the root (Java 25, Docker and
   ssh-keygen required). It kills only its own disposable backend process.
 - Packaging changes: run `scripts/package.sh OUTPUT_DIRECTORY`, extract the
   archive, and verify `scripts/start.sh` serves built assets and `/api/status`

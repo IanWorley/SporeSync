@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Verify built assets, automatic queueing, cancellation and process-crash recovery.
 
-Requires Elide on PATH, Docker, ssh-keygen, and prebuilt frontend assets.
+Requires Java 25, Docker, ssh-keygen, and a built backend JAR and frontend assets.
 All containers, keys and downloaded content belong to this disposable fixture.
 """
 import hashlib
@@ -49,9 +49,8 @@ def verify(root):
     containers = []
     process = None
     image = f"sporesync-runtime:{root.name}"
-    elide = shutil.which("elide")
-    if not elide:
-        raise RuntimeError("Elide must be on PATH")
+    if not (REPOSITORY / "backend/build/libs/sporesync.jar").is_file():
+        raise RuntimeError("Run ./gradlew bootJar from backend/ first")
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
         server_port = listener.getsockname()[1]
@@ -65,7 +64,7 @@ def verify(root):
             return json.load(response)
 
     def start(environment, log):
-        result = subprocess.Popen([elide, "run"], cwd=REPOSITORY / "backend",
+        result = subprocess.Popen([str(REPOSITORY / "scripts/start.sh")], cwd=REPOSITORY,
                                   env=environment, stdout=log, stderr=log, start_new_session=True)
         try:
             wait_for(lambda: api("/api/status"))

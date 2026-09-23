@@ -1,43 +1,43 @@
 package dev.sporesync
 
 import com.sun.jna.Native
-import dev.sporesync.config.SshAuthentication
-import dev.sporesync.config.SshConnectionSettings
-import dev.sporesync.config.SshSettingKeys
-import dev.sporesync.config.SshSettings
-import dev.sporesync.model.ApplicationStatus
-import dev.sporesync.model.download.DownloadFailure
-import dev.sporesync.model.download.DownloadJob
-import dev.sporesync.model.download.DownloadJobRepository
-import dev.sporesync.model.download.DownloadJobs
-import dev.sporesync.model.download.DownloadRequest
-import dev.sporesync.model.download.DownloadSpec
-import dev.sporesync.model.download.DownloadWorker
-import dev.sporesync.model.download.FileDownloader
-import dev.sporesync.model.download.JobAction
-import dev.sporesync.model.download.JobState
-import dev.sporesync.model.download.LibC
-import dev.sporesync.model.download.MAX_DOWNLOAD_ATTEMPTS
-import dev.sporesync.model.download.Posix
-import dev.sporesync.model.download.PosixDownloadStorage
-import dev.sporesync.model.download.SftpDownload
-import dev.sporesync.model.download.WORKER_LOCK_ID
-import dev.sporesync.model.inventory.Discovery
-import dev.sporesync.model.inventory.EntryType
-import dev.sporesync.model.inventory.Inventory
-import dev.sporesync.model.inventory.InventoryEntry
-import dev.sporesync.model.inventory.InventoryException
-import dev.sporesync.model.inventory.InventoryFailure
-import dev.sporesync.model.inventory.InventoryScanner
-import dev.sporesync.model.inventory.RemoteInventory
-import dev.sporesync.model.settings.ApplicationSetting
-import dev.sporesync.model.settings.ApplicationSettingRepository
-import dev.sporesync.model.settings.ApplicationSettings
-import dev.sporesync.model.settings.DownloadConfiguration
-import dev.sporesync.model.settings.DownloadSettings
-import dev.sporesync.model.settings.MAX_TIMEOUT_MILLIS
-import dev.sporesync.model.settings.SettingKey
-import dev.sporesync.model.settings.SettingNames
+import dev.sporesync.discovery.internal.Discovery
+import dev.sporesync.downloads.DownloadQueue
+import dev.sporesync.downloads.DownloadSpec
+import dev.sporesync.downloads.internal.DownloadFailure
+import dev.sporesync.downloads.internal.DownloadJob
+import dev.sporesync.downloads.internal.DownloadJobRepository
+import dev.sporesync.downloads.internal.DownloadJobs
+import dev.sporesync.downloads.internal.DownloadRequest
+import dev.sporesync.downloads.internal.DownloadWorker
+import dev.sporesync.downloads.internal.FileDownloader
+import dev.sporesync.downloads.internal.JobAction
+import dev.sporesync.downloads.internal.JobState
+import dev.sporesync.downloads.internal.LibC
+import dev.sporesync.downloads.internal.MAX_DOWNLOAD_ATTEMPTS
+import dev.sporesync.downloads.internal.Posix
+import dev.sporesync.downloads.internal.PosixDownloadStorage
+import dev.sporesync.downloads.internal.SftpDownload
+import dev.sporesync.downloads.internal.WORKER_LOCK_ID
+import dev.sporesync.inventory.EntryType
+import dev.sporesync.inventory.Inventory
+import dev.sporesync.inventory.InventoryEntry
+import dev.sporesync.inventory.InventoryException
+import dev.sporesync.inventory.InventoryFailure
+import dev.sporesync.inventory.InventoryScanner
+import dev.sporesync.inventory.internal.RemoteInventory
+import dev.sporesync.settings.DownloadSettings
+import dev.sporesync.settings.MAX_TIMEOUT_MILLIS
+import dev.sporesync.settings.SshConnectionSettings
+import dev.sporesync.settings.internal.ApplicationSetting
+import dev.sporesync.settings.internal.ApplicationSettingRepository
+import dev.sporesync.settings.internal.ApplicationSettings
+import dev.sporesync.settings.internal.DownloadConfiguration
+import dev.sporesync.settings.internal.SettingKey
+import dev.sporesync.settings.internal.SettingNames
+import dev.sporesync.settings.internal.SshSettingKeys
+import dev.sporesync.ssh.SshAuthentication
+import dev.sporesync.ssh.SshSettings
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -96,6 +96,7 @@ class BackendIntegrationTest {
   @Autowired private lateinit var worker: DownloadWorker
   @Autowired private lateinit var downloader: SftpDownload
   @Autowired private lateinit var configuration: DownloadConfiguration
+  @Autowired private lateinit var queue: DownloadQueue
   @Autowired private lateinit var jobs: DownloadJobs
   @Autowired private lateinit var inventory: RemoteInventory
   private lateinit var temporary: Path
@@ -199,7 +200,7 @@ class BackendIntegrationTest {
     val spec =
         DownloadSpec(
             configuration.read().copy(destination = destination, temporaryFiles = true),
-            inventory.scan().entries.single(),
+            inventory.scan(configuration.read().connection()).entries.single(),
         )
     assertEquals(
         "REMOTE_CHANGED",
@@ -230,10 +231,12 @@ class BackendIntegrationTest {
     settings.set(SshSettingKeys.SOURCE, source)
     val destination = Files.createTempDirectory(temporary, "growth").toRealPath().toString()
     val config = configuration.read().copy(destination = destination)
-    val first = DownloadSpec(config, inventory.scan().entries.single())
+    val first =
+        DownloadSpec(config, inventory.scan(configuration.read().connection()).entries.single())
     downloader.transfer(first, {}) { false }
     ssh.execInContainer("sh", "-c", "printf second >> $source/file")
-    val grown = first.copy(entry = inventory.scan().entries.single())
+    val grown =
+        first.copy(entry = inventory.scan(configuration.read().connection()).entries.single())
     downloader.transfer(grown, {}) { false }
     assertEquals("firstsecond", Files.readString(Path.of(destination).resolve("file")))
   }
@@ -320,7 +323,7 @@ class BackendIntegrationTest {
     assertEquals(modified, file.modifiedTimeNs)
     val cached =
         ssh.execInContainer("sh", "-c", "stat -c '%n %i %y' /home/scanner/.sporesync/*.py").stdout
-    assertEquals(result, inventory.scan())
+    assertEquals(result, inventory.scan(configuration.read().connection()))
     assertEquals(
         cached,
         ssh.execInContainer("sh", "-c", "stat -c '%n %i %y' /home/scanner/.sporesync/*.py").stdout,
@@ -329,7 +332,7 @@ class BackendIntegrationTest {
 
   @Test
   fun `uses updated source on next scan and keeps remote errors private`() {
-    inventory.scan()
+    inventory.scan(configuration.read().connection())
     settings.set(SshSettingKeys.SOURCE, "/restricted")
     val request =
         HttpRequest.newBuilder(URI("http://127.0.0.1:$port/api/inventory/scan"))
@@ -349,7 +352,10 @@ class BackendIntegrationTest {
     Files.writeString(Path.of(sshSettings.knownHosts), "")
     assertEquals(
         InventoryFailure.CONNECTION,
-        assertThrows(InventoryException::class.java) { inventory.scan() }.code,
+        assertThrows(InventoryException::class.java) {
+              inventory.scan(configuration.read().connection())
+            }
+            .code,
     )
   }
 
@@ -358,7 +364,10 @@ class BackendIntegrationTest {
     settings.set(SshSettingKeys.USERNAME, "nonexistent")
     assertEquals(
         InventoryFailure.AUTHENTICATION,
-        assertThrows(InventoryException::class.java) { inventory.scan() }.code,
+        assertThrows(InventoryException::class.java) {
+              inventory.scan(configuration.read().connection())
+            }
+            .code,
     )
   }
 
@@ -381,7 +390,10 @@ class BackendIntegrationTest {
     sshSettings.authentication = SshAuthentication.PASSWORD
     assertEquals(
         InventoryFailure.CONFIGURATION,
-        assertThrows(InventoryException::class.java) { inventory.scan() }.code,
+        assertThrows(InventoryException::class.java) {
+              inventory.scan(configuration.read().connection())
+            }
+            .code,
     )
   }
 
@@ -391,7 +403,10 @@ class BackendIntegrationTest {
     sshSettings.privateKey = ""
     assertEquals(
         InventoryFailure.CONFIGURATION,
-        assertThrows(InventoryException::class.java) { inventory.scan() }.code,
+        assertThrows(InventoryException::class.java) {
+              inventory.scan(configuration.read().connection())
+            }
+            .code,
     )
   }
 
@@ -419,7 +434,10 @@ class BackendIntegrationTest {
     sshSettings.scanner = changed.toString()
     assertEquals(
         InventoryFailure.PROTOCOL,
-        assertThrows(InventoryException::class.java) { inventory.scan() }.code,
+        assertThrows(InventoryException::class.java) {
+              inventory.scan(configuration.read().connection())
+            }
+            .code,
     )
   }
 
@@ -439,7 +457,10 @@ class BackendIntegrationTest {
     assertTimeout(HTTP_TIMEOUT) {
       assertEquals(
           InventoryFailure.TIMEOUT,
-          assertThrows(InventoryException::class.java) { inventory.scan() }.code,
+          assertThrows(InventoryException::class.java) {
+                inventory.scan(configuration.read().connection())
+              }
+              .code,
       )
     }
   }
@@ -451,19 +472,17 @@ class BackendIntegrationTest {
   @ValueSource(strings = ["0", "65536", "invalid"])
   fun `rejects invalid database ports before connecting`(value: String) {
     settingsRepository.saveAndFlush(ApplicationSetting(SshSettingKeys.PORT.name, value))
-    assertEquals(
-        InventoryFailure.CONFIGURATION,
-        assertThrows(InventoryException::class.java) { inventory.scan() }.code,
-    )
+    val response = postScan()
+    assertEquals(HTTP_BAD_REQUEST, response.statusCode())
+    assertEquals("{\"error\":\"CONFIGURATION\"}", response.body())
   }
 
   @Test
   fun `requires a configured source instead of inventing a default`() {
     settingsRepository.deleteById(SshSettingKeys.SOURCE.name)
-    assertEquals(
-        InventoryFailure.CONFIGURATION,
-        assertThrows(InventoryException::class.java) { inventory.scan() }.code,
-    )
+    val response = postScan()
+    assertEquals(HTTP_BAD_REQUEST, response.statusCode())
+    assertEquals("{\"error\":\"CONFIGURATION\"}", response.body())
   }
 
   @ParameterizedTest
@@ -977,7 +996,7 @@ class BackendIntegrationTest {
     val spec =
         DownloadSpec(
             configuration.read().copy(destination = destination.toString(), temporaryFiles = false),
-            inventory.scan().entries.single(),
+            inventory.scan(configuration.read().connection()).entries.single(),
         )
     val target = destination.resolve("file")
     val prefix = "a".repeat(prefixBytes)
@@ -1059,7 +1078,7 @@ class BackendIntegrationTest {
   @Test
   fun `automatic queue waits for two stable scans and deduplicates later scans`() {
     val spec = transferSpec(true)
-    val discovery = Discovery(inventory, configuration, jobs, false)
+    val discovery = Discovery(inventory, configuration, queue, false)
     val snapshot = Inventory(1, listOf(spec.entry))
     discovery.accept(spec.settings.copy(automatic = true), snapshot)
     assertNull(jobs.find(spec.identity()))
@@ -1072,7 +1091,7 @@ class BackendIntegrationTest {
   @Test
   fun `changing file is ineligible until a later stable scan`() {
     val spec = transferSpec(true)
-    val discovery = Discovery(inventory, configuration, jobs, false)
+    val discovery = Discovery(inventory, configuration, queue, false)
     discovery.accept(
         spec.settings.copy(automatic = true),
         Inventory(1, listOf(spec.entry.copy(sizeBytes = 1))),
@@ -1086,7 +1105,7 @@ class BackendIntegrationTest {
   @Test
   fun `disabled automatic downloads still publish discovery without queuing`() {
     val spec = transferSpec(true)
-    val discovery = Discovery(inventory, configuration, jobs, false)
+    val discovery = Discovery(inventory, configuration, queue, false)
     val snapshot = Inventory(1, listOf(spec.entry))
     repeat(2) { discovery.accept(spec.settings.copy(automatic = false), snapshot) }
     assertNull(jobs.find(spec.identity()))
@@ -1101,10 +1120,10 @@ class BackendIntegrationTest {
     settings.set(SettingKey(name, String::toInt, Int::toString), MAX_TIMEOUT_MILLIS + 1)
     val scanner =
         object : InventoryScanner {
-          override fun scan(connectionOverride: SshConnectionSettings?): Inventory =
+          override fun scan(connection: SshConnectionSettings): Inventory =
               throw AssertionError("Invalid configuration reached the scanner")
         }
-    val discovery = Discovery(scanner, configuration, jobs, false)
+    val discovery = Discovery(scanner, configuration, queue, false)
     try {
       assertThrows(IllegalArgumentException::class.java) { discovery.scan() }
       assertEquals("CONFIGURATION", discovery.state().error)
@@ -1118,7 +1137,7 @@ class BackendIntegrationTest {
     val configured = transferSpec(true).settings.copy(automatic = true)
     configuration.save(configured)
     settings.set(SettingKey(SettingNames.LOCAL_DOWNLOAD_DIRECTORY, { it }, { it }), "")
-    val discovery = Discovery(inventory, configuration, jobs, false)
+    val discovery = Discovery(inventory, configuration, queue, false)
     try {
       assertThrows(IllegalArgumentException::class.java) { discovery.scan() }
       assertEquals("CONFIGURATION", discovery.state().error)
@@ -1282,7 +1301,11 @@ class BackendIntegrationTest {
         "sample\n",
         Files.readString(Path.of(spec.settings.destination).resolve(spec.entry.path)),
     )
-    assertTrue(inventory.scan().entries.none { it.path == spec.entry.path })
+    assertTrue(
+        inventory.scan(configuration.read().connection()).entries.none {
+          it.path == spec.entry.path
+        }
+    )
     val elsewhere =
         spec.copy(
             settings =
@@ -1362,7 +1385,13 @@ class BackendIntegrationTest {
     val source = spec.settings.source
     assertEquals(0, ssh.execInContainer("mkdir", "$source/nested").exitCode)
     assertEquals(0, ssh.execInContainer("mv", "$source/file", "$source/nested/file").exitCode)
-    val nested = spec.copy(entry = inventory.scan().entries.single { it.type == EntryType.file })
+    val nested =
+        spec.copy(
+            entry =
+                inventory.scan(configuration.read().connection()).entries.single {
+                  it.type == EntryType.file
+                }
+        )
     assertEquals(0, ssh.execInContainer("mv", "$source/nested", "$source/held").exitCode)
     assertEquals(0, ssh.execInContainer("ln", "-s", "$source/held", "$source/nested").exitCode)
     assertThrows(DownloadFailure::class.java) { downloader.deleteRemote(nested) }
@@ -1429,12 +1458,19 @@ class BackendIntegrationTest {
       assertEquals(0, ssh.execInContainer("rm", DELETE_TEST_WRAPPER).exitCode)
     }
     if (race == DeletionRace.CONFLICT) {
-      val retained = inventory.scan().entries.single { it.path.endsWith("/entry") }
+      val retained =
+          inventory.scan(configuration.read().connection()).entries.single {
+            it.path.endsWith("/entry")
+          }
       assertEquals("replacement", ssh.execInContainer("cat", "$source/${retained.path}").stdout)
     }
     if (race == DeletionRace.INTERRUPTED) {
       downloader.deleteRemote(spec)
-      assertTrue(inventory.scan().entries.none { it.type == EntryType.file })
+      assertTrue(
+          inventory.scan(configuration.read().connection()).entries.none {
+            it.type == EntryType.file
+          }
+      )
     }
   }
 
@@ -1464,7 +1500,7 @@ class BackendIntegrationTest {
     val job = jobs.enqueue(spec)
     worker.tick()
     val target = Path.of(spec.settings.destination).resolve(spec.entry.path)
-    val discovery = Discovery(inventory, configuration, jobs, false)
+    val discovery = Discovery(inventory, configuration, queue, false)
     val snapshot = Inventory(1, listOf(spec.entry))
     Files.delete(target)
     discovery.accept(spec.settings.copy(automatic = true), snapshot)
@@ -1494,7 +1530,7 @@ class BackendIntegrationTest {
         configuration
             .read()
             .copy(destination = Files.createTempDirectory(temporary, "delete").toString()),
-        inventory.scan().entries.single(),
+        inventory.scan(configuration.read().connection()).entries.single(),
     )
   }
 
@@ -1512,7 +1548,10 @@ class BackendIntegrationTest {
     val destination = Files.createTempDirectory(temporary, "downloads").toRealPath().toString()
     val settings =
         configuration.read().copy(destination = destination, temporaryFiles = temporaryMode)
-    val entry = inventory.scan().entries.single { it.path == "nested/日本語 file.txt" }
+    val entry =
+        inventory.scan(configuration.read().connection()).entries.single {
+          it.path == "nested/日本語 file.txt"
+        }
     return DownloadSpec(settings, entry)
   }
 
@@ -1526,6 +1565,15 @@ class BackendIntegrationTest {
           ),
           InventoryEntry(path, EntryType.file, SAMPLE_BYTES, 0),
       )
+
+  private fun postScan(): HttpResponse<String> {
+    val request =
+        HttpRequest.newBuilder(URI("http://127.0.0.1:$port/api/inventory/scan"))
+            .timeout(HTTP_TIMEOUT)
+            .POST(HttpRequest.BodyPublishers.noBody())
+            .build()
+    return HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString())
+  }
 
   private fun get(path: String): HttpResponse<String> {
     val request =

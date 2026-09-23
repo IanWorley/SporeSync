@@ -1,0 +1,19 @@
+{
+  "settings": {
+    "host": "seedbox.example",
+    "port": 22,
+    "username": "scanner",
+    "source": "/remote",
+    "destination": "/local",
+    "scanSeconds": 300,
+    "automatic": true,
+    "temporaryFiles": true,
+    "timeoutMillis": 30000
+  },
+  "entry": {
+    "path": "nested/file.txt",
+    "type": "file",
+    "sizeBytes": 128,
+    "modifiedTimeNs": 1000000000
+  }
+}

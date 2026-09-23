@@ -8,8 +8,11 @@ Source files stay on the seedbox. See the [implementation plan](docs/plan.md) an
 
 ## Source layout
 
-Backend Kotlin code uses `model/` for domain types, persistence, and business
-logic, `controller/` for HTTP endpoints, and `config/` for runtime settings.
+Backend Kotlin code uses five closed Spring Modulith packages: `settings`, `ssh`,
+`inventory`, `downloads`, and `discovery`. Public contracts live in each module's
+root package; implementations and HTTP controllers live in `internal/`.
+Module tests check independent startup, behavior, and forbidden dependencies.
+See [backend modules](docs/backend-modules.md) for ownership and the dependency graph.
 The React frontend supplies the view: `model/` contains typed contracts,
 `view/` contains components and styles, `controller/` contains hooks and API
 requests, and `config/` contains shared endpoint and polling constants.
@@ -57,7 +60,7 @@ plugin and Java 25 to compile the backend. The Elide plugin downloads runtime
 `1.5.3+20260917` through its managed runtime setting. Kotlin uses version 2.4.20
 and Spring Boot uses version 4.1.1.
 SpotBugs compares medium and high findings against
-`backend/config/spotbugs-baseline.xml`. The baseline records 29 existing
+`backend/config/spotbugs-baseline.xml`. The baseline records 31 existing
 findings. It analyzes production classes only. Review each baseline update before
 committing it.
 

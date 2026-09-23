@@ -14,8 +14,12 @@ See README for setup and migration.
 
 ## Source layout
 
-Backend Kotlin code uses `model/` for domain types, persistence, and business
-logic, `controller/` for HTTP endpoints, and `config/` for runtime settings.
+Backend Kotlin code uses five closed Spring Modulith packages: `settings`, `ssh`,
+`inventory`, `downloads`, and `discovery`. Public contracts live in each module's
+root package; implementations and HTTP controllers live in `internal/`.
+Discovery owns scan stability and calls the download queue contract. Download
+storage and repositories stay internal. See `docs/backend-modules.md` for the
+dependency graph. Run `ModularityTest` and `*ModuleTest` when changing boundaries.
 The React frontend supplies the view: `model/` contains typed contracts,
 `view/` contains components and styles, `controller/` contains hooks and API
 requests, and `config/` contains shared endpoint and polling constants.
@@ -48,7 +52,7 @@ persistence, and settings storage); keep immutable data models concrete.
   formatting and `./gradlew elideFormat` to apply it.
 - Backend commands must run from `backend/` so Spring finds `config/`.
 - SpotBugs compares medium and high findings with `config/spotbugs-baseline.xml`.
-  The baseline records 32 reviewed findings. Review each baseline update before
+  The baseline records 31 reviewed findings. Review each baseline update before
   committing it. SpotBugs writes `build/reports/spotbugs/main.xml` and
   `build/reports/spotbugs/main.html`. Gradle writes test reports to
   `build/reports/tests/test`.

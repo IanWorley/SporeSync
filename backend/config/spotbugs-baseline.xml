@@ -1,183 +1,193 @@
 <?xml version='1.0' encoding='UTF-8'?>
 <BugCollection version="4.10.4">
   <BugInstance type="EI_EXPOSE_REP2" priority="2" rank="18" abbrev="EI2" category="MALICIOUS_CODE" instanceHash="fd80d2a180b133139ed2822bb80a75c2" instanceOccurrenceNum="0" instanceOccurrenceMax="0" cweid="374">
-    <Class classname="dev.sporesync.controller.DownloadController" primary="true" classAnnotationNames="org.springframework.web.bind.annotation.RestController,org.springframework.web.bind.annotation.RequestMapping,kotlin.Metadata" />
-    <Method classname="dev.sporesync.controller.DownloadController" name="&lt;init&gt;" signature="(Ldev/sporesync/model/download/DownloadJobRepository;Ldev/sporesync/model/download/DownloadRequests;)V" isStatic="false" primary="true" />
-    <Field classname="dev.sporesync.controller.DownloadController" name="jobs" signature="Ldev/sporesync/model/download/DownloadJobRepository;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
+    <Class classname="dev.sporesync.downloads.internal.DownloadController" primary="true" classAnnotationNames="org.springframework.web.bind.annotation.RestController,org.springframework.web.bind.annotation.RequestMapping,kotlin.Metadata" />
+    <Method classname="dev.sporesync.downloads.internal.DownloadController" name="&lt;init&gt;" signature="(Ldev/sporesync/downloads/internal/DownloadJobRepository;Ldev/sporesync/downloads/internal/DownloadRequests;)V" isStatic="false" primary="true" />
+    <Field classname="dev.sporesync.downloads.internal.DownloadController" name="jobs" signature="Ldev/sporesync/downloads/internal/DownloadJobRepository;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
     <LocalVariable name="jobs" register="1" pc="18" role="LOCAL_VARIABLE_NAMED" />
   </BugInstance>
   <BugInstance type="EI_EXPOSE_REP2" priority="2" rank="18" abbrev="EI2" category="MALICIOUS_CODE" instanceHash="3981df2f10572986b6a15be21e325999" instanceOccurrenceNum="0" instanceOccurrenceMax="0" cweid="374">
-    <Class classname="dev.sporesync.controller.DownloadController" primary="true" classAnnotationNames="org.springframework.web.bind.annotation.RestController,org.springframework.web.bind.annotation.RequestMapping,kotlin.Metadata" />
-    <Method classname="dev.sporesync.controller.DownloadController" name="&lt;init&gt;" signature="(Ldev/sporesync/model/download/DownloadJobRepository;Ldev/sporesync/model/download/DownloadRequests;)V" isStatic="false" primary="true" />
-    <Field classname="dev.sporesync.controller.DownloadController" name="requests" signature="Ldev/sporesync/model/download/DownloadRequests;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
+    <Class classname="dev.sporesync.downloads.internal.DownloadController" primary="true" classAnnotationNames="org.springframework.web.bind.annotation.RestController,org.springframework.web.bind.annotation.RequestMapping,kotlin.Metadata" />
+    <Method classname="dev.sporesync.downloads.internal.DownloadController" name="&lt;init&gt;" signature="(Ldev/sporesync/downloads/internal/DownloadJobRepository;Ldev/sporesync/downloads/internal/DownloadRequests;)V" isStatic="false" primary="true" />
+    <Field classname="dev.sporesync.downloads.internal.DownloadController" name="requests" signature="Ldev/sporesync/downloads/internal/DownloadRequests;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
     <LocalVariable name="requests" register="2" pc="23" role="LOCAL_VARIABLE_NAMED" />
   </BugInstance>
   <BugInstance type="EI_EXPOSE_REP2" priority="2" rank="18" abbrev="EI2" category="MALICIOUS_CODE" instanceHash="f19f0e8795559f8982155d15787fd549" instanceOccurrenceNum="0" instanceOccurrenceMax="0" cweid="374">
-    <Class classname="dev.sporesync.model.download.DownloadJobs" primary="true" classAnnotationNames="org.springframework.stereotype.Component,kotlin.Metadata,kotlin.jvm.internal.SourceDebugExtension" />
-    <Method classname="dev.sporesync.model.download.DownloadJobs" name="&lt;init&gt;" signature="(Lorg/springframework/jdbc/core/JdbcTemplate;Ltools/jackson/databind/json/JsonMapper;Lorg/springframework/transaction/PlatformTransactionManager;)V" isStatic="false" primary="true" />
-    <Field classname="dev.sporesync.model.download.DownloadJobs" name="jdbc" signature="Lorg/springframework/jdbc/core/JdbcTemplate;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
+    <Class classname="dev.sporesync.downloads.internal.DownloadJobs" primary="true" classAnnotationNames="org.springframework.stereotype.Component,kotlin.Metadata,kotlin.jvm.internal.SourceDebugExtension" />
+    <Method classname="dev.sporesync.downloads.internal.DownloadJobs" name="&lt;init&gt;" signature="(Lorg/springframework/jdbc/core/JdbcTemplate;Ltools/jackson/databind/json/JsonMapper;Lorg/springframework/transaction/PlatformTransactionManager;)V" isStatic="false" primary="true" />
+    <Field classname="dev.sporesync.downloads.internal.DownloadJobs" name="jdbc" signature="Lorg/springframework/jdbc/core/JdbcTemplate;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
     <LocalVariable name="jdbc" register="1" pc="24" role="LOCAL_VARIABLE_NAMED" />
   </BugInstance>
   <BugInstance type="EI_EXPOSE_REP2" priority="2" rank="18" abbrev="EI2" category="MALICIOUS_CODE" instanceHash="92f7d2288d121e400772a709b2b673a3" instanceOccurrenceNum="0" instanceOccurrenceMax="0" cweid="374">
-    <Class classname="dev.sporesync.model.download.DownloadJobs" primary="true" classAnnotationNames="org.springframework.stereotype.Component,kotlin.Metadata,kotlin.jvm.internal.SourceDebugExtension" />
-    <Method classname="dev.sporesync.model.download.DownloadJobs" name="&lt;init&gt;" signature="(Lorg/springframework/jdbc/core/JdbcTemplate;Ltools/jackson/databind/json/JsonMapper;Lorg/springframework/transaction/PlatformTransactionManager;)V" isStatic="false" primary="true" />
-    <Field classname="dev.sporesync.model.download.DownloadJobs" name="mapper" signature="Ltools/jackson/databind/json/JsonMapper;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
+    <Class classname="dev.sporesync.downloads.internal.DownloadJobs" primary="true" classAnnotationNames="org.springframework.stereotype.Component,kotlin.Metadata,kotlin.jvm.internal.SourceDebugExtension" />
+    <Method classname="dev.sporesync.downloads.internal.DownloadJobs" name="&lt;init&gt;" signature="(Lorg/springframework/jdbc/core/JdbcTemplate;Ltools/jackson/databind/json/JsonMapper;Lorg/springframework/transaction/PlatformTransactionManager;)V" isStatic="false" primary="true" />
+    <Field classname="dev.sporesync.downloads.internal.DownloadJobs" name="mapper" signature="Ltools/jackson/databind/json/JsonMapper;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
     <LocalVariable name="mapper" register="2" pc="29" role="LOCAL_VARIABLE_NAMED" />
   </BugInstance>
   <BugInstance type="EI_EXPOSE_REP2" priority="2" rank="18" abbrev="EI2" category="MALICIOUS_CODE" instanceHash="601b171b09a791726b3de1b2c2ef646d" instanceOccurrenceNum="0" instanceOccurrenceMax="0" cweid="374">
-    <Class classname="dev.sporesync.model.download.DownloadRequests" primary="true" classAnnotationNames="org.springframework.stereotype.Service,kotlin.Metadata,kotlin.jvm.internal.SourceDebugExtension" />
-    <Method classname="dev.sporesync.model.download.DownloadRequests" name="&lt;init&gt;" signature="(Ldev/sporesync/model/download/DownloadJobRepository;Ldev/sporesync/model/inventory/InventoryScanner;Ldev/sporesync/model/settings/DownloadSettingsStore;)V" isStatic="false" primary="true" />
-    <Field classname="dev.sporesync.model.download.DownloadRequests" name="jobs" signature="Ldev/sporesync/model/download/DownloadJobRepository;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
+    <Class classname="dev.sporesync.downloads.internal.DownloadRequests" primary="true" classAnnotationNames="org.springframework.stereotype.Service,kotlin.Metadata,kotlin.jvm.internal.SourceDebugExtension" />
+    <Method classname="dev.sporesync.downloads.internal.DownloadRequests" name="&lt;init&gt;" signature="(Ldev/sporesync/downloads/internal/DownloadJobRepository;Ldev/sporesync/inventory/InventoryScanner;Ldev/sporesync/settings/DownloadSettingsStore;)V" isStatic="false" primary="true" />
+    <Field classname="dev.sporesync.downloads.internal.DownloadRequests" name="jobs" signature="Ldev/sporesync/downloads/internal/DownloadJobRepository;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
     <LocalVariable name="jobs" register="1" pc="24" role="LOCAL_VARIABLE_NAMED" />
   </BugInstance>
   <BugInstance type="EI_EXPOSE_REP2" priority="2" rank="18" abbrev="EI2" category="MALICIOUS_CODE" instanceHash="1cb08ef189f0f4b839f97d8829400aea" instanceOccurrenceNum="0" instanceOccurrenceMax="0" cweid="374">
-    <Class classname="dev.sporesync.model.download.DownloadWorker" primary="true" classAnnotationNames="org.springframework.stereotype.Service,kotlin.Metadata" />
-    <Method classname="dev.sporesync.model.download.DownloadWorker" name="&lt;init&gt;" signature="(Ljavax/sql/DataSource;Ldev/sporesync/model/download/DownloadJobRepository;Ldev/sporesync/model/download/FileDownloader;Z)V" isStatic="false" primary="true" />
-    <Field classname="dev.sporesync.model.download.DownloadWorker" name="dataSource" signature="Ljavax/sql/DataSource;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
+    <Class classname="dev.sporesync.downloads.internal.DownloadWorker" primary="true" classAnnotationNames="org.springframework.stereotype.Service,kotlin.Metadata" />
+    <Method classname="dev.sporesync.downloads.internal.DownloadWorker" name="&lt;init&gt;" signature="(Ljavax/sql/DataSource;Ldev/sporesync/downloads/internal/DownloadJobRepository;Ldev/sporesync/downloads/internal/FileDownloader;Z)V" isStatic="false" primary="true" />
+    <Field classname="dev.sporesync.downloads.internal.DownloadWorker" name="dataSource" signature="Ljavax/sql/DataSource;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
     <LocalVariable name="dataSource" register="1" pc="24" role="LOCAL_VARIABLE_NAMED" />
   </BugInstance>
   <BugInstance type="EI_EXPOSE_REP2" priority="2" rank="18" abbrev="EI2" category="MALICIOUS_CODE" instanceHash="158de65882c70ef711d379244174347a" instanceOccurrenceNum="0" instanceOccurrenceMax="0" cweid="374">
-    <Class classname="dev.sporesync.model.download.DownloadWorker" primary="true" classAnnotationNames="org.springframework.stereotype.Service,kotlin.Metadata" />
-    <Method classname="dev.sporesync.model.download.DownloadWorker" name="&lt;init&gt;" signature="(Ljavax/sql/DataSource;Ldev/sporesync/model/download/DownloadJobRepository;Ldev/sporesync/model/download/FileDownloader;Z)V" isStatic="false" primary="true" />
-    <Field classname="dev.sporesync.model.download.DownloadWorker" name="jobs" signature="Ldev/sporesync/model/download/DownloadJobRepository;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
+    <Class classname="dev.sporesync.downloads.internal.DownloadWorker" primary="true" classAnnotationNames="org.springframework.stereotype.Service,kotlin.Metadata" />
+    <Method classname="dev.sporesync.downloads.internal.DownloadWorker" name="&lt;init&gt;" signature="(Ljavax/sql/DataSource;Ldev/sporesync/downloads/internal/DownloadJobRepository;Ldev/sporesync/downloads/internal/FileDownloader;Z)V" isStatic="false" primary="true" />
+    <Field classname="dev.sporesync.downloads.internal.DownloadWorker" name="jobs" signature="Ldev/sporesync/downloads/internal/DownloadJobRepository;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
     <LocalVariable name="jobs" register="2" pc="29" role="LOCAL_VARIABLE_NAMED" />
   </BugInstance>
   <BugInstance type="OBL_UNSATISFIED_OBLIGATION" priority="2" rank="20" abbrev="OBL" category="EXPERIMENTAL" instanceHash="b64d3513fc5a2ff76ab90d8854a29a32" instanceOccurrenceNum="0" instanceOccurrenceMax="0">
-    <Class classname="dev.sporesync.model.download.DownloadWorker" primary="true" classAnnotationNames="org.springframework.stereotype.Service,kotlin.Metadata" />
-    <Method classname="dev.sporesync.model.download.DownloadWorker" name="lock" signature="(Ljava/sql/Connection;Ljava/lang/String;)Z" isStatic="false" primary="true" />
+    <Class classname="dev.sporesync.downloads.internal.DownloadWorker" primary="true" classAnnotationNames="org.springframework.stereotype.Service,kotlin.Metadata" />
+    <Method classname="dev.sporesync.downloads.internal.DownloadWorker" name="lock" signature="(Ljava/sql/Connection;Ljava/lang/String;)Z" isStatic="false" primary="true" />
     <Class classname="java.sql.ResultSet" role="CLASS_REFTYPE" />
     <Int value="1" role="INT_OBLIGATIONS_REMAINING" />
     <String value="{Statement x 1,ResultSet x 1}" role="STRING_REMAINING_OBLIGATIONS" />
   </BugInstance>
   <BugInstance type="OBL_UNSATISFIED_OBLIGATION" priority="2" rank="20" abbrev="OBL" category="EXPERIMENTAL" instanceHash="7d440a5e554140a2c4a4c2cf5257a15f" instanceOccurrenceNum="0" instanceOccurrenceMax="0">
-    <Class classname="dev.sporesync.model.download.DownloadWorker" primary="true" classAnnotationNames="org.springframework.stereotype.Service,kotlin.Metadata" />
-    <Method classname="dev.sporesync.model.download.DownloadWorker" name="lock" signature="(Ljava/sql/Connection;Ljava/lang/String;)Z" isStatic="false" primary="true" />
+    <Class classname="dev.sporesync.downloads.internal.DownloadWorker" primary="true" classAnnotationNames="org.springframework.stereotype.Service,kotlin.Metadata" />
+    <Method classname="dev.sporesync.downloads.internal.DownloadWorker" name="lock" signature="(Ljava/sql/Connection;Ljava/lang/String;)Z" isStatic="false" primary="true" />
     <Class classname="java.sql.Statement" role="CLASS_REFTYPE" />
     <Int value="1" role="INT_OBLIGATIONS_REMAINING" />
     <String value="{Statement x 1,ResultSet x 1}" role="STRING_REMAINING_OBLIGATIONS" />
   </BugInstance>
   <BugInstance type="EI_EXPOSE_REP" priority="2" rank="18" abbrev="EI" category="MALICIOUS_CODE" instanceHash="1bb0ed3f2cb5a89b48d39f3fc698ca8" instanceOccurrenceNum="0" instanceOccurrenceMax="0" cweid="374">
-    <Class classname="dev.sporesync.model.download.Posix" primary="true" classAnnotationNames="kotlin.Metadata,kotlin.jvm.internal.SourceDebugExtension" />
-    <Method classname="dev.sporesync.model.download.Posix" name="getLibc" signature="()Ldev/sporesync/model/download/LibC;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
-    <Field classname="dev.sporesync.model.download.Posix" name="libc" signature="Ldev/sporesync/model/download/LibC;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
+    <Class classname="dev.sporesync.downloads.internal.Posix" primary="true" classAnnotationNames="kotlin.Metadata,kotlin.jvm.internal.SourceDebugExtension" />
+    <Method classname="dev.sporesync.downloads.internal.Posix" name="getLibc" signature="()Ldev/sporesync/downloads/internal/LibC;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
+    <Field classname="dev.sporesync.downloads.internal.Posix" name="libc" signature="Ldev/sporesync/downloads/internal/LibC;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
   </BugInstance>
   <BugInstance type="EI_EXPOSE_REP2" priority="2" rank="18" abbrev="EI2" category="MALICIOUS_CODE" instanceHash="d69218777ba5e5fbee22fe3aec563480" instanceOccurrenceNum="0" instanceOccurrenceMax="0" cweid="374">
-    <Class classname="dev.sporesync.model.download.Posix" primary="true" classAnnotationNames="kotlin.Metadata,kotlin.jvm.internal.SourceDebugExtension" />
-    <Method classname="dev.sporesync.model.download.Posix" name="&lt;init&gt;" signature="(Ldev/sporesync/model/download/LibC;)V" isStatic="false" primary="true" />
-    <Field classname="dev.sporesync.model.download.Posix" name="libc" signature="Ldev/sporesync/model/download/LibC;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
+    <Class classname="dev.sporesync.downloads.internal.Posix" primary="true" classAnnotationNames="kotlin.Metadata,kotlin.jvm.internal.SourceDebugExtension" />
+    <Method classname="dev.sporesync.downloads.internal.Posix" name="&lt;init&gt;" signature="(Ldev/sporesync/downloads/internal/LibC;)V" isStatic="false" primary="true" />
+    <Field classname="dev.sporesync.downloads.internal.Posix" name="libc" signature="Ldev/sporesync/downloads/internal/LibC;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
     <LocalVariable name="libc" register="1" pc="12" role="LOCAL_VARIABLE_NAMED" />
   </BugInstance>
   <BugInstance type="REC_CATCH_EXCEPTION" priority="2" rank="17" abbrev="REC" category="STYLE" instanceHash="7b12552e5a41c7d33f8a8ab354f3fc47" instanceOccurrenceNum="0" instanceOccurrenceMax="0" cweid="396">
-    <Class classname="dev.sporesync.model.download.RemoteChecksum$Companion" primary="true" classAnnotationNames="kotlin.Metadata,kotlin.jvm.internal.SourceDebugExtension" />
-    <Method classname="dev.sporesync.model.download.RemoteChecksum$Companion" name="read" signature="(Lnet/schmizz/sshj/SSHClient;Ldev/sporesync/model/download/DownloadSpec;JLkotlin/jvm/functions/Function0;)Ldev/sporesync/model/download/RemoteChecksum;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
+    <Class classname="dev.sporesync.downloads.internal.RemoteChecksum$Companion" primary="true" classAnnotationNames="kotlin.Metadata,kotlin.jvm.internal.SourceDebugExtension" />
+    <Method classname="dev.sporesync.downloads.internal.RemoteChecksum$Companion" name="read" signature="(Lnet/schmizz/sshj/SSHClient;Ldev/sporesync/downloads/DownloadSpec;JLkotlin/jvm/functions/Function0;)Ldev/sporesync/downloads/internal/RemoteChecksum;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
   </BugInstance>
   <BugInstance type="EI_EXPOSE_REP2" priority="2" rank="18" abbrev="EI2" category="MALICIOUS_CODE" instanceHash="5036da4fe39201a331f11f98350df6c5" instanceOccurrenceNum="0" instanceOccurrenceMax="0" cweid="374">
-    <Class classname="dev.sporesync.model.download.SftpDownload" primary="true" classAnnotationNames="org.springframework.stereotype.Service,kotlin.Metadata" />
-    <Method classname="dev.sporesync.model.download.SftpDownload" name="&lt;init&gt;" signature="(Ldev/sporesync/config/SshSettings;Ldev/sporesync/model/download/DownloadStorage;)V" isStatic="false" primary="true" />
-    <Field classname="dev.sporesync.model.download.SftpDownload" name="credentials" signature="Ldev/sporesync/config/SshSettings;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
+    <Class classname="dev.sporesync.downloads.internal.SftpDownload" primary="true" classAnnotationNames="org.springframework.stereotype.Service,kotlin.Metadata" />
+    <Method classname="dev.sporesync.downloads.internal.SftpDownload" name="&lt;init&gt;" signature="(Ldev/sporesync/ssh/SshSettings;Ldev/sporesync/downloads/internal/DownloadStorage;)V" isStatic="false" primary="true" />
+    <Field classname="dev.sporesync.downloads.internal.SftpDownload" name="credentials" signature="Ldev/sporesync/ssh/SshSettings;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
     <LocalVariable name="credentials" register="1" pc="18" role="LOCAL_VARIABLE_NAMED" />
   </BugInstance>
   <BugInstance type="EI_EXPOSE_REP" priority="2" rank="18" abbrev="EI" category="MALICIOUS_CODE" instanceHash="7adc6446d5d319022f2cc59ecbe1a1e7" instanceOccurrenceNum="0" instanceOccurrenceMax="0" cweid="374">
-    <Class classname="dev.sporesync.model.inventory.Inventory" primary="true" classAnnotationNames="kotlin.Metadata" />
-    <Method classname="dev.sporesync.model.inventory.Inventory" name="component2" signature="()Ljava/util/List;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
-    <Field classname="dev.sporesync.model.inventory.Inventory" name="entries" signature="Ljava/util/List;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
+    <Class classname="dev.sporesync.inventory.Inventory" primary="true" classAnnotationNames="kotlin.Metadata" />
+    <Method classname="dev.sporesync.inventory.Inventory" name="component2" signature="()Ljava/util/List;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
+    <Field classname="dev.sporesync.inventory.Inventory" name="entries" signature="Ljava/util/List;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
   </BugInstance>
   <BugInstance type="EI_EXPOSE_REP" priority="2" rank="18" abbrev="EI" category="MALICIOUS_CODE" instanceHash="689b9948cf4c12234ca1cd916f8426d1" instanceOccurrenceNum="0" instanceOccurrenceMax="0" cweid="374">
-    <Class classname="dev.sporesync.model.inventory.Inventory" primary="true" classAnnotationNames="kotlin.Metadata" />
-    <Method classname="dev.sporesync.model.inventory.Inventory" name="getEntries" signature="()Ljava/util/List;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
-    <Field classname="dev.sporesync.model.inventory.Inventory" name="entries" signature="Ljava/util/List;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
+    <Class classname="dev.sporesync.inventory.Inventory" primary="true" classAnnotationNames="kotlin.Metadata" />
+    <Method classname="dev.sporesync.inventory.Inventory" name="getEntries" signature="()Ljava/util/List;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
+    <Field classname="dev.sporesync.inventory.Inventory" name="entries" signature="Ljava/util/List;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
   </BugInstance>
   <BugInstance type="EI_EXPOSE_REP2" priority="2" rank="18" abbrev="EI2" category="MALICIOUS_CODE" instanceHash="1135406b5c614ea2c86a63b19c4e6f98" instanceOccurrenceNum="0" instanceOccurrenceMax="0" cweid="374">
-    <Class classname="dev.sporesync.model.inventory.Inventory" primary="true" classAnnotationNames="kotlin.Metadata" />
-    <Method classname="dev.sporesync.model.inventory.Inventory" name="&lt;init&gt;" signature="(ILjava/util/List;)V" isStatic="false" primary="true" />
-    <Field classname="dev.sporesync.model.inventory.Inventory" name="entries" signature="Ljava/util/List;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
+    <Class classname="dev.sporesync.inventory.Inventory" primary="true" classAnnotationNames="kotlin.Metadata" />
+    <Method classname="dev.sporesync.inventory.Inventory" name="&lt;init&gt;" signature="(ILjava/util/List;)V" isStatic="false" primary="true" />
+    <Field classname="dev.sporesync.inventory.Inventory" name="entries" signature="Ljava/util/List;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
     <LocalVariable name="entries" register="2" pc="17" role="LOCAL_VARIABLE_NAMED" />
   </BugInstance>
   <BugInstance type="BC_BAD_CAST_TO_ABSTRACT_COLLECTION" priority="2" rank="17" abbrev="BC" category="STYLE" instanceHash="5c13b16d9d4658c40653210d68126120" instanceOccurrenceNum="0" instanceOccurrenceMax="0" cweid="704">
-    <Class classname="dev.sporesync.model.inventory.RemoteInventory" primary="true" classAnnotationNames="org.springframework.stereotype.Service,kotlin.Metadata,kotlin.jvm.internal.SourceDebugExtension" />
-    <Method classname="dev.sporesync.model.inventory.RemoteInventory" name="decode$dev_sporesync_sporesync_backend" signature="(Ljava/lang/String;)Ldev/sporesync/model/inventory/Inventory;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
+    <Class classname="dev.sporesync.inventory.internal.RemoteInventory" primary="true" classAnnotationNames="org.springframework.stereotype.Service,kotlin.Metadata,kotlin.jvm.internal.SourceDebugExtension" />
+    <Method classname="dev.sporesync.inventory.internal.RemoteInventory" name="decode$dev_sporesync_sporesync_backend" signature="(Ljava/lang/String;)Ldev/sporesync/inventory/Inventory;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
     <Type descriptor="Ljava/util/Collection;" role="TYPE_FOUND" />
     <Type descriptor="Ljava/util/List;" role="TYPE_EXPECTED" />
     <LocalVariable name="destination$iv$iv" register="7" pc="173" role="LOCAL_VARIABLE_VALUE_OF" />
   </BugInstance>
-  <BugInstance type="EI_EXPOSE_REP2" priority="2" rank="18" abbrev="EI2" category="MALICIOUS_CODE" instanceHash="b8c2a2129436e3a01f772fb6893df08d" instanceOccurrenceNum="0" instanceOccurrenceMax="0" cweid="374">
-    <Class classname="dev.sporesync.model.inventory.RemoteInventory" primary="true" classAnnotationNames="org.springframework.stereotype.Service,kotlin.Metadata,kotlin.jvm.internal.SourceDebugExtension" />
-    <Method classname="dev.sporesync.model.inventory.RemoteInventory" name="&lt;init&gt;" signature="(Ldev/sporesync/config/SshSettings;Ldev/sporesync/model/settings/ApplicationSettings;Ltools/jackson/databind/json/JsonMapper;)V" isStatic="false" primary="true" />
-    <Field classname="dev.sporesync.model.inventory.RemoteInventory" name="applicationSettings" signature="Ldev/sporesync/model/settings/ApplicationSettings;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
-    <LocalVariable name="applicationSettings" register="2" pc="29" role="LOCAL_VARIABLE_NAMED" />
-  </BugInstance>
-  <BugInstance type="EI_EXPOSE_REP2" priority="2" rank="18" abbrev="EI2" category="MALICIOUS_CODE" instanceHash="278d7398868227c874c6466a55f0d658" instanceOccurrenceNum="0" instanceOccurrenceMax="0" cweid="374">
-    <Class classname="dev.sporesync.model.inventory.RemoteInventory" primary="true" classAnnotationNames="org.springframework.stereotype.Service,kotlin.Metadata,kotlin.jvm.internal.SourceDebugExtension" />
-    <Method classname="dev.sporesync.model.inventory.RemoteInventory" name="&lt;init&gt;" signature="(Ldev/sporesync/config/SshSettings;Ldev/sporesync/model/settings/ApplicationSettings;Ltools/jackson/databind/json/JsonMapper;)V" isStatic="false" primary="true" />
-    <Field classname="dev.sporesync.model.inventory.RemoteInventory" name="mapper" signature="Ltools/jackson/databind/json/JsonMapper;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
-    <LocalVariable name="mapper" register="3" pc="34" role="LOCAL_VARIABLE_NAMED" />
-  </BugInstance>
-  <BugInstance type="EI_EXPOSE_REP2" priority="2" rank="18" abbrev="EI2" category="MALICIOUS_CODE" instanceHash="e2956941742f4dab4fd973857359512c" instanceOccurrenceNum="0" instanceOccurrenceMax="0" cweid="374">
-    <Class classname="dev.sporesync.model.inventory.RemoteInventory" primary="true" classAnnotationNames="org.springframework.stereotype.Service,kotlin.Metadata,kotlin.jvm.internal.SourceDebugExtension" />
-    <Method classname="dev.sporesync.model.inventory.RemoteInventory" name="&lt;init&gt;" signature="(Ldev/sporesync/config/SshSettings;Ldev/sporesync/model/settings/ApplicationSettings;Ltools/jackson/databind/json/JsonMapper;)V" isStatic="false" primary="true" />
-    <Field classname="dev.sporesync.model.inventory.RemoteInventory" name="settings" signature="Ldev/sporesync/config/SshSettings;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
-    <LocalVariable name="settings" register="1" pc="24" role="LOCAL_VARIABLE_NAMED" />
-  </BugInstance>
   <BugInstance type="REC_CATCH_EXCEPTION" priority="1" rank="15" abbrev="REC" category="STYLE" instanceHash="ab49c52179840702c78e4f19d65f15d7" instanceOccurrenceNum="0" instanceOccurrenceMax="0" cweid="396">
-    <Class classname="dev.sporesync.model.inventory.RemoteInventory" primary="true" classAnnotationNames="org.springframework.stereotype.Service,kotlin.Metadata,kotlin.jvm.internal.SourceDebugExtension" />
-    <Method classname="dev.sporesync.model.inventory.RemoteInventory" name="decode$dev_sporesync_sporesync_backend" signature="(Ljava/lang/String;)Ldev/sporesync/model/inventory/Inventory;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
+    <Class classname="dev.sporesync.inventory.internal.RemoteInventory" primary="true" classAnnotationNames="org.springframework.stereotype.Service,kotlin.Metadata,kotlin.jvm.internal.SourceDebugExtension" />
+    <Method classname="dev.sporesync.inventory.internal.RemoteInventory" name="decode$dev_sporesync_sporesync_backend" signature="(Ljava/lang/String;)Ldev/sporesync/inventory/Inventory;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
   </BugInstance>
   <BugInstance type="REC_CATCH_EXCEPTION" priority="2" rank="17" abbrev="REC" category="STYLE" instanceHash="d8d65c8edbdd1858d8464b7abf320585" instanceOccurrenceNum="0" instanceOccurrenceMax="0" cweid="396">
-    <Class classname="dev.sporesync.model.inventory.RemoteInventory" primary="true" classAnnotationNames="org.springframework.stereotype.Service,kotlin.Metadata,kotlin.jvm.internal.SourceDebugExtension" />
-    <Method classname="dev.sporesync.model.inventory.RemoteInventory" name="scan" signature="(Ldev/sporesync/config/SshConnectionSettings;)Ldev/sporesync/model/inventory/Inventory;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
+    <Class classname="dev.sporesync.inventory.internal.RemoteInventory" primary="true" classAnnotationNames="org.springframework.stereotype.Service,kotlin.Metadata,kotlin.jvm.internal.SourceDebugExtension" />
+    <Method classname="dev.sporesync.inventory.internal.RemoteInventory" name="scan" signature="(Ldev/sporesync/settings/SshConnectionSettings;)Ldev/sporesync/inventory/Inventory;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
   </BugInstance>
   <BugInstance type="NP_NONNULL_RETURN_VIOLATION" priority="1" rank="6" abbrev="NP" category="CORRECTNESS" instanceHash="967502fd88f8d1e54a2b484738af37c1" instanceOccurrenceNum="0" instanceOccurrenceMax="0" cweid="476">
-    <Class classname="dev.sporesync.model.settings.ApplicationSetting" primary="true" classAnnotationNames="jakarta.persistence.Entity,jakarta.persistence.Table,kotlin.Metadata" />
-    <Method classname="dev.sporesync.model.settings.ApplicationSetting" name="getCreatedAt" signature="()Ljava/time/Instant;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
+    <Class classname="dev.sporesync.settings.internal.ApplicationSetting" primary="true" classAnnotationNames="jakarta.persistence.Entity,jakarta.persistence.Table,kotlin.Metadata" />
+    <Method classname="dev.sporesync.settings.internal.ApplicationSetting" name="getCreatedAt" signature="()Ljava/time/Instant;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
   </BugInstance>
   <BugInstance type="NP_NONNULL_RETURN_VIOLATION" priority="1" rank="6" abbrev="NP" category="CORRECTNESS" instanceHash="28511f451617920021b20a1a1d7c97db" instanceOccurrenceNum="0" instanceOccurrenceMax="0" cweid="476">
-    <Class classname="dev.sporesync.model.settings.ApplicationSetting" primary="true" classAnnotationNames="jakarta.persistence.Entity,jakarta.persistence.Table,kotlin.Metadata" />
-    <Method classname="dev.sporesync.model.settings.ApplicationSetting" name="getName" signature="()Ljava/lang/String;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
+    <Class classname="dev.sporesync.settings.internal.ApplicationSetting" primary="true" classAnnotationNames="jakarta.persistence.Entity,jakarta.persistence.Table,kotlin.Metadata" />
+    <Method classname="dev.sporesync.settings.internal.ApplicationSetting" name="getName" signature="()Ljava/lang/String;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
   </BugInstance>
   <BugInstance type="NP_NONNULL_RETURN_VIOLATION" priority="1" rank="6" abbrev="NP" category="CORRECTNESS" instanceHash="3cab36412d0673c92446a51d1d6cf762" instanceOccurrenceNum="0" instanceOccurrenceMax="0" cweid="476">
-    <Class classname="dev.sporesync.model.settings.ApplicationSetting" primary="true" classAnnotationNames="jakarta.persistence.Entity,jakarta.persistence.Table,kotlin.Metadata" />
-    <Method classname="dev.sporesync.model.settings.ApplicationSetting" name="getUpdatedAt" signature="()Ljava/time/Instant;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
+    <Class classname="dev.sporesync.settings.internal.ApplicationSetting" primary="true" classAnnotationNames="jakarta.persistence.Entity,jakarta.persistence.Table,kotlin.Metadata" />
+    <Method classname="dev.sporesync.settings.internal.ApplicationSetting" name="getUpdatedAt" signature="()Ljava/time/Instant;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
   </BugInstance>
   <BugInstance type="NP_NONNULL_RETURN_VIOLATION" priority="1" rank="6" abbrev="NP" category="CORRECTNESS" instanceHash="44df896a75490fe909aae158ba1abfb1" instanceOccurrenceNum="0" instanceOccurrenceMax="0" cweid="476">
-    <Class classname="dev.sporesync.model.settings.ApplicationSetting" primary="true" classAnnotationNames="jakarta.persistence.Entity,jakarta.persistence.Table,kotlin.Metadata" />
-    <Method classname="dev.sporesync.model.settings.ApplicationSetting" name="getValue" signature="()Ljava/lang/String;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
+    <Class classname="dev.sporesync.settings.internal.ApplicationSetting" primary="true" classAnnotationNames="jakarta.persistence.Entity,jakarta.persistence.Table,kotlin.Metadata" />
+    <Method classname="dev.sporesync.settings.internal.ApplicationSetting" name="getValue" signature="()Ljava/lang/String;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
   </BugInstance>
   <BugInstance type="BC_BAD_CAST_TO_ABSTRACT_COLLECTION" priority="2" rank="17" abbrev="BC" category="STYLE" instanceHash="1b71f2f756e984bf9025f828793f2df6" instanceOccurrenceNum="0" instanceOccurrenceMax="0" cweid="704">
-    <Class classname="dev.sporesync.model.settings.DownloadConfiguration" primary="true" classAnnotationNames="org.springframework.stereotype.Service,kotlin.Metadata,kotlin.jvm.internal.SourceDebugExtension" />
-    <Method classname="dev.sporesync.model.settings.DownloadConfiguration" name="save" signature="(Ldev/sporesync/model/settings/DownloadSettings;)Ldev/sporesync/model/settings/DownloadSettings;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
+    <Class classname="dev.sporesync.settings.internal.DownloadConfiguration" primary="true" classAnnotationNames="org.springframework.stereotype.Service,kotlin.Metadata,kotlin.jvm.internal.SourceDebugExtension" />
+    <Method classname="dev.sporesync.settings.internal.DownloadConfiguration" name="save" signature="(Ldev/sporesync/settings/DownloadSettings;)Ldev/sporesync/settings/DownloadSettings;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
     <Type descriptor="Ljava/util/Collection;" role="TYPE_FOUND" />
     <Type descriptor="Ljava/util/List;" role="TYPE_EXPECTED" />
     <LocalVariable name="destination$iv$iv" register="5" pc="273" role="LOCAL_VARIABLE_VALUE_OF" />
   </BugInstance>
   <BugInstance type="BC_BAD_CAST_TO_ABSTRACT_COLLECTION" priority="2" rank="17" abbrev="BC" category="STYLE" instanceHash="634051097d64faf8cf322e7f43901d85" instanceOccurrenceNum="0" instanceOccurrenceMax="0" cweid="704">
-    <Class classname="dev.sporesync.model.inventory.Discovery" primary="true" classAnnotationNames="org.springframework.stereotype.Service,kotlin.Metadata,kotlin.jvm.internal.SourceDebugExtension" />
-    <Method classname="dev.sporesync.model.inventory.Discovery" name="accept$dev_sporesync_sporesync_backend" signature="(Ldev/sporesync/model/settings/DownloadSettings;Ldev/sporesync/model/inventory/Inventory;)V" isStatic="false" primary="true" />
+    <Class classname="dev.sporesync.discovery.internal.Discovery" primary="true" classAnnotationNames="org.springframework.stereotype.Service,kotlin.Metadata,kotlin.jvm.internal.SourceDebugExtension" />
+    <Method classname="dev.sporesync.discovery.internal.Discovery" name="accept$dev_sporesync_sporesync_backend" signature="(Ldev/sporesync/settings/DownloadSettings;Ldev/sporesync/inventory/Inventory;)V" isStatic="false" primary="true" />
     <Type descriptor="Ljava/util/Collection;" role="TYPE_FOUND" />
     <Type descriptor="Ljava/util/List;" role="TYPE_EXPECTED" />
     <LocalVariable name="destination$iv$iv" register="7" pc="183" role="LOCAL_VARIABLE_VALUE_OF" />
   </BugInstance>
-  <BugInstance type="EI_EXPOSE_REP2" priority="2" rank="18" abbrev="EI2" category="MALICIOUS_CODE" instanceHash="bdf0264c0bf0d221fd916262543a376c" instanceOccurrenceNum="0" instanceOccurrenceMax="0" cweid="374">
-    <Class classname="dev.sporesync.model.inventory.Discovery" primary="true" classAnnotationNames="org.springframework.stereotype.Service,kotlin.Metadata,kotlin.jvm.internal.SourceDebugExtension" />
-    <Method classname="dev.sporesync.model.inventory.Discovery" name="&lt;init&gt;" signature="(Ldev/sporesync/model/inventory/InventoryScanner;Ldev/sporesync/model/settings/DownloadSettingsStore;Ldev/sporesync/model/download/DownloadJobRepository;ZLdev/sporesync/model/download/DownloadStorage;)V" isStatic="false" primary="true" />
-    <Field classname="dev.sporesync.model.inventory.Discovery" name="jobs" signature="Ldev/sporesync/model/download/DownloadJobRepository;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
-    <LocalVariable name="jobs" register="3" pc="41" role="LOCAL_VARIABLE_NAMED" />
-  </BugInstance>
   <BugInstance type="EI_EXPOSE_REP2" priority="2" rank="18" abbrev="EI2" category="MALICIOUS_CODE" instanceHash="ee8489e5f16473451bba46355be41952" instanceOccurrenceNum="0" instanceOccurrenceMax="0" cweid="374">
-    <Class classname="dev.sporesync.model.download.DownloadWorker" primary="true" classAnnotationNames="org.springframework.stereotype.Service,kotlin.Metadata,kotlin.jvm.internal.SourceDebugExtension" />
-    <Method classname="dev.sporesync.model.download.DownloadWorker" name="&lt;init&gt;" signature="(Ljavax/sql/DataSource;Ldev/sporesync/model/download/DownloadJobRepository;Ldev/sporesync/model/download/FileDownloader;Z)V" isStatic="false" primary="true" />
-    <Field classname="dev.sporesync.model.download.DownloadWorker" name="downloader" signature="Ldev/sporesync/model/download/FileDownloader;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
+    <Class classname="dev.sporesync.downloads.internal.DownloadWorker" primary="true" classAnnotationNames="org.springframework.stereotype.Service,kotlin.Metadata,kotlin.jvm.internal.SourceDebugExtension" />
+    <Method classname="dev.sporesync.downloads.internal.DownloadWorker" name="&lt;init&gt;" signature="(Ljavax/sql/DataSource;Ldev/sporesync/downloads/internal/DownloadJobRepository;Ldev/sporesync/downloads/internal/FileDownloader;Z)V" isStatic="false" primary="true" />
+    <Field classname="dev.sporesync.downloads.internal.DownloadWorker" name="downloader" signature="Ldev/sporesync/downloads/internal/FileDownloader;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
     <LocalVariable name="downloader" register="3" pc="34" role="LOCAL_VARIABLE_NAMED" />
   </BugInstance>
   <BugInstance type="EI_EXPOSE_REP2" priority="2" rank="18" abbrev="EI2" category="MALICIOUS_CODE" instanceHash="72e85a89f39bf0decc20ee170e201cc7" instanceOccurrenceNum="0" instanceOccurrenceMax="0" cweid="374">
-    <Class classname="dev.sporesync.model.download.SftpDownload" primary="true" classAnnotationNames="org.springframework.stereotype.Service,kotlin.Metadata" />
-    <Method classname="dev.sporesync.model.download.SftpDownload" name="&lt;init&gt;" signature="(Ldev/sporesync/config/SshSettings;Ldev/sporesync/model/download/DownloadStorage;)V" isStatic="false" primary="true" />
-    <Field classname="dev.sporesync.model.download.SftpDownload" name="storage" signature="Ldev/sporesync/model/download/DownloadStorage;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
+    <Class classname="dev.sporesync.downloads.internal.SftpDownload" primary="true" classAnnotationNames="org.springframework.stereotype.Service,kotlin.Metadata" />
+    <Method classname="dev.sporesync.downloads.internal.SftpDownload" name="&lt;init&gt;" signature="(Ldev/sporesync/ssh/SshSettings;Ldev/sporesync/downloads/internal/DownloadStorage;)V" isStatic="false" primary="true" />
+    <Field classname="dev.sporesync.downloads.internal.SftpDownload" name="storage" signature="Ldev/sporesync/downloads/internal/DownloadStorage;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
     <LocalVariable name="storage" register="2" pc="23" role="LOCAL_VARIABLE_NAMED" />
   </BugInstance>
-  <BugInstance type="EI_EXPOSE_REP2" priority="2" rank="18" abbrev="EI2" category="MALICIOUS_CODE" instanceHash="be94835b07974ccd3e5549e40c76f604" instanceOccurrenceNum="0" instanceOccurrenceMax="0" cweid="374">
-    <Class classname="dev.sporesync.model.inventory.Discovery" primary="true" classAnnotationNames="org.springframework.stereotype.Service,kotlin.Metadata,kotlin.jvm.internal.SourceDebugExtension" />
-    <Method classname="dev.sporesync.model.inventory.Discovery" name="&lt;init&gt;" signature="(Ldev/sporesync/model/inventory/InventoryScanner;Ldev/sporesync/model/settings/DownloadSettingsStore;Ldev/sporesync/model/download/DownloadJobRepository;ZLdev/sporesync/model/download/DownloadStorage;)V" isStatic="false" primary="true" />
-    <Field classname="dev.sporesync.model.inventory.Discovery" name="storage" signature="Ldev/sporesync/model/download/DownloadStorage;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull" />
-    <LocalVariable name="storage" register="5" pc="53" role="LOCAL_VARIABLE_NAMED" />
+  <BugInstance type="EI_EXPOSE_REP2" priority="2" rank="18" abbrev="EI2" category="MALICIOUS_CODE" instanceHash="81dee17ef6da6507291ebb19498eba56" instanceOccurrenceNum="0" instanceOccurrenceMax="0" cweid="374">
+    <Class classname="dev.sporesync.downloads.internal.StableDownloadQueue" primary="true" classAnnotationNames="org.springframework.stereotype.Service,kotlin.Metadata">
+      </Class>
+    <Method classname="dev.sporesync.downloads.internal.StableDownloadQueue" name="&lt;init&gt;" signature="(Ldev/sporesync/downloads/internal/DownloadJobRepository;Ldev/sporesync/downloads/internal/DownloadStorage;)V" isStatic="false" primary="true">
+      </Method>
+    <Field classname="dev.sporesync.downloads.internal.StableDownloadQueue" name="jobs" signature="Ldev/sporesync/downloads/internal/DownloadJobRepository;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull">
+      </Field>
+    <LocalVariable name="jobs" register="1" pc="18" role="LOCAL_VARIABLE_NAMED">
+      </LocalVariable>
+  </BugInstance>
+  <BugInstance type="EI_EXPOSE_REP2" priority="2" rank="18" abbrev="EI2" category="MALICIOUS_CODE" instanceHash="2263dea621aa67b9c370cc483217e5ee" instanceOccurrenceNum="0" instanceOccurrenceMax="0" cweid="374">
+    <Class classname="dev.sporesync.downloads.internal.StableDownloadQueue" primary="true" classAnnotationNames="org.springframework.stereotype.Service,kotlin.Metadata">
+      </Class>
+    <Method classname="dev.sporesync.downloads.internal.StableDownloadQueue" name="&lt;init&gt;" signature="(Ldev/sporesync/downloads/internal/DownloadJobRepository;Ldev/sporesync/downloads/internal/DownloadStorage;)V" isStatic="false" primary="true">
+      </Method>
+    <Field classname="dev.sporesync.downloads.internal.StableDownloadQueue" name="storage" signature="Ldev/sporesync/downloads/internal/DownloadStorage;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull">
+      </Field>
+    <LocalVariable name="storage" register="2" pc="23" role="LOCAL_VARIABLE_NAMED">
+      </LocalVariable>
+  </BugInstance>
+  <BugInstance type="EI_EXPOSE_REP2" priority="2" rank="18" abbrev="EI2" category="MALICIOUS_CODE" instanceHash="4a885cd3e077f98d8514d8f11cc38041" instanceOccurrenceNum="0" instanceOccurrenceMax="0" cweid="374">
+    <Class classname="dev.sporesync.inventory.internal.RemoteInventory" primary="true" classAnnotationNames="org.springframework.stereotype.Service,kotlin.Metadata,kotlin.jvm.internal.SourceDebugExtension">
+      </Class>
+    <Method classname="dev.sporesync.inventory.internal.RemoteInventory" name="&lt;init&gt;" signature="(Ldev/sporesync/ssh/SshSettings;Ltools/jackson/databind/json/JsonMapper;)V" isStatic="false" primary="true">
+      </Method>
+    <Field classname="dev.sporesync.inventory.internal.RemoteInventory" name="mapper" signature="Ltools/jackson/databind/json/JsonMapper;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull">
+      </Field>
+    <LocalVariable name="mapper" register="2" pc="23" role="LOCAL_VARIABLE_NAMED">
+      </LocalVariable>
+  </BugInstance>
+  <BugInstance type="EI_EXPOSE_REP2" priority="2" rank="18" abbrev="EI2" category="MALICIOUS_CODE" instanceHash="efd8bfd6867ae2e8b6bf2610f03e7256" instanceOccurrenceNum="0" instanceOccurrenceMax="0" cweid="374">
+    <Class classname="dev.sporesync.inventory.internal.RemoteInventory" primary="true" classAnnotationNames="org.springframework.stereotype.Service,kotlin.Metadata,kotlin.jvm.internal.SourceDebugExtension">
+      </Class>
+    <Method classname="dev.sporesync.inventory.internal.RemoteInventory" name="&lt;init&gt;" signature="(Ldev/sporesync/ssh/SshSettings;Ltools/jackson/databind/json/JsonMapper;)V" isStatic="false" primary="true">
+      </Method>
+    <Field classname="dev.sporesync.inventory.internal.RemoteInventory" name="settings" signature="Ldev/sporesync/ssh/SshSettings;" isStatic="false" primary="true" classAnnotationNames="org.jetbrains.annotations.NotNull">
+      </Field>
+    <LocalVariable name="settings" register="1" pc="18" role="LOCAL_VARIABLE_NAMED">
+      </LocalVariable>
   </BugInstance>
 </BugCollection>

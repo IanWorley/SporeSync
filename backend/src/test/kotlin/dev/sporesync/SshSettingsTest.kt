@@ -1,7 +1,7 @@
 package dev.sporesync
 
-import dev.sporesync.config.SshAuthentication
-import dev.sporesync.config.SshSettings
+import dev.sporesync.ssh.SshAuthentication
+import dev.sporesync.ssh.SshSettings
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test

@@ -15,6 +15,7 @@ Elide Gradle plugin, Kotlin, Spring Boot, and SpotBugs.
 | SpotBugs | 4.10.4 |
 | Kotlin | 2.4.20 |
 | Spring Boot | 4.1.1 |
+| Spring Modulith | 2.1.1 |
 | Embedded Tomcat | 11.0.26 |
 | Jackson Kotlin module | 3.1.5 |
 | PostgreSQL JDBC | 42.7.13 |
@@ -56,7 +57,10 @@ locations, set `JDK17` and run:
 ./gradlew -Porg.gradle.java.installations.paths="$JDK17,$JAVA_HOME" build
 ```
 
-`./gradlew build` runs tests, `spotbugsMain`, and `elideCheckFormat`. Tests
+`./gradlew build` runs tests, `spotbugsMain`, and `elideCheckFormat`. `ModularityTest`
+checks the five closed Spring Modulith packages and rejects forbidden dependencies.
+Each module also has an isolated `@ApplicationModuleTest`. See
+[backend modules](backend-modules.md) for ownership and focused test commands. Tests
 require Docker for PostgreSQL and SSH Testcontainers.
 
 Run a focused check when needed:
@@ -69,7 +73,7 @@ Run a focused check when needed:
 
 SpotBugs analyzes production classes only. `spotbugsTest` is disabled. SpotBugs
 compares medium and high findings with `config/spotbugs-baseline.xml`, which
-records 32 reviewed findings. Review each baseline update before committing it.
+records 31 reviewed findings. Review each baseline update before committing it.
 SpotBugs writes `build/reports/spotbugs/main.xml` and
 `build/reports/spotbugs/main.html`. Gradle writes test reports to
 `build/reports/tests/test`.

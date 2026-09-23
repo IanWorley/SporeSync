@@ -26,6 +26,8 @@ HASH_BUFFER_BYTES = 1024 * 1024
 SSH_PORT = 22
 POSTGRES_PORT = 5432
 POSTGRES_IMAGE = "postgres:17.6-alpine"
+SCAN_INTERVAL_SECONDS = 10
+SSH_TIMEOUT_MILLIS = 30000
 
 
 def command(*args):
@@ -112,10 +114,9 @@ def verify(root):
             with urllib.request.urlopen(base + asset.group(1)) as response:
                 assert response.read(), "Frontend JavaScript was empty"
             settings = dict(host="127.0.0.1", port=ssh_port, username="scanner", source="/seed",
-                            destination=str(downloads), scanSeconds=10, automatic=True, temporaryFiles=True, timeoutMillis=30000)
+                            destination=str(downloads), scanSeconds=SCAN_INTERVAL_SECONDS, automatic=True,
+                            temporaryFiles=True, timeoutMillis=SSH_TIMEOUT_MILLIS)
             assert api("/api/settings", "PUT", settings) == settings
-            api("/api/inventory/scan", "POST")
-            api("/api/inventory/scan", "POST")
             wait_for(lambda: any(job["state"] == "COMPLETE" for job in api("/api/downloads")))
             assert (downloads / "nested/日本語 file.txt").read_text() == "sample\n"
             print("PASS: production assets, settings, automatic discovery and SFTP content", flush=True)

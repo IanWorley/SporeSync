@@ -1,19 +1,19 @@
 package dev.sporesync
 
-import dev.sporesync.config.SshConnectionSettings
-import dev.sporesync.model.download.DownloadJob
-import dev.sporesync.model.download.DownloadJobRepository
-import dev.sporesync.model.download.DownloadRequest
-import dev.sporesync.model.download.DownloadRequests
-import dev.sporesync.model.download.DownloadSpec
-import dev.sporesync.model.download.JobAction
-import dev.sporesync.model.download.JobState
-import dev.sporesync.model.inventory.EntryType
-import dev.sporesync.model.inventory.Inventory
-import dev.sporesync.model.inventory.InventoryEntry
-import dev.sporesync.model.inventory.InventoryScanner
-import dev.sporesync.model.settings.DownloadSettings
-import dev.sporesync.model.settings.DownloadSettingsStore
+import dev.sporesync.downloads.DownloadSpec
+import dev.sporesync.downloads.internal.DownloadJob
+import dev.sporesync.downloads.internal.DownloadJobRepository
+import dev.sporesync.downloads.internal.DownloadRequest
+import dev.sporesync.downloads.internal.DownloadRequests
+import dev.sporesync.downloads.internal.JobAction
+import dev.sporesync.downloads.internal.JobState
+import dev.sporesync.inventory.EntryType
+import dev.sporesync.inventory.Inventory
+import dev.sporesync.inventory.InventoryEntry
+import dev.sporesync.inventory.InventoryScanner
+import dev.sporesync.settings.DownloadSettings
+import dev.sporesync.settings.DownloadSettingsStore
+import dev.sporesync.settings.SshConnectionSettings
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
@@ -46,8 +46,8 @@ class DownloadRequestsTest {
   private fun requests(entry: InventoryEntry): DownloadRequests {
     val scanner =
         object : InventoryScanner {
-          override fun scan(connectionOverride: SshConnectionSettings?): Inventory {
-            assertEquals(connection, connectionOverride)
+          override fun scan(connection: SshConnectionSettings): Inventory {
+            assertEquals(this@DownloadRequestsTest.connection, connection)
             return Inventory(SCHEMA_VERSION, listOf(entry))
           }
         }

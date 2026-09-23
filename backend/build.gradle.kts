@@ -15,6 +15,7 @@ group = "dev.sporesync"
 version = "0.1.0"
 
 val springBootVersion = "4.1.1"
+val springModulithVersion = "2.1.1"
 val kotlinVersion = "2.4.20"
 val sshjVersion = "0.40.0"
 val jnaVersion = "5.18.1"
@@ -49,11 +50,13 @@ dependencies {
     }
   }
   implementation(platform("org.springframework.boot:spring-boot-dependencies:$springBootVersion"))
+  implementation(platform("org.springframework.modulith:spring-modulith-bom:$springModulithVersion"))
   implementation(platform("org.jetbrains.kotlin:kotlin-bom:$kotlinVersion"))
   implementation("org.springframework.boot:spring-boot-starter-webmvc")
   implementation("org.springframework.boot:spring-boot-starter-validation")
   implementation("org.springframework.boot:spring-boot-starter-data-jpa")
   implementation("org.springframework.boot:spring-boot-starter-liquibase")
+  implementation("org.springframework.modulith:spring-modulith-starter-core")
   implementation("org.jetbrains.kotlin:kotlin-reflect")
   implementation("tools.jackson.module:jackson-module-kotlin")
   implementation("net.java.dev.jna:jna:$jnaVersion")
@@ -61,6 +64,7 @@ dependencies {
   runtimeOnly("org.postgresql:postgresql")
   developmentOnly("org.springframework.boot:spring-boot-devtools:$springBootVersion")
   testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")
+  testImplementation("org.springframework.modulith:spring-modulith-starter-test")
   testImplementation("org.springframework.boot:spring-boot-testcontainers")
   testImplementation("org.testcontainers:testcontainers-junit-jupiter")
   testImplementation("org.testcontainers:testcontainers-postgresql")

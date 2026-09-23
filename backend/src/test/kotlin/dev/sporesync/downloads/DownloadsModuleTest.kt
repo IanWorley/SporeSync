@@ -1,7 +1,9 @@
 package dev.sporesync.downloads
 
 import dev.sporesync.ModuleTestDatabase
+import dev.sporesync.downloads.internal.DownloadFailure
 import dev.sporesync.downloads.internal.DownloadJobRepository
+import dev.sporesync.downloads.internal.DownloadStorage
 import dev.sporesync.downloads.internal.JobAction
 import dev.sporesync.downloads.internal.JobState
 import dev.sporesync.inventory.EntryType
@@ -13,21 +15,25 @@ import dev.sporesync.ssh.SshSettings
 import java.nio.file.Files
 import java.nio.file.Path
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
+import org.mockito.Mockito.doThrow
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.context.annotation.Import
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.modulith.test.ApplicationModuleTest
 import org.springframework.test.context.TestPropertySource
 import org.springframework.test.context.bean.override.mockito.MockitoBean
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean
 import tools.jackson.databind.json.JsonMapper
 
 @ApplicationModuleTest
 @Import(ModuleTestDatabase::class)
 @TestPropertySource(properties = ["sporesync.background.enabled=false"])
 class DownloadsModuleTest {
+  @MockitoSpyBean private lateinit var storage: DownloadStorage
   @Autowired private lateinit var queue: DownloadQueue
   @Autowired private lateinit var jobs: DownloadJobRepository
   @Autowired private lateinit var jdbc: JdbcTemplate
@@ -91,6 +97,21 @@ class DownloadsModuleTest {
 
     queue.acceptStable(spec)
 
+    assertEquals(JobState.COMPLETE, jobs.find(spec.identity())?.state)
+  }
+
+  @Test
+  fun `storage inspection failure reaches the queue caller`(@TempDir destination: Path) {
+    val spec = specification(destination)
+    queue.acceptStable(spec)
+    jobs.finish(spec.identity(), JobState.COMPLETE)
+    doThrow(DownloadFailure("LOCAL_IO_FAILED"))
+        .`when`(storage)
+        .missing(spec.settings.destination, spec.entry.path)
+
+    val error = assertThrows(DownloadFailure::class.java) { queue.acceptStable(spec) }
+
+    assertEquals("LOCAL_IO_FAILED", error.message)
     assertEquals(JobState.COMPLETE, jobs.find(spec.identity())?.state)
   }
 

@@ -15,7 +15,8 @@ class StableDownloadQueue(
     val missing =
         try {
           storage.missing(spec.settings.destination, spec.entry.path)
-        } catch (_: Exception) {
+        } catch (error: DownloadFailure) {
+          if (error.code != "UNSAFE_DESTINATION") throw error
           false
         }
     if (missing) jobs.requeueMissing(job.id)

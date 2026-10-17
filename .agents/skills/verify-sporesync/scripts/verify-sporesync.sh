@@ -46,7 +46,8 @@ BIND_ADDRESS="${SPORESYNC_VERIFY_BIND:-$DEFAULT_BIND_ADDRESS}"
 die() { echo "FAIL: $*" >&2; exit 1; }
 ok() { echo "OK:   $*"; }
 
-start_time() { ps -o lstart= -p "$1" 2>/dev/null | tr -s ' ' '_' | sed 's/^_//; s/_$//'; }
+# Lookups print nothing, rather than fail, when the process or listener is gone.
+start_time() { { ps -o lstart= -p "$1" 2>/dev/null || true; } | tr -s ' ' '_' | sed 's/^_//; s/_$//'; }
 
 # A process handle is "PID@start-time".
 handle() { echo "$1@$(start_time "$1")"; }
@@ -63,7 +64,7 @@ owned() {
   [ "$(lsof -a -p "${1%%@*}" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p')" = "$BACKEND_DIR" ]
 }
 
-listener_pid() { lsof -nP -t -iTCP:"$1" -sTCP:LISTEN 2>/dev/null | head -n 1; }
+listener_pid() { { lsof -nP -t -iTCP:"$1" -sTCP:LISTEN 2>/dev/null || true; } | head -n 1; }
 
 descendants() {
   local child

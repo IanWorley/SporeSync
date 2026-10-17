@@ -1,5 +1,6 @@
 package com.sporesync.filestate
 
+import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption.ATOMIC_MOVE
 import java.nio.file.StandardCopyOption.REPLACE_EXISTING
@@ -47,7 +48,7 @@ class FileStateStore(
         val pending = createTempFile(stateDirectory, PENDING_MARKER_PREFIX)
         try {
             pending.writeText(path)
-            pending.moveTo(markerFile(marker, path), ATOMIC_MOVE, REPLACE_EXISTING)
+            publish(pending, markerFile(marker, path))
         } finally {
             pending.deleteIfExists()
         }
@@ -74,6 +75,21 @@ class FileStateStore(
                 val markedPath = markerFile.readText()
                 markedPath == path || markedPath.startsWith(descendantPrefix)
             }.forEach { it.deleteIfExists() }
+    }
+
+    /**
+     * Moves a fully written [pending] marker to [target]. Some network and FUSE mounts cannot move atomically; there a
+     * plain replace still never exposes a partially written file, which is better than failing to record state.
+     */
+    private fun publish(
+        pending: Path,
+        target: Path,
+    ) {
+        try {
+            pending.moveTo(target, ATOMIC_MOVE, REPLACE_EXISTING)
+        } catch (_: AtomicMoveNotSupportedException) {
+            pending.moveTo(target, REPLACE_EXISTING)
+        }
     }
 
     private fun markerDirectory(marker: FileMarker): Path = stateDirectory.resolve(marker.directoryName)

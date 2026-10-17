@@ -31,7 +31,7 @@ Mount both volumes to folders on the host so your data survives container upgrad
 
 ### Example
 
-The image name and web port are **not yet established**. Replace the placeholders once they are published.
+The image name and the port the image publishes are **not yet established**. Replace the placeholders once they are published. When you run the backend from source, it listens on port `8080` (see the [README](../README.md)).
 
 ```sh
 docker run -d \
@@ -127,6 +127,8 @@ The exact variable names are **not yet established**. They will be generated fro
 
 So a property written as `<prefix>.<group>.<setting-name>` becomes `<PREFIX>_<GROUP>_<SETTINGNAME>`. Do not guess names until the implementation publishes the property list.
 
+One variable works today. `LOGGING_LEVEL_COM_SPORESYNC=DEBUG` turns on debug logs for SporeSync's own code. It sets the Spring property `logging.level.com.sporesync` and follows the same rules.
+
 In Compose, pass overrides under `environment:`:
 
 ```yaml
@@ -144,7 +146,7 @@ SporeSync needs very little on the seedbox:
 - **Python 3**, runnable as `python3`. No extra Python packages are needed.
 - **Write access** to the remote scanner path, so SporeSync can upload its scanner script.
 
-SporeSync uploads a small Python 3 scanner script to the seedbox, runs it over SSH to list files, and re-uploads it whenever its own copy changes. If the seedbox is unreachable, the web UI shows a connection status banner.
+SporeSync uploads a small Python 3 scanner script to the seedbox and runs it over SSH to list files. Before each scan, it uploads the script again if the remote copy is missing or differs from the copy bundled with SporeSync. If the seedbox is unreachable, the web UI shows a connection status banner.
 
 To check Python on the seedbox:
 

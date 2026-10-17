@@ -1,0 +1,4 @@
+interface:
+  display_name: "Verify SporeSync"
+  short_description: "Launch, check, and drive a real SporeSync"
+  default_prompt: "Use $verify-sporesync to launch SporeSync and prove the health endpoint is UP."

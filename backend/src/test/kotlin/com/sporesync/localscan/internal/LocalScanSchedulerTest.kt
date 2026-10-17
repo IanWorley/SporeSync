@@ -17,6 +17,7 @@ import java.util.concurrent.TimeUnit
 
 private const val SETTINGS_FILE_NAME = "settings.yaml"
 private const val DOWNLOADS_DIR_NAME = "downloads"
+private const val OTHER_DOWNLOADS_DIR_NAME = "other-downloads"
 private const val EVENT_TIMEOUT_SECONDS = 5L
 
 private val NEVER_AGAIN = Duration.ofHours(1)
@@ -63,6 +64,22 @@ class LocalScanSchedulerTest {
 
         nextScan()
         nextScan()
+    }
+
+    @Test
+    fun `a changed local directory is scanned right away`() {
+        val downloads = Files.createDirectories(directory.resolve(DOWNLOADS_DIR_NAME))
+        val other = Files.createDirectories(directory.resolve(OTHER_DOWNLOADS_DIR_NAME))
+        val store = storeScanning(downloads, NEVER_AGAIN)
+        scheduler = LocalScanScheduler(store, publisher)
+        scheduler.start()
+        nextScan()
+
+        val previous = store.current
+        val current = store.update { it.copy(paths = it.paths.copy(localDir = other)) }
+        scheduler.on(ConfigChanged(previous, current))
+
+        assertEquals(other, nextScan().root)
     }
 
     @Test

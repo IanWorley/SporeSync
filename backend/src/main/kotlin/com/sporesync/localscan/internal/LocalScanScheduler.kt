@@ -47,8 +47,10 @@ internal class LocalScanScheduler(
     @EventListener
     @Synchronized
     fun on(event: ConfigChanged) {
-        val interval = event.current.scan.localInterval
-        if (scheduled != null && interval != event.previous.scan.localInterval) schedule(interval)
+        val changed =
+            event.current.scan.localInterval != event.previous.scan.localInterval ||
+                event.current.paths.localDir != event.previous.paths.localDir
+        if (scheduled != null && changed) schedule(event.current.scan.localInterval)
     }
 
     @PreDestroy

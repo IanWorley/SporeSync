@@ -129,12 +129,20 @@ require_private() {
 }
 
 physical_path() {
-  local path="$1" rest=""
-  while [ ! -d "$path" ]; do
-    rest="/$(basename "$path")$rest"
-    path="$(dirname "$path")"
+  local resolved part parts
+  case "$1" in /*) resolved="/" ;; *) resolved="$(pwd -P)" ;; esac
+  IFS=/ read -r -a parts <<<"$1"
+  for part in ${parts[@]+"${parts[@]}"}; do
+    case "$part" in
+      "" | .) ;;
+      ..) resolved="$(dirname "$resolved")" ;;
+      *)
+        resolved="${resolved%/}/$part"
+        if [ -d "$resolved" ]; then resolved="$(cd "$resolved" && pwd -P)"; fi
+        ;;
+    esac
   done
-  echo "$(cd "$path" && pwd -P)$rest"
+  echo "$resolved"
 }
 
 prepare_root() {
@@ -225,7 +233,7 @@ cmd_start() {
   STARTING_PIDS=("$launcher")
 
   deadline=$((SECONDS + READY_TIMEOUT_SECONDS))
-  until curl -fsS --max-time "$CURL_TIMEOUT_SECONDS" "$(health_url "$PORT")" 2>/dev/null | grep -q "$STATUS_UP"; do
+  until curl --noproxy "*" -fsS --max-time "$CURL_TIMEOUT_SECONDS" "$(health_url "$PORT")" 2>/dev/null | grep -q "$STATUS_UP"; do
     track_launch "$launcher"
     kill -0 "$launcher" 2>/dev/null || die "launcher exited before ready; see $run_dir/$LOG_FILE"
     [ "$SECONDS" -lt "$deadline" ] || die "not ready within ${READY_TIMEOUT_SECONDS}s; see $run_dir/$LOG_FILE"
@@ -276,7 +284,7 @@ cmd_doctor() {
     echo "FAIL: working tree changed since launch (HEAD $STARTED_HEAD -> $(git -C "$REPO_ROOT" rev-parse HEAD)); stop and relaunch"
     failed=1
   fi
-  body="$(curl -sS --max-time "$CURL_TIMEOUT_SECONDS" -w '\n%{http_code}' "$(health_url "$PORT")" 2>&1 || true)"
+  body="$(curl --noproxy "*" -sS --max-time "$CURL_TIMEOUT_SECONDS" -w '\n%{http_code}' "$(health_url "$PORT")" 2>&1 || true)"
   code="$(echo "$body" | tail -n 1)"
   body="$(echo "$body" | sed '$d')"
   if [ "$code" = "$HTTP_OK" ] && echo "$body" | grep -q "$STATUS_UP"; then

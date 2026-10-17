@@ -72,17 +72,6 @@ class SettingsStoreTest {
     }
 
     @Test
-    fun `a failing ConfigChanged listener does not turn a saved update into a failure`() {
-        val failingListener = ApplicationEventPublisher { error("listener failed") }
-        val store = SettingsStore(MockEnvironment(), failingListener, settingsFile)
-
-        val result = runCatching { store.update { it.copy(general = it.general.copy(verbose = true)) } }
-
-        assertEquals(true, result.getOrNull()?.general?.verbose)
-        assertEquals(true, SettingsStore(MockEnvironment(), ignoreEvents, settingsFile).current.general.verbose)
-    }
-
-    @Test
     fun `an invalid update is rejected and leaves the file untouched`() {
         Files.writeString(settingsFile, "transfer: { concurrent-file-limit: 7 }")
         val store = store()

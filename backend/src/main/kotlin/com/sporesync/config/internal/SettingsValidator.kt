@@ -80,7 +80,8 @@ internal object SettingsValidator {
             }
             when (connection.authMethod) {
                 AuthMethod.KEY -> {
-                    if (connection.keyPath == null) {
+                    // `key-path: ""` binds to an empty Path (the working directory), which is no key at all.
+                    if (connection.keyPath?.toString().isNullOrEmpty()) {
                         add(SettingsViolation(field(SettingsKeys.CONNECTION, SettingsKeys.KEY_PATH), REQUIRED_MESSAGE))
                     }
                 }

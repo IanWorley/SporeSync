@@ -1,0 +1,19 @@
+spring:
+  application:
+    name: sporesync
+
+logging:
+  structured:
+    # One JSON object per line on stdout (Elastic Common Schema).
+    format:
+      console: ecs
+  level:
+    # Debug toggle. The config module (#7) maps the General > debug setting onto this level;
+    # until then it can be overridden with LOGGING_LEVEL_COM_SPORESYNC=DEBUG.
+    com.sporesync: INFO
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health

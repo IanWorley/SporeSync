@@ -1,0 +1,58 @@
+amends "elide:project.pkl"
+import "elide:Kotlin.pkl" as Kotlin
+import "../tools/LintTools.pkl"
+
+name = "sporesync-backend"
+description = "SporeSync backend: Kotlin, Spring Boot, Spring Modulith."
+
+local springBootVersion = "4.1.1"
+local springModulithVersion = "2.1.1"
+local kotlinVersion = "2.4.21"
+
+// Paths in LintTools are relative to the workspace root, one level up.
+local workspaceRoot = ".."
+local kotlinSources = "'src/**/*.kt'"
+
+// Elide has no custom build tasks, so ktlint and detekt run as scripts on Elide's JVM.
+// Each exits non-zero on a violation, so CI (#6) can run them as separate checks.
+scripts {
+  ["format-check"] = "elide java -- -jar \(workspaceRoot)/\(LintTools.ktlintJar) \(kotlinSources)"
+  ["format"] = "elide java -- -jar \(workspaceRoot)/\(LintTools.ktlintJar) --format \(kotlinSources)"
+  ["lint"] = "elide java -- -jar \(workspaceRoot)/\(LintTools.detektJar) --input src"
+}
+
+jvm {
+  main = "com.sporesync.SporeSyncApplicationKt"
+}
+
+kotlin {
+  features {
+    // Spring provides DI and serialization; skip Elide's Metro and KotlinX defaults.
+    kotlinx = false
+    metro = false
+  }
+  // A managed toolchain is required for the all-open (Spring) compiler plugin; the embedded
+  // compiler does not apply third-party plugins.
+  toolchain = new Kotlin.ManagedKotlinToolchain { version = kotlinVersion }
+  plugins {
+    ["org.jetbrains.kotlin.allopen"] {
+      ["preset"] = "spring"
+    }
+  }
+}
+
+dependencies {
+  spring {
+    version = springBootVersion
+    starter { "web"; "actuator" }
+    testStarter { "test" }
+  }
+  maven {
+    packages {
+      "org.springframework.modulith:spring-modulith-starter-core:\(springModulithVersion)"
+    }
+    kotlinPlugins {
+      "org.jetbrains.kotlin:kotlin-allopen-compiler-plugin:\(kotlinVersion)"
+    }
+  }
+}

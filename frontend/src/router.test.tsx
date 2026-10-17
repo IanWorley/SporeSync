@@ -1,6 +1,6 @@
 import { createMemoryHistory, RouterProvider } from "@tanstack/react-router";
 import { render, screen } from "@testing-library/react";
-import { expect, test } from "vitest";
+import { expect, test } from "vite-plus/test";
 import { createAppRouter } from "./router";
 
 test("renders the home page at /", async () => {

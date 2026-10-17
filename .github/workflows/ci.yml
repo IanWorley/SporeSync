@@ -40,8 +40,8 @@ jobs:
       - run: ${{ matrix.run }}
         working-directory: ${{ matrix.directory }}
 
-  # Elide 1.6.0 installs the npm packages but cannot run Vite, Vitest, ESLint, or Prettier,
-  # so `elide run` hands these scripts to the pinned Node until it can.
+  # Elide 1.6.0 cannot run Vite, Vitest, or the lint and format tools, so the frontend uses
+  # Vite+ (vp) on Node, with bun as the package manager, until it can.
   frontend:
     name: ${{ matrix.name }}
     runs-on: ubuntu-latest
@@ -50,24 +50,18 @@ jobs:
       matrix:
         include:
           - name: frontend-test
-            script: test
+            run: vp test run
           - name: frontend-format
-            script: format-check
+            run: vp fmt --check
           - name: frontend-lint
-            script: lint
+            run: vp lint
+    defaults:
+      run:
+        working-directory: frontend
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - id: elide-version
-        run: printf 'version=%s\n' "$(cat .elideversion)" >> "$GITHUB_OUTPUT"
-      - uses: elide-dev/setup-elide@10fbf30cebffd3538c428369950dc2094137f02b # v4.2.0
+      - uses: voidzero-dev/setup-vp@68f39c78aaf39be468cabd2afb09c162574c84af # v1.21.2
         with:
-          version: ${{ steps.elide-version.outputs.version }}
-          channel: release
-          telemetry: 'false'
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version-file: frontend/.nvmrc
-      - run: elide install --ecosystems=npm
-        working-directory: frontend
-      - run: elide run ${{ matrix.script }}
-        working-directory: frontend
+          working-directory: frontend
+          cache: true
+      - run: ${{ matrix.run }}

@@ -5,7 +5,7 @@ import { createRoot } from "react-dom/client";
 import { createAppRouter } from "./router";
 import "./index.css";
 
-const rootElement = document.getElementById("root");
+const rootElement = document.querySelector("#root");
 if (rootElement === null) {
   throw new Error("index.html is missing the #root element");
 }

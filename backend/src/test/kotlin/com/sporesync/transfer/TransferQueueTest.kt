@@ -12,6 +12,7 @@ import org.junit.jupiter.api.io.TempDir
 import org.springframework.context.ApplicationEventPublisher
 import org.springframework.mock.env.MockEnvironment
 import java.io.IOException
+import java.nio.channels.ClosedByInterruptException
 import java.nio.file.Path
 import java.time.Duration
 import java.util.concurrent.CountDownLatch
@@ -21,6 +22,7 @@ import java.util.concurrent.TimeUnit
 private const val SETTINGS_FILE_NAME = "settings.yaml"
 private const val CONCURRENT_LIMIT = 2
 private const val FAILURE_MESSAGE = "remote file vanished"
+private const val LISTENER_FAILURE = "listener broke"
 private val TIMEOUT: Duration = Duration.ofSeconds(5)
 
 // Long enough that a transfer which should stay queued would have started.
@@ -111,6 +113,45 @@ class TransferQueueTest {
     }
 
     @Test
+    fun `a stop whose listener throws still interrupts the download`() {
+        val throwingOnStop =
+            ApplicationEventPublisher { event ->
+                events.publishEvent(event)
+                if (event is TransferStopped) throw IllegalStateException(LISTENER_FAILURE)
+            }
+        val queue = queue(blockingDownloader, CONCURRENT_LIMIT, throwingOnStop)
+        queue.enqueue("a")
+        nextStart()
+
+        assertThrows<IllegalStateException> { queue.stop("a") }
+
+        assertTrue(interrupted.await(TIMEOUT.toMillis(), TimeUnit.MILLISECONDS))
+    }
+
+    @Test
+    fun `closing the queue interrupts downloads without reporting them as failed`() {
+        // An interrupted file write surfaces as ClosedByInterruptException, not InterruptedException.
+        val queue =
+            queue({ path, progress ->
+                if (path == "failing") throw IOException(FAILURE_MESSAGE)
+                try {
+                    blockingDownloader.download(path, progress)
+                } catch (e: InterruptedException) {
+                    throw ClosedByInterruptException().apply { initCause(e) }
+                }
+            }, CONCURRENT_LIMIT)
+        queue.enqueue("failing")
+        events.await<TransferFailed>(TIMEOUT)
+        queue.enqueue("a")
+        nextStart()
+
+        queue.close()
+
+        assertTrue(interrupted.await(TIMEOUT.toMillis(), TimeUnit.MILLISECONDS))
+        assertEquals(listOf<Any>(TransferFailed("failing", FAILURE_MESSAGE)), events.all())
+    }
+
+    @Test
     fun `a failing download publishes TransferFailed`() {
         val queue = queue({ _, _ -> throw IOException(FAILURE_MESSAGE) }, CONCURRENT_LIMIT)
 
@@ -136,10 +177,11 @@ class TransferQueueTest {
     private fun queue(
         downloader: Downloader,
         concurrentLimit: Int,
+        publisher: ApplicationEventPublisher = events,
     ): TransferQueue {
         val settings =
             SettingsStore(MockEnvironment(), ApplicationEventPublisher { }, directory.resolve(SETTINGS_FILE_NAME))
         settings.update { it.copy(transfer = it.transfer.copy(concurrentFileLimit = concurrentLimit)) }
-        return TransferQueue(settings, events, downloader).also { queue = it }
+        return TransferQueue(settings, publisher, downloader).also { queue = it }
     }
 }

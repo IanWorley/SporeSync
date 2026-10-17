@@ -7,6 +7,7 @@ import com.sporesync.transfer.internal.SftpDownloader
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
@@ -32,6 +33,9 @@ private const val SSH_PASSWORD = "sporesync-test"
 private const val READY_LOG = ".*\\[ls.io-init\\] done.*"
 private const val REMOTE_DIR = "/data"
 private val FILE_MODE = "644".toInt(radix = 8)
+private const val HOST_PUBLIC_KEY = "/config/ssh_host_keys/ssh_host_ed25519_key.pub"
+private const val IMPOSTOR_KEY = "/tmp/impostor"
+private const val KNOWN_HOSTS_FILE_NAME = "known_hosts"
 
 private const val SETTINGS_FILE_NAME = "settings.yaml"
 private const val SHA_256 = "SHA-256"
@@ -40,6 +44,11 @@ private val TIMEOUT: Duration = Duration.ofSeconds(60)
 
 private const val TREE = "show"
 private const val MOVIE = "movie.bin"
+private const val SHRINKING = "shrinking.bin"
+private const val EMPTY = "empty.bin"
+private const val SYMLINK = "hostname-link"
+private const val SYMLINK_TARGET = "/etc/hostname"
+private const val STALE_CONTENT = "stale"
 private val REMOTE_FILES: Map<String, Int> =
     mapOf(
         "$TREE/season-1/episode-1.bin" to DataSize.ofMegabytes(2).toBytes().toInt(),
@@ -56,7 +65,6 @@ private val STOP_AFTER_BYTES = DataSize.ofKilobytes(1536).toBytes()
 // One progress interval may move a chunk ahead of the cap, so allow some slack over the configured rate.
 private const val BANDWIDTH_TOLERANCE = 1.25
 
-/** Downloads from a real SSH server: a directory tree, then a stopped and resumed file. */
 class SftpTransferIntegrationTest {
     @TempDir
     private lateinit var directory: Path
@@ -109,6 +117,87 @@ class SftpTransferIntegrationTest {
         assertDownloaded(MOVIE)
     }
 
+    @Test
+    fun `refuses a server whose host key is not in known_hosts`() {
+        val knownHosts = directory.resolve(KNOWN_HOSTS_FILE_NAME)
+
+        val failure = downloadExpectingFailure(MOVIE, knownHosts)
+
+        assertTrue(failure.reason.contains(knownHosts.toString())) { failure.reason }
+        assertFalse(Files.exists(downloads.resolve(MOVIE)))
+    }
+
+    @Test
+    fun `refuses a server whose host key differs from the one in known_hosts`() {
+        exec("sh", "-c", "rm -f $IMPOSTOR_KEY* && ssh-keygen -q -t ed25519 -N '' -f $IMPOSTOR_KEY")
+        val knownHosts = knownHosts(exec("cat", "$IMPOSTOR_KEY.pub"))
+
+        val failure = downloadExpectingFailure(MOVIE, knownHosts)
+
+        assertTrue(failure.reason.contains(knownHosts.toString())) { failure.reason }
+        assertFalse(Files.exists(downloads.resolve(MOVIE)))
+    }
+
+    @Test
+    fun `an empty remote file replaces a stale local copy`() {
+        exec("touch", "$REMOTE_DIR/$EMPTY")
+        Files.createDirectories(downloads)
+        Files.writeString(downloads.resolve(EMPTY), STALE_CONTENT)
+        val events = RecordingEvents()
+
+        transferQueue(settings(bandwidthLimit = null), events) { queue ->
+            queue.enqueue(EMPTY)
+            events.await<TransferCompleted>(TIMEOUT)
+        }
+
+        assertEquals(0L, Files.size(downloads.resolve(EMPTY)))
+    }
+
+    @Test
+    fun `a remote file that shrinks mid-download fails instead of completing`() {
+        exec("cp", "$REMOTE_DIR/$MOVIE", "$REMOTE_DIR/$SHRINKING")
+        val events = RecordingEvents()
+
+        transferQueue(settings(BANDWIDTH_LIMIT), events) { queue ->
+            queue.enqueue(SHRINKING)
+            events.await<TransferProgress>(TIMEOUT) { it.bytesTransferred >= STOP_AFTER_BYTES }
+            exec("truncate", "-s", "0", "$REMOTE_DIR/$SHRINKING")
+            events.awaitAny(TIMEOUT, "terminal event") { it is TransferCompleted || it is TransferFailed }
+        }
+
+        assertEquals(emptyList<TransferCompleted>(), events.ofType<TransferCompleted>())
+        assertEquals(listOf(SHRINKING), events.ofType<TransferFailed>().map { it.path })
+    }
+
+    @Test
+    fun `a queued path that is a remote symlink is refused`() {
+        exec("ln", "-sf", SYMLINK_TARGET, "$REMOTE_DIR/$SYMLINK")
+
+        val failure = downloadExpectingFailure(SYMLINK, trustedKnownHosts())
+
+        assertEquals(SYMLINK, failure.path)
+        assertFalse(Files.exists(downloads.resolve(SYMLINK)))
+    }
+
+    private fun downloadExpectingFailure(
+        path: String,
+        knownHosts: Path,
+    ): TransferFailed {
+        val events = RecordingEvents()
+        transferQueue(settings(bandwidthLimit = null), events, knownHosts) { queue ->
+            queue.enqueue(path)
+            events.awaitAny(TIMEOUT, "terminal event") { it is TransferCompleted || it is TransferFailed }
+        }
+        return events.ofType<TransferFailed>().single()
+    }
+
+    private fun knownHosts(publicKey: String): Path {
+        val line = "[${server.host}]:${server.getMappedPort(SSH_PORT)} $publicKey"
+        return Files.writeString(directory.resolve(KNOWN_HOSTS_FILE_NAME), line)
+    }
+
+    private fun trustedKnownHosts(): Path = knownHosts(exec("cat", HOST_PUBLIC_KEY))
+
     private fun assertDownloaded(path: String) {
         assertArrayEquals(sha256(contents.getValue(path)), sha256(Files.readAllBytes(downloads.resolve(path)))) {
             "checksum of $path"
@@ -139,9 +228,10 @@ class SftpTransferIntegrationTest {
     private fun transferQueue(
         settings: SettingsStore,
         events: ApplicationEventPublisher,
+        knownHosts: Path = trustedKnownHosts(),
         block: (TransferQueue) -> Unit,
     ) {
-        SftpDownloader(settings).use { downloader ->
+        SftpDownloader(settings, knownHosts).use { downloader ->
             TransferQueue(settings, events, downloader).use(block)
         }
     }
@@ -174,5 +264,11 @@ class SftpTransferIntegrationTest {
         fun stopServer() = server.stop()
 
         private fun sha256(bytes: ByteArray): ByteArray = MessageDigest.getInstance(SHA_256).digest(bytes)
+
+        private fun exec(vararg command: String): String {
+            val result = server.execInContainer(*command)
+            check(result.exitCode == 0) { "${command.joinToString(" ")} failed: ${result.stderr}" }
+            return result.stdout.trim()
+        }
     }
 }

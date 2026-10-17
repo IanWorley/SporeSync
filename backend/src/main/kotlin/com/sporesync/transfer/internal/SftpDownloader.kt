@@ -3,6 +3,7 @@ package com.sporesync.transfer.internal
 import com.sporesync.config.SettingsStore
 import net.schmizz.sshj.sftp.FileMode
 import net.schmizz.sshj.sftp.SFTPClient
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
 import java.io.IOException
 import java.io.InputStream
@@ -20,13 +21,20 @@ private const val READ_AHEAD_REQUESTS = 16
 
 private const val REMOTE_SEPARATOR = "/"
 
-/** A remote regular file, where it lands locally, and how much of it is already there. */
+private const val KNOWN_HOSTS_FILE_PROPERTY = "sporesync.known-hosts-file"
+
+private const val DEFAULT_KNOWN_HOSTS_FILE = "/config/known_hosts"
+
 private data class PlannedFile(
     val remotePath: String,
     val localPath: Path,
     val size: Long,
-    val resumeOffset: Long,
-)
+    val localSize: Long?,
+) {
+    val isComplete: Boolean get() = localSize == size
+
+    val resumeOffset: Long get() = localSize?.takeIf { it <= size } ?: 0L
+}
 
 /**
  * Downloads a file or directory tree over SFTP on a pooled SSH connection. Files are written in place and resumed
@@ -36,9 +44,10 @@ private data class PlannedFile(
 @Component
 internal class SftpDownloader(
     private val settings: SettingsStore,
+    @Value("\${$KNOWN_HOSTS_FILE_PROPERTY:$DEFAULT_KNOWN_HOSTS_FILE}") knownHostsFile: Path,
 ) : Downloader,
     AutoCloseable {
-    private val pool = SshConnectionPool()
+    private val pool = SshConnectionPool { SshConnection.open(it, knownHostsFile) }
     private val limiter =
         BandwidthLimiter({
             settings.current.transfer.bandwidthLimit
@@ -77,12 +86,14 @@ internal class SftpDownloader(
         localTarget: Path,
         localRoot: Path,
     ): List<PlannedFile> {
-        val rootAttributes = sftp.stat(remoteRoot)
+        val rootAttributes = sftp.lstat(remoteRoot)
         if (rootAttributes.type == FileMode.Type.REGULAR) {
             Files.createDirectories(localTarget.parent)
             return listOf(planFile(remoteRoot, localTarget, rootAttributes.size))
         }
-        if (rootAttributes.type != FileMode.Type.DIRECTORY) throw IOException("$remoteRoot is not a file or directory")
+        if (rootAttributes.type != FileMode.Type.DIRECTORY) {
+            throw IOException("$remoteRoot is not a regular file or directory")
+        }
 
         val files = mutableListOf<PlannedFile>()
         val pending = ArrayDeque(listOf(remoteRoot to localTarget))
@@ -111,8 +122,8 @@ internal class SftpDownloader(
         localPath: Path,
         size: Long,
     ): PlannedFile {
-        val localSize = if (Files.isRegularFile(localPath)) Files.size(localPath) else 0L
-        return PlannedFile(remotePath, localPath, size, resumeOffset = if (localSize <= size) localSize else 0L)
+        val localSize = if (Files.isRegularFile(localPath)) Files.size(localPath) else null
+        return PlannedFile(remotePath, localPath, size, localSize)
     }
 
     private fun download(
@@ -120,7 +131,7 @@ internal class SftpDownloader(
         file: PlannedFile,
         progress: ProgressTracker,
     ) {
-        if (file.resumeOffset == file.size && Files.exists(file.localPath)) return
+        if (file.isComplete) return
 
         sftp.open(file.remotePath).use { remote ->
             val input = remote.ReadAheadRemoteFileInputStream(READ_AHEAD_REQUESTS, file.resumeOffset)
@@ -131,6 +142,10 @@ internal class SftpDownloader(
                     copy(input, output, progress)
                 }
             }
+        }
+        val downloaded = Files.size(file.localPath)
+        if (downloaded != file.size) {
+            throw IOException("${file.remotePath} changed size during download: $downloaded of ${file.size} bytes")
         }
     }
 
@@ -145,7 +160,8 @@ internal class SftpDownloader(
             val read = input.read(buffer)
             if (read < 0) return
             limiter.acquire(read)
-            output.write(ByteBuffer.wrap(buffer, 0, read))
+            val chunk = ByteBuffer.wrap(buffer, 0, read)
+            while (chunk.hasRemaining()) output.write(chunk)
             progress.advance(read)
         }
     }

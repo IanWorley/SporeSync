@@ -3,10 +3,13 @@ package com.sporesync.transfer.internal
 import com.sporesync.config.AuthMethod
 import com.sporesync.config.ConnectionSettings
 import net.schmizz.sshj.SSHClient
+import net.schmizz.sshj.common.DisconnectReason
 import net.schmizz.sshj.sftp.SFTPClient
-import net.schmizz.sshj.transport.verification.PromiscuousVerifier
+import net.schmizz.sshj.transport.TransportException
+import net.schmizz.sshj.transport.verification.OpenSSHKnownHosts
 import org.slf4j.LoggerFactory
 import java.io.IOException
+import java.nio.file.Path
 import java.time.Duration
 import java.util.concurrent.ConcurrentLinkedDeque
 
@@ -34,14 +37,17 @@ internal class SshConnection private constructor(
     }
 
     companion object {
-        fun open(settings: ConnectionSettings): SshConnection {
+        fun open(
+            settings: ConnectionSettings,
+            knownHostsFile: Path,
+        ): SshConnection {
             check(settings.isConfigured) { NOT_CONFIGURED_MESSAGE }
             val client = SSHClient()
             try {
-                // Parity with seedsync, which disables host key checking: SporeSync assumes a trusted network.
-                client.addHostKeyVerifier(PromiscuousVerifier())
+                // SSHJ treats a missing file as empty and rejects unknown or changed keys.
+                client.addHostKeyVerifier(OpenSSHKnownHosts(knownHostsFile.toFile()))
                 client.connectTimeout = CONNECT_TIMEOUT.toMillis().toInt()
-                client.connect(settings.host, settings.port)
+                connect(client, settings, knownHostsFile)
                 when (settings.authMethod) {
                     AuthMethod.PASSWORD -> {
                         client.authPassword(settings.username, settings.password.orEmpty())
@@ -58,6 +64,19 @@ internal class SshConnection private constructor(
                 throw e
             }
         }
+
+        private fun connect(
+            client: SSHClient,
+            settings: ConnectionSettings,
+            knownHostsFile: Path,
+        ) {
+            try {
+                client.connect(settings.host, settings.port)
+            } catch (e: TransportException) {
+                if (e.disconnectReason != DisconnectReason.HOST_KEY_NOT_VERIFIABLE) throw e
+                throw IOException("${e.message}. To trust this server, add its host key to $knownHostsFile", e)
+            }
+        }
     }
 }
 
@@ -66,7 +85,7 @@ internal class SshConnection private constructor(
  * own: every connection is held by a transfer worker, and the queue already caps workers at the concurrent limit.
  */
 internal class SshConnectionPool(
-    private val connect: (ConnectionSettings) -> SshConnection = SshConnection::open,
+    private val connect: (ConnectionSettings) -> SshConnection,
 ) : AutoCloseable {
     private val idle = ConcurrentLinkedDeque<SshConnection>()
 

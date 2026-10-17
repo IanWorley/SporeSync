@@ -89,11 +89,11 @@ class TransferQueue internal constructor(
         try {
             downloader.download(transfer.path, ProgressTracker(transfer.path, transfer::publish))
             transfer.finish(TransferCompleted(transfer.path))
-        } catch (e: InterruptedException) {
-            // Interrupted by stop(), which already published TransferStopped, or by shutdown.
-            log.debug("Transfer of {} interrupted", transfer.path, e)
         } catch (e: Exception) {
-            if (transfer.finish(TransferFailed(transfer.path, e.message ?: e.javaClass.simpleName))) {
+            // A shutdown interrupt can surface as ClosedByInterruptException, not only InterruptedException.
+            if (executor.isShutdown) {
+                log.debug("Transfer of {} interrupted by shutdown", transfer.path, e)
+            } else if (transfer.finish(TransferFailed(transfer.path, e.message ?: e.javaClass.simpleName))) {
                 log.warn("Transfer of {} failed", transfer.path, e)
             }
         } finally {
@@ -134,7 +134,7 @@ class TransferQueue internal constructor(
 
         fun stop() {
             synchronized(this) {
-                if (!finish(TransferStopped(path))) return
+                if (finished) return
                 val running = worker
                 if (running != null) {
                     running.interrupt()
@@ -142,6 +142,7 @@ class TransferQueue internal constructor(
                     // Still queued: no worker will reach end(), so free the path now.
                     transfers.remove(path, this)
                 }
+                finish(TransferStopped(path))
             }
         }
 

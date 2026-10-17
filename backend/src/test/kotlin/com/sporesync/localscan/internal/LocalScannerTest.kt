@@ -7,7 +7,9 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.api.io.TempDir
 import java.io.IOException
+import java.nio.file.FileVisitResult
 import java.nio.file.Files
+import java.nio.file.NoSuchFileException
 import java.nio.file.Path
 import java.nio.file.attribute.FileTime
 import java.nio.file.attribute.PosixFilePermissions
@@ -74,6 +76,15 @@ class LocalScannerTest {
         } finally {
             Files.setPosixFilePermissions(show, PosixFilePermissions.fromString(OWNER_PERMISSIONS))
         }
+    }
+
+    @Test
+    fun `aborts when the root vanishes mid-walk but skips a vanished descendant`() {
+        val visitor = ScanVisitor(root)
+        val descendant = root.resolve("e01.mkv")
+
+        assertEquals(FileVisitResult.CONTINUE, visitor.visitFileFailed(descendant, NoSuchFileException("$descendant")))
+        assertThrows<NoSuchFileException> { visitor.visitFileFailed(root, NoSuchFileException("$root")) }
     }
 
     @Test

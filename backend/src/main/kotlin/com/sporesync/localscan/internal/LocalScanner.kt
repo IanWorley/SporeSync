@@ -27,13 +27,14 @@ internal object LocalScanner {
     fun scan(root: Path): List<LocalFile> {
         val start = root.toRealPath()
         if (!Files.isDirectory(start)) throw NotDirectoryException(root.toString())
-        val visitor = Visitor(start)
+        val visitor = ScanVisitor(start)
         Files.walkFileTree(start, visitor)
         return visitor.files
     }
 }
 
-private class Visitor(
+/** Collects [LocalFile]s under [root]. Internal only so its failure handling can be tested without racing a delete. */
+internal class ScanVisitor(
     private val root: Path,
 ) : SimpleFileVisitor<Path>() {
     /** A directory being walked; [size] grows as its children are visited. */
@@ -68,9 +69,7 @@ private class Visitor(
         file: Path,
         exc: IOException,
     ): FileVisitResult {
-        // Transfers and deletes run alongside the scan, so an entry vanishing mid-walk is expected. Any other failure
-        // aborts the scan: publishing a snapshot with the subtree missing would look like a local delete.
-        if (exc is NoSuchFileException) return FileVisitResult.CONTINUE
+        if (isVanishedDescendant(file, exc)) return FileVisitResult.CONTINUE
         throw exc
     }
 
@@ -78,7 +77,7 @@ private class Visitor(
         dir: Path,
         exc: IOException?,
     ): FileVisitResult {
-        if (exc != null && exc !is NoSuchFileException) throw exc
+        if (exc != null && !isVanishedDescendant(dir, exc)) throw exc
         val finished = openDirectories.removeLast()
         if (dir != root) add(dir, finished.size, finished.modified, isDirectory = true)
         return FileVisitResult.CONTINUE
@@ -93,6 +92,13 @@ private class Visitor(
         files += LocalFile(root.relativize(path).joinToString(PATH_SEPARATOR), size, modified, isDirectory)
         openDirectories.last().size += size
     }
+
+    // Transfers and deletes run alongside the scan, so an entry vanishing mid-walk is expected. Any other failure, or
+    // the root itself vanishing, aborts the scan: a snapshot with entries missing would look like local deletes.
+    private fun isVanishedDescendant(
+        path: Path,
+        exc: IOException,
+    ): Boolean = path != root && exc is NoSuchFileException
 
     private fun isMarker(path: Path): Boolean = path.fileName?.toString() == MARKER_NAME
 }

@@ -1,13 +1,17 @@
 package com.sporesync.filestate
 
 import java.nio.file.Path
+import java.nio.file.StandardCopyOption.ATOMIC_MOVE
+import java.nio.file.StandardCopyOption.REPLACE_EXISTING
 import java.security.MessageDigest
 import java.util.HexFormat
 import kotlin.io.path.createDirectories
+import kotlin.io.path.createTempFile
 import kotlin.io.path.deleteIfExists
 import kotlin.io.path.exists
 import kotlin.io.path.isDirectory
 import kotlin.io.path.listDirectoryEntries
+import kotlin.io.path.moveTo
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
 
@@ -16,6 +20,8 @@ const val STATE_DIRECTORY_NAME = ".sporesync"
 
 private const val MARKER_NAME_ALGORITHM = "SHA-256"
 private const val PATH_SEPARATOR = "/"
+private const val PARENT_SEGMENT = ".."
+private const val PENDING_MARKER_PREFIX = "pending-"
 
 /**
  * Records which local files are downloaded or extracted as marker files under `<downloadRoot>/.sporesync`.
@@ -37,7 +43,14 @@ class FileStateStore(
     ) {
         val path = normalize(relativePath)
         markerDirectory(marker).createDirectories()
-        markerFile(marker, path).writeText(path)
+        // Write beside the marker directories, then move into place, so readers never see a partial marker.
+        val pending = createTempFile(stateDirectory, PENDING_MARKER_PREFIX)
+        try {
+            pending.writeText(path)
+            pending.moveTo(markerFile(marker, path), ATOMIC_MOVE, REPLACE_EXISTING)
+        } finally {
+            pending.deleteIfExists()
+        }
     }
 
     /** Returns every marker recorded for the file at [relativePath]. */
@@ -81,9 +94,9 @@ class FileStateStore(
         val normalized = candidate.normalize()
         val segments = normalized.map(Path::toString)
         require(segments.isNotEmpty() && segments.first().isNotEmpty()) { "Path must name a file: $relativePath" }
-        require(root.resolve(normalized).normalize().startsWith(root)) {
-            "Path escapes the download root: $relativePath"
-        }
+        // After normalize(), `..` can only lead the path. Rejecting it outright also rejects aliases such as
+        // `../downloads/a` that re-enter the root, which would otherwise get a second marker for the same file.
+        require(segments.first() != PARENT_SEGMENT) { "Path escapes the download root: $relativePath" }
         require(segments.first() != STATE_DIRECTORY_NAME) { "Path points into $STATE_DIRECTORY_NAME: $relativePath" }
 
         return segments.joinToString(PATH_SEPARATOR)

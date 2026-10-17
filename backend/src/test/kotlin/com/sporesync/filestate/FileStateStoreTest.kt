@@ -87,4 +87,11 @@ class FileStateStoreTest {
     fun `rejects paths that do not name a file inside the download root`(path: String) {
         assertThrows<IllegalArgumentException> { FileStateStore(downloadRoot).mark(path, FileMarker.DOWNLOADED) }
     }
+
+    @Test
+    fun `rejects parent paths that re-enter the download root`() {
+        val alias = "../${downloadRoot.fileName}/$MOVIE"
+
+        assertThrows<IllegalArgumentException> { FileStateStore(downloadRoot).mark(alias, FileMarker.DOWNLOADED) }
+    }
 }

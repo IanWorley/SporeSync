@@ -1,12 +1,6 @@
 package com.sporesync.config.internal
 
-/**
- * Settings-file keys, shared by the YAML writer and validation messages so both name a field the same way.
- * Spring's relaxed binding maps each key onto the matching [com.sporesync.config.Settings] property, and an
- * environment variable such as `SPORESYNC_CONNECTION_PORT` onto `sporesync.connection.port`.
- */
 internal object SettingsKeys {
-    /** Environment and system properties under this prefix override values from the settings file. */
     const val PREFIX = "sporesync"
 
     const val GENERAL = "general"

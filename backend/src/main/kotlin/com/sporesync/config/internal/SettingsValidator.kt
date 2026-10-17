@@ -17,7 +17,6 @@ private const val POSITIVE_MESSAGE = "must be greater than zero"
 private const val REQUIRED_MESSAGE = "is required once connection.host is set"
 internal const val BLANK_MESSAGE = "must not be blank"
 
-/** Rules beyond what the types already enforce. Collects every violation so the user can fix them in one pass. */
 internal object SettingsValidator {
     fun requireValid(settings: Settings): Settings {
         val violations = validate(settings)
@@ -53,7 +52,6 @@ internal object SettingsValidator {
                     ),
                 )
             }
-            // `null` already means unlimited, so a set limit of zero would only stall every transfer.
             val bandwidthLimit = transfer.bandwidthLimit
             if (bandwidthLimit != null && bandwidthLimit.toBytes() <= 0) {
                 add(SettingsViolation(field(SettingsKeys.TRANSFER, SettingsKeys.BANDWIDTH_LIMIT), POSITIVE_MESSAGE))
@@ -72,7 +70,6 @@ internal object SettingsValidator {
             if (connection.port !in MIN_PORT..MAX_PORT) {
                 add(SettingsViolation(field(SettingsKeys.CONNECTION, SettingsKeys.PORT), PORT_RANGE_MESSAGE))
             }
-            // An unconfigured install is valid; credentials are only required once there is a host to use them on.
             if (!connection.isConfigured) return@buildList
 
             if (connection.username.isBlank()) {

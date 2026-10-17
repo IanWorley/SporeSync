@@ -13,10 +13,7 @@ private const val DEFAULT_REMOTE_SCAN_SECONDS = 30L
 private const val DEFAULT_LOCAL_SCAN_SECONDS = 10L
 private const val MASKED_SECRET = "****"
 
-/**
- * Every SporeSync setting, grouped the way seedsync groups them. Other modules inject [SettingsStore] and read
- * [SettingsStore.current] instead of touching the settings file. Defaults describe a fresh, unconfigured install.
- */
+/** Defaults describe a fresh, unconfigured install. */
 data class Settings(
     val general: GeneralSettings = GeneralSettings(),
     val connection: ConnectionSettings = ConnectionSettings(),
@@ -30,13 +27,11 @@ data class Settings(
 data class GeneralSettings(
     /** Turns on DEBUG logging for SporeSync's own code. */
     val debug: Boolean = false,
-    /** Asks workers for extra detail, such as per-transfer progress logs. */
     val verbose: Boolean = false,
 )
 
 enum class AuthMethod { PASSWORD, KEY }
 
-/** SSH connection to the seedbox. A blank [host] means the connection has not been configured yet. */
 data class ConnectionSettings(
     val host: String = "",
     val port: Int = DEFAULT_SSH_PORT,
@@ -55,7 +50,7 @@ data class ConnectionSettings(
 }
 
 data class PathSettings(
-    /** Directory on the remote host to mirror. A POSIX path on the remote side, so not a local [Path]. */
+    /** Directory on the remote host to mirror. */
     val remoteDir: String = "",
     val localDir: Path = Path.of(DEFAULT_LOCAL_DIR),
     /** Directory on the remote host the scanner script is copied into. */

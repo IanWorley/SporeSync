@@ -13,6 +13,7 @@ import org.yaml.snakeyaml.Yaml
 import org.yaml.snakeyaml.error.MarkedYAMLException
 
 private const val INVALID_YAML_MESSAGE = "is not valid YAML"
+private const val MULTIPLE_DOCUMENTS_MESSAGE = "must contain a single YAML document"
 
 /**
  * Converts between [Settings] and the settings-file YAML.
@@ -42,6 +43,12 @@ internal object SettingsYaml {
                 val position = mark?.let { " at line ${it.line + 1}, column ${it.column + 1}" }.orEmpty()
                 throw InvalidSettingsException(listOf(SettingsViolation(sourceName, INVALID_YAML_MESSAGE + position)))
             }
+        // Later documents would otherwise be silently ignored, so a multi-document file is rejected outright.
+        if (sources.size >
+            1
+        ) {
+            throw InvalidSettingsException(listOf(SettingsViolation(sourceName, MULTIPLE_DOCUMENTS_MESSAGE)))
+        }
         val document = sources.firstOrNull() as? EnumerablePropertySource<*> ?: return null
         // The file holds bare group keys; nest them under the prefix that environment overrides use.
         val prefixed =

@@ -9,6 +9,8 @@ import com.sporesync.config.SettingsViolation
 import com.sporesync.config.TransferSettings
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
+import org.springframework.util.unit.DataSize
+import java.nio.file.Path
 import java.time.Duration
 
 class SettingsValidatorTest {
@@ -22,7 +24,12 @@ class SettingsValidatorTest {
         val settings =
             Settings(
                 connection = ConnectionSettings(port = 0),
-                transfer = TransferSettings(concurrentFileLimit = 0, perFileConnectionLimit = -1),
+                transfer =
+                    TransferSettings(
+                        concurrentFileLimit = 0,
+                        perFileConnectionLimit = -1,
+                        bandwidthLimit = DataSize.ofBytes(0),
+                    ),
                 scan = ScanSettings(remoteInterval = Duration.ZERO),
             )
 
@@ -31,8 +38,39 @@ class SettingsValidatorTest {
                 SettingsViolation("connection.port", "must be between 1 and 65535"),
                 SettingsViolation("transfer.concurrent-file-limit", "must be at least 1"),
                 SettingsViolation("transfer.per-file-connection-limit", "must be at least 1"),
+                SettingsViolation("transfer.bandwidth-limit", "must be greater than zero"),
                 SettingsViolation("scan.remote-interval", "must be greater than zero"),
             ),
+            SettingsValidator.validate(settings),
+        )
+    }
+
+    @Test
+    fun `an empty key path counts as missing`() {
+        val settings =
+            Settings(
+                connection =
+                    ConnectionSettings(
+                        host = "seedbox.example",
+                        username = "ian",
+                        authMethod = AuthMethod.KEY,
+                        keyPath = Path.of(""),
+                    ),
+                paths = PathSettings(remoteDir = "/done"),
+            )
+
+        assertEquals(
+            listOf(SettingsViolation("connection.key-path", "is required once connection.host is set")),
+            SettingsValidator.validate(settings),
+        )
+    }
+
+    @Test
+    fun `an empty local download directory is rejected`() {
+        val settings = Settings(paths = PathSettings(localDir = Path.of("")))
+
+        assertEquals(
+            listOf(SettingsViolation("paths.local-dir", "must not be blank")),
             SettingsValidator.validate(settings),
         )
     }

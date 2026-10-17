@@ -18,6 +18,10 @@ import java.util.concurrent.TimeUnit
 private const val THREAD_NAME = "localscan"
 private const val NO_INITIAL_DELAY = 0L
 
+// The longest delay the executor accepts. Config allows any positive interval, and anything longer means "never
+// again" in practice, so longer intervals are capped instead of overflowing and leaving the scan unscheduled.
+private val MAX_INTERVAL = Duration.ofNanos(Long.MAX_VALUE)
+
 /**
  * Scans the configured local directory every Scan > local interval and publishes [LocalScanned]. The directory is
  * read from the settings on every run, and an interval change reschedules the scan without a restart.
@@ -60,7 +64,8 @@ internal class LocalScanScheduler(
 
     private fun schedule(interval: Duration) {
         scheduled?.cancel(false)
-        scheduled = executor.scheduleWithFixedDelay(::scan, NO_INITIAL_DELAY, interval.toNanos(), TimeUnit.NANOSECONDS)
+        val delay = minOf(interval, MAX_INTERVAL).toNanos()
+        scheduled = executor.scheduleWithFixedDelay(::scan, NO_INITIAL_DELAY, delay, TimeUnit.NANOSECONDS)
         log.debug("Scanning the local directory every {}", interval)
     }
 

@@ -23,6 +23,9 @@ private const val EVENT_TIMEOUT_SECONDS = 5L
 private val NEVER_AGAIN = Duration.ofHours(1)
 private val SHORT_INTERVAL = Duration.ofMillis(10)
 
+// Valid in config, but too long to express in nanoseconds.
+private val BEYOND_NANOSECONDS = Duration.ofNanos(Long.MAX_VALUE).plusDays(1)
+
 class LocalScanSchedulerTest {
     @TempDir
     private lateinit var directory: Path
@@ -59,6 +62,21 @@ class LocalScanSchedulerTest {
 
         val previous = store.current
         val current = store.update { it.copy(scan = it.scan.copy(localInterval = SHORT_INTERVAL)) }
+        scheduler.on(ConfigChanged(previous, current))
+
+        nextScan()
+    }
+
+    @Test
+    fun `an interval too long for nanoseconds still reschedules the scan`() {
+        val downloads = Files.createDirectories(directory.resolve(DOWNLOADS_DIR_NAME))
+        val store = storeScanning(downloads, NEVER_AGAIN)
+        scheduler = LocalScanScheduler(store, publisher)
+        scheduler.start()
+        nextScan()
+
+        val previous = store.current
+        val current = store.update { it.copy(scan = it.scan.copy(localInterval = BEYOND_NANOSECONDS)) }
         scheduler.on(ConfigChanged(previous, current))
 
         nextScan()

@@ -58,6 +58,21 @@ services:
 
 Then open the web UI in a browser and fill in the Settings page.
 
+### SSH keys in Docker
+
+If you log in to the seedbox with an SSH key, the key path setting must be a path **inside the container**. A host path such as `~/.ssh/id_ed25519` does not exist there.
+
+The spec does not define a key location. The simplest option is to keep the key in your config folder, which is already mounted:
+
+1. Copy the private key to `/path/on/host/sporesync-config/ssh/id_ed25519`.
+2. Set the key path to `/config/ssh/id_ed25519`.
+
+Or mount the key read-only on its own and use that container path:
+
+```sh
+-v ~/.ssh/id_ed25519:/keys/id_ed25519:ro
+```
+
 ### Health check
 
 The container exposes a health endpoint at `/actuator/health`. You can point a Docker or Compose health check at it.
@@ -84,7 +99,7 @@ The groups and settings below are specified. Their exact key names, types, and d
 | Connection | Port | SSH port on the seedbox. |
 | Connection | Username | SSH username. |
 | Connection | Auth method | Whether to log in with an SSH key or a password. |
-| Connection | Key path or password | Path to the private key (for key auth) or the password. |
+| Connection | Key path or password | Path to the private key (for key auth) or the password. In Docker, use a container path; see [SSH keys in Docker](#ssh-keys-in-docker). |
 | Paths | Remote dir | Directory on the seedbox to mirror. |
 | Paths | Local dir | Local download directory. In Docker, this is `/downloads`. |
 | Paths | Remote scanner path | Where SporeSync places its scanner script on the seedbox. |
@@ -150,7 +165,7 @@ SporeSync aims for feature parity with seedsync, so the workflow is the same: sc
 
 ### RAR5 is not supported
 
-SporeSync can extract zip, tar, gz, bz2, xz, 7z, and **RAR4** archives, including multi-part RAR sets. It **cannot extract RAR5** archives, because no pure-JVM library supports them.
+SporeSync can extract zip, tar, gz, bz2, xz, 7z, and **RAR4** archives, including multi-part RAR sets. It **does not extract RAR5** archives. RAR5 extraction is out of scope for v1.
 
 If your seedbox has RAR5 archives, extract them yourself after download with a tool such as `unrar` or `7z`, or extract them on the seedbox before SporeSync downloads them.
 

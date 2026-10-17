@@ -1,0 +1,5 @@
+# Loaded on top of the main application.yaml in tests. Each test context gets its own throwaway H2 directory
+# instead of the /config volume.
+sporesync:
+  persistence:
+    directory: ${java.io.tmpdir}/sporesync-test-${random.uuid}

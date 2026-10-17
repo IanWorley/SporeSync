@@ -1,6 +1,20 @@
+sporesync:
+  persistence:
+    # H2 keeps its data files in the /config volume, next to the settings file.
+    directory: /config
+    database-name: sporesync
+
 spring:
   application:
     name: sporesync
+  datasource:
+    # File mode so data survives restarts. Spring closes the database on shutdown, not H2's JVM hook.
+    url: jdbc:h2:file:${sporesync.persistence.directory}/${sporesync.persistence.database-name};DB_CLOSE_ON_EXIT=FALSE
+  jpa:
+    # Liquibase owns the schema; Hibernate only checks that the entities match it.
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
 
 logging:
   structured:

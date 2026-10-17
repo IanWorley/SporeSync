@@ -1,0 +1,5 @@
+# Spring Boot runs this changelog at startup. Add new changesets as new files; never edit applied ones.
+databaseChangeLog:
+  - include:
+      file: changes/0001-initial-schema.yaml
+      relativeToChangelogFile: true

@@ -19,11 +19,8 @@ private const val SETTINGS_FILE_NAME = "settings.yaml"
 private const val DOWNLOADS_DIR_NAME = "downloads"
 private const val EVENT_TIMEOUT_SECONDS = 5L
 
-// Long enough that a second scan can only come from rescheduling, never from the original interval.
 private val NEVER_AGAIN = Duration.ofHours(1)
 private val SHORT_INTERVAL = Duration.ofMillis(10)
-
-// Valid in config, but too long to express in nanoseconds.
 private val BEYOND_NANOSECONDS = Duration.ofNanos(Long.MAX_VALUE).plusDays(1)
 
 class LocalScanSchedulerTest {
@@ -64,6 +61,7 @@ class LocalScanSchedulerTest {
         val current = store.update { it.copy(scan = it.scan.copy(localInterval = SHORT_INTERVAL)) }
         scheduler.on(ConfigChanged(previous, current))
 
+        nextScan()
         nextScan()
     }
 

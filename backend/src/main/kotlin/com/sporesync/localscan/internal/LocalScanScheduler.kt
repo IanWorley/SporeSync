@@ -22,10 +22,6 @@ private const val NO_INITIAL_DELAY = 0L
 // again" in practice, so longer intervals are capped instead of overflowing and leaving the scan unscheduled.
 private val MAX_INTERVAL = Duration.ofNanos(Long.MAX_VALUE)
 
-/**
- * Scans the configured local directory every Scan > local interval and publishes [LocalScanned]. The directory is
- * read from the settings on every run, and an interval change reschedules the scan without a restart.
- */
 @Component
 internal class LocalScanScheduler(
     private val settings: SettingsStore,
@@ -33,8 +29,6 @@ internal class LocalScanScheduler(
 ) {
     private val log = LoggerFactory.getLogger(LocalScanScheduler::class.java)
 
-    // A dedicated thread, so walking a large tree never delays the remote scan or any other scheduled work.
-    // Fixed-delay scheduling on one thread also means scans never overlap.
     private val executor =
         Executors.newSingleThreadScheduledExecutor(
             Thread

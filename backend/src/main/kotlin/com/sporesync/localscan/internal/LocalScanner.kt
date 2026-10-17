@@ -11,33 +11,22 @@ import java.nio.file.SimpleFileVisitor
 import java.nio.file.attribute.BasicFileAttributes
 import java.time.Instant
 
-/** Name of the `filestate` marker directory (and any stray marker file), which is never reported as content. */
-private const val MARKER_NAME = ".sporesync"
+private const val FILESTATE_MARKER_NAME = ".sporesync"
 private const val PATH_SEPARATOR = "/"
 
-/**
- * Walks a local directory tree. A symbolic link at the root is followed, so the download directory may be a link;
- * links inside the tree are reported as entries but never followed.
- */
 internal object LocalScanner {
-    /**
-     * Lists every entry under [root], excluding `.sporesync` markers. Throws [IOException] when [root] is missing or
-     * any entry cannot be read, so an unmounted volume or unreadable subtree is never mistaken for deleted files.
-     */
     fun scan(root: Path): List<LocalFile> {
-        val start = root.toRealPath()
-        if (!Files.isDirectory(start)) throw NotDirectoryException(root.toString())
-        val visitor = ScanVisitor(start)
-        Files.walkFileTree(start, visitor)
+        val realRoot = root.toRealPath()
+        if (!Files.isDirectory(realRoot)) throw NotDirectoryException(root.toString())
+        val visitor = ScanVisitor(realRoot)
+        Files.walkFileTree(realRoot, visitor)
         return visitor.files
     }
 }
 
-/** Collects [LocalFile]s under [root]. Internal only so its failure handling can be tested without racing a delete. */
 internal class ScanVisitor(
     private val root: Path,
 ) : SimpleFileVisitor<Path>() {
-    /** A directory being walked; [size] grows as its children are visited. */
     private class OpenDirectory(
         val modified: Instant,
     ) {
@@ -51,8 +40,7 @@ internal class ScanVisitor(
         dir: Path,
         attrs: BasicFileAttributes,
     ): FileVisitResult {
-        // The root itself is the configured download directory, never a marker, whatever it is named.
-        if (dir != root && isMarker(dir)) return FileVisitResult.SKIP_SUBTREE
+        if (isMarker(dir)) return FileVisitResult.SKIP_SUBTREE
         openDirectories.addLast(OpenDirectory(attrs.lastModifiedTime().toInstant()))
         return FileVisitResult.CONTINUE
     }
@@ -93,12 +81,10 @@ internal class ScanVisitor(
         openDirectories.last().size += size
     }
 
-    // Transfers and deletes run alongside the scan, so an entry vanishing mid-walk is expected. Any other failure, or
-    // the root itself vanishing, aborts the scan: a snapshot with entries missing would look like local deletes.
     private fun isVanishedDescendant(
         path: Path,
         exc: IOException,
     ): Boolean = path != root && exc is NoSuchFileException
 
-    private fun isMarker(path: Path): Boolean = path.fileName?.toString() == MARKER_NAME
+    private fun isMarker(path: Path): Boolean = path != root && path.fileName?.toString() == FILESTATE_MARKER_NAME
 }

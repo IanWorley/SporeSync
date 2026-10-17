@@ -2,16 +2,21 @@ package com.sporesync.localscan.internal
 
 import com.sporesync.localscan.LocalFile
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.api.io.TempDir
+import java.io.IOException
 import java.nio.file.Files
-import java.nio.file.NotDirectoryException
 import java.nio.file.Path
 import java.nio.file.attribute.FileTime
+import java.nio.file.attribute.PosixFilePermissions
 import java.time.Instant
 
 private const val MARKER = ".sporesync"
+private const val POSIX_VIEW = "posix"
+private const val NO_PERMISSIONS = "---------"
+private const val OWNER_PERMISSIONS = "rwx------"
 private val FILE_MODIFIED = Instant.parse("2026-01-02T03:04:05Z")
 private val DIRECTORY_MODIFIED = Instant.parse("2026-02-03T04:05:06Z")
 
@@ -53,7 +58,37 @@ class LocalScannerTest {
 
     @Test
     fun `fails rather than reporting an empty tree when the directory is missing`() {
-        assertThrows<NotDirectoryException> { LocalScanner.scan(root.resolve("unmounted")) }
+        assertThrows<IOException> { LocalScanner.scan(root.resolve("unmounted")) }
+    }
+
+    @Test
+    fun `fails rather than reporting a partial tree when a subdirectory is unreadable`() {
+        assumeTrue(root.fileSystem.supportedFileAttributeViews().contains(POSIX_VIEW))
+        write("show/e01.mkv", "abc")
+        val show = root.resolve("show")
+        Files.setPosixFilePermissions(show, PosixFilePermissions.fromString(NO_PERMISSIONS))
+        // Running as root ignores permissions, so there is nothing to prove there.
+        assumeTrue(!Files.isReadable(show))
+        try {
+            assertThrows<IOException> { LocalScanner.scan(root) }
+        } finally {
+            Files.setPosixFilePermissions(show, PosixFilePermissions.fromString(OWNER_PERMISSIONS))
+        }
+    }
+
+    @Test
+    fun `follows a symbolic link at the root`() {
+        write("downloads/e01.mkv", "abc")
+        val link = Files.createSymbolicLink(root.resolve("link"), root.resolve("downloads"))
+
+        assertEquals(listOf("e01.mkv"), LocalScanner.scan(link).map { it.path })
+    }
+
+    @Test
+    fun `scans a root that is itself named like the marker`() {
+        write("$MARKER/e01.mkv", "abc")
+
+        assertEquals(listOf("e01.mkv"), LocalScanner.scan(root.resolve(MARKER)).map { it.path })
     }
 
     private fun write(

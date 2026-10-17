@@ -1,7 +1,6 @@
 package com.sporesync.localscan.internal
 
 import com.sporesync.localscan.LocalFile
-import org.slf4j.LoggerFactory
 import java.io.IOException
 import java.nio.file.FileVisitResult
 import java.nio.file.Files
@@ -16,16 +15,20 @@ import java.time.Instant
 private const val MARKER_NAME = ".sporesync"
 private const val PATH_SEPARATOR = "/"
 
-/** Walks a local directory tree. Symbolic links are reported as entries but never followed. */
+/**
+ * Walks a local directory tree. A symbolic link at the root is followed, so the download directory may be a link;
+ * links inside the tree are reported as entries but never followed.
+ */
 internal object LocalScanner {
     /**
-     * Lists every entry under [root], excluding `.sporesync` markers. Throws [NotDirectoryException] when [root] is
-     * missing, so an unmounted volume is never mistaken for an empty one.
+     * Lists every entry under [root], excluding `.sporesync` markers. Throws [IOException] when [root] is missing or
+     * any entry cannot be read, so an unmounted volume or unreadable subtree is never mistaken for deleted files.
      */
     fun scan(root: Path): List<LocalFile> {
-        if (!Files.isDirectory(root)) throw NotDirectoryException(root.toString())
-        val visitor = Visitor(root)
-        Files.walkFileTree(root, visitor)
+        val start = root.toRealPath()
+        if (!Files.isDirectory(start)) throw NotDirectoryException(root.toString())
+        val visitor = Visitor(start)
+        Files.walkFileTree(start, visitor)
         return visitor.files
     }
 }
@@ -33,8 +36,6 @@ internal object LocalScanner {
 private class Visitor(
     private val root: Path,
 ) : SimpleFileVisitor<Path>() {
-    private val log = LoggerFactory.getLogger(LocalScanner::class.java)
-
     /** A directory being walked; [size] grows as its children are visited. */
     private class OpenDirectory(
         val modified: Instant,
@@ -49,7 +50,8 @@ private class Visitor(
         dir: Path,
         attrs: BasicFileAttributes,
     ): FileVisitResult {
-        if (isMarker(dir)) return FileVisitResult.SKIP_SUBTREE
+        // The root itself is the configured download directory, never a marker, whatever it is named.
+        if (dir != root && isMarker(dir)) return FileVisitResult.SKIP_SUBTREE
         openDirectories.addLast(OpenDirectory(attrs.lastModifiedTime().toInstant()))
         return FileVisitResult.CONTINUE
     }
@@ -66,15 +68,17 @@ private class Visitor(
         file: Path,
         exc: IOException,
     ): FileVisitResult {
-        // Transfers and deletes run alongside the scan, so an entry vanishing mid-walk is expected, not an error.
-        if (exc !is NoSuchFileException) log.warn("Skipping unreadable local entry {}: {}", file, exc.message)
-        return FileVisitResult.CONTINUE
+        // Transfers and deletes run alongside the scan, so an entry vanishing mid-walk is expected. Any other failure
+        // aborts the scan: publishing a snapshot with the subtree missing would look like a local delete.
+        if (exc is NoSuchFileException) return FileVisitResult.CONTINUE
+        throw exc
     }
 
     override fun postVisitDirectory(
         dir: Path,
         exc: IOException?,
     ): FileVisitResult {
+        if (exc != null && exc !is NoSuchFileException) throw exc
         val finished = openDirectories.removeLast()
         if (dir != root) add(dir, finished.size, finished.modified, isDirectory = true)
         return FileVisitResult.CONTINUE

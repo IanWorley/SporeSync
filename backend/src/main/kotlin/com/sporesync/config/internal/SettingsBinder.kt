@@ -38,7 +38,10 @@ internal object SettingsBinder {
     private fun violations(e: BindException): List<SettingsViolation> {
         val unbound = e.cause as? UnboundConfigurationPropertiesException
         if (unbound != null) {
-            return unbound.unboundProperties.map { SettingsViolation(fieldName(it.name), UNKNOWN_SETTING_MESSAGE) }
+            return unbound.unboundProperties.map {
+                val message = if (it.value?.toString().isNullOrBlank()) BLANK_MESSAGE else UNKNOWN_SETTING_MESSAGE
+                SettingsViolation(fieldName(it.name), message)
+            }
         }
         val type =
             e.target.type

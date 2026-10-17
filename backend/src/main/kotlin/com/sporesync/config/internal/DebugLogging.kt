@@ -10,10 +10,6 @@ import org.springframework.stereotype.Component
 
 private const val SPORESYNC_LOGGER = "com.sporesync"
 
-/**
- * Maps the General > debug setting onto SporeSync's log level. Turning debug off restores whatever level
- * `application.yaml` or `LOGGING_LEVEL_COM_SPORESYNC` configured at startup.
- */
 @Component
 internal class DebugLogging(
     private val loggingSystem: LoggingSystem,

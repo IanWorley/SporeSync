@@ -8,10 +8,7 @@ import java.nio.file.Path
 
 private const val NOT_A_FILE_MESSAGE = "must name a regular file"
 
-/**
- * Accepts a settings-file location only if it is a regular file or does not exist yet, before anything touches it.
- * Spring converts a blank property to `null`, and an empty path resolves to the working directory.
- */
+// Spring converts a blank property to `null`, and an empty path resolves to the working directory.
 internal fun settingsFilePath(location: Path?): Path =
     location?.takeIf { it.toString().isNotBlank() && (!Files.exists(it) || Files.isRegularFile(it)) }
         ?: throw InvalidSettingsException(listOf(SettingsViolation(SETTINGS_FILE_PROPERTY, NOT_A_FILE_MESSAGE)))

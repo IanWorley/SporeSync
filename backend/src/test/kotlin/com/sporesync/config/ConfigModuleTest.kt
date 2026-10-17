@@ -17,7 +17,6 @@ private const val TEMP_DIR_PREFIX = "sporesync-config-test"
 private const val SETTINGS_FILE_NAME = "settings.yaml"
 private const val SPORESYNC_LOGGER = "com.sporesync"
 
-/** Boots the config module on its own, the way other modules will see it: an injected [SettingsStore]. */
 @ApplicationModuleTest
 class ConfigModuleTest
     @Autowired

@@ -29,6 +29,7 @@ internal class ScanVisitor(
 ) : SimpleFileVisitor<Path>() {
     private class OpenDirectory(
         val modified: Instant,
+        val firstEntry: Int,
     ) {
         var size = 0L
     }
@@ -41,7 +42,7 @@ internal class ScanVisitor(
         attrs: BasicFileAttributes,
     ): FileVisitResult {
         if (isMarker(dir)) return FileVisitResult.SKIP_SUBTREE
-        openDirectories.addLast(OpenDirectory(attrs.lastModifiedTime().toInstant()))
+        openDirectories.addLast(OpenDirectory(attrs.lastModifiedTime().toInstant(), files.size))
         return FileVisitResult.CONTINUE
     }
 
@@ -65,8 +66,12 @@ internal class ScanVisitor(
         dir: Path,
         exc: IOException?,
     ): FileVisitResult {
-        if (exc != null && !isVanishedDescendant(dir, exc)) throw exc
         val finished = openDirectories.removeLast()
+        if (exc != null) {
+            if (!isVanishedDescendant(dir, exc)) throw exc
+            files.subList(finished.firstEntry, files.size).clear()
+            return FileVisitResult.CONTINUE
+        }
         if (dir != root) add(dir, finished.size, finished.modified, isDirectory = true)
         return FileVisitResult.CONTINUE
     }

@@ -11,6 +11,7 @@ import java.nio.file.FileVisitResult
 import java.nio.file.Files
 import java.nio.file.NoSuchFileException
 import java.nio.file.Path
+import java.nio.file.attribute.BasicFileAttributes
 import java.nio.file.attribute.FileTime
 import java.nio.file.attribute.PosixFilePermissions
 import java.time.Instant
@@ -88,6 +89,23 @@ class LocalScannerTest {
     }
 
     @Test
+    fun `drops a directory that vanishes mid-walk along with the entries already read from it`() {
+        write("keep.mkv", "abc")
+        write("show/e01.mkv", "de")
+        val show = root.resolve("show")
+        val visitor = ScanVisitor(root)
+
+        visitor.preVisitDirectory(root, attributes(root))
+        visitor.visitFile(root.resolve("keep.mkv"), attributes(root.resolve("keep.mkv")))
+        visitor.preVisitDirectory(show, attributes(show))
+        visitor.visitFile(show.resolve("e01.mkv"), attributes(show.resolve("e01.mkv")))
+        visitor.postVisitDirectory(show, NoSuchFileException("$show"))
+        visitor.postVisitDirectory(root, null)
+
+        assertEquals(listOf(LocalFile("keep.mkv", size = 3, FILE_MODIFIED, isDirectory = false)), visitor.files)
+    }
+
+    @Test
     fun `follows a symbolic link at the root`() {
         write("downloads/e01.mkv", "abc")
         val link = Files.createSymbolicLink(root.resolve("link"), root.resolve("downloads"))
@@ -111,6 +129,9 @@ class LocalScannerTest {
         Files.writeString(file, content)
         touch(relative, FILE_MODIFIED)
     }
+
+    private fun attributes(path: Path): BasicFileAttributes =
+        Files.readAttributes(path, BasicFileAttributes::class.java)
 
     private fun touch(
         relative: String,

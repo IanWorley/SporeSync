@@ -67,7 +67,7 @@ Everything for a run goes under `RUN_DIR`. Cleanup deletes only `instance.env`.
 | --- | --- |
 | `RUN_DIR/app.log` | `elide run` build lines, then ECS JSON logs, one object per line. The `Started SporeSyncApplicationKt` message and `process.pid` identify the instance. |
 | `RUN_DIR/evidence/doctor.txt` | `doctor` output: `(set -o pipefail; .agents/skills/verify-sporesync/scripts/verify-sporesync.sh doctor "$RUN_DIR" \| tee "$RUN_DIR/evidence/doctor.txt")`. Without `pipefail`, `tee` hides a failing doctor. |
-| `RUN_DIR/evidence/<feature-id>.{status,headers.txt,json}` | Status code, headers, and body from each `probe`, plus `health.png` from Preview |
+| `RUN_DIR/evidence/<feature-id>.{request.txt,status,headers.txt,json}` | Request method and URL, status code, headers, and body from each `probe`, plus `health.png` from Preview |
 
 Proof standards:
 

@@ -13,12 +13,13 @@ Today the only shipped user-facing feature is the health endpoint. The map expan
 ## Driving conventions
 
 - Address the app from the shell as `http://127.0.0.1:$PORT`, never the default `8080`.
-- Drive every HTTP sub-feature with `probe <feature-id> <path>`. It writes `<feature-id>.headers.txt`, `<feature-id>.json`, and `<feature-id>.status` to `$RUN_DIR/evidence/`, prints the status, and exits non-zero only if curl fails. Define it once per shell:
+- Drive every HTTP sub-feature with `probe <feature-id> <path>`. It writes `<feature-id>.request.txt` (method and full URL), `<feature-id>.headers.txt`, `<feature-id>.json`, and `<feature-id>.status` to `$RUN_DIR/evidence/`, prints the status, and exits non-zero only if curl fails. It bypasses any `http_proxy` or `ALL_PROXY` setting, so the request reaches this instance. Define it once per shell:
 
 ```bash
 PORT="$(sed -n 's/^PORT=//p' "$RUN_DIR/instance.env")"
 probe() {
-  (set -o pipefail; curl -sS -D "$RUN_DIR/evidence/$1.headers.txt" -o "$RUN_DIR/evidence/$1.json" \
+  printf 'GET %s\n' "http://127.0.0.1:$PORT$2" >"$RUN_DIR/evidence/$1.request.txt"
+  (set -o pipefail; curl --noproxy '*' -sS -D "$RUN_DIR/evidence/$1.headers.txt" -o "$RUN_DIR/evidence/$1.json" \
     -w '%{http_code}\n' "http://127.0.0.1:$PORT$2" | tee "$RUN_DIR/evidence/$1.status")
 }
 ```

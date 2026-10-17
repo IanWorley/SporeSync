@@ -3,6 +3,7 @@ package com.sporesync.config
 import com.sporesync.config.internal.SettingsBinder
 import com.sporesync.config.internal.SettingsValidator
 import com.sporesync.config.internal.SettingsYaml
+import com.sporesync.config.internal.settingsFilePath
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.boot.context.properties.source.ConfigurationPropertySource
@@ -16,14 +17,10 @@ import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.nio.file.attribute.PosixFilePermissions
 
-/** Property naming the settings file, so tests and local runs can point away from the Docker volume. */
 const val SETTINGS_FILE_PROPERTY = "sporesync.settings-file"
 private const val DEFAULT_SETTINGS_FILE = "/config/settings.yaml"
 private const val TEMP_FILE_SUFFIX = ".tmp"
 private const val POSIX_VIEW = "posix"
-private const val NOT_A_FILE_MESSAGE = "must name a regular file"
-
-// The file can hold the SSH password, so only the owner may read it.
 private const val OWNER_ONLY_PERMISSIONS = "rw-------"
 
 /**
@@ -37,20 +34,19 @@ private const val OWNER_ONLY_PERMISSIONS = "rw-------"
 class SettingsStore(
     private val environment: ConfigurableEnvironment,
     private val events: ApplicationEventPublisher,
-    @Value("\${$SETTINGS_FILE_PROPERTY:$DEFAULT_SETTINGS_FILE}") private val settingsFile: Path,
+    @Value("\${$SETTINGS_FILE_PROPERTY:$DEFAULT_SETTINGS_FILE}") settingsFileLocation: Path?,
 ) {
+    private val settingsFile: Path = settingsFilePath(settingsFileLocation)
     private val log = LoggerFactory.getLogger(SettingsStore::class.java)
 
-    /** What the file says, without environment overrides. Updates start from this so overrides stay out of it. */
-    private var persisted: Settings
+    private var fileSettings: Settings
 
     @Volatile
     private var effectiveSettings: Settings
 
     init {
-        requireRegularFileLocation()
         val fileSource = readFile()
-        persisted = SettingsBinder.bind(fileSource)
+        fileSettings = SettingsBinder.bind(fileSource)
         effectiveSettings = effective(fileSource)
         log.info("Loaded settings from {}", settingsFile)
     }
@@ -59,19 +55,19 @@ class SettingsStore(
     val current: Settings get() = effectiveSettings
 
     /**
-     * Applies [change] to the persisted settings, validates the result with environment overrides applied, writes
+     * Applies [change] to the file's settings, validates the result with environment overrides applied, writes
      * the file, and publishes [ConfigChanged]. Throws [InvalidSettingsException] and leaves the file untouched when
      * the result is invalid.
      */
     @Synchronized
     fun update(change: (Settings) -> Settings): Settings {
-        val next = change(persisted)
+        val next = change(fileSettings)
         val content = SettingsYaml.render(next)
         val updated = effective(SettingsYaml.parse(content, settingsFile.fileName.toString()))
 
         writeFile(content)
         val previous = effectiveSettings
-        persisted = next
+        fileSettings = next
         effectiveSettings = updated
         log.info("Saved settings to {}", settingsFile)
 
@@ -84,15 +80,6 @@ class SettingsStore(
         return SettingsValidator.requireValid(SettingsBinder.bind(fileSource, overrides.toList()))
     }
 
-    // Checked before anything touches the path: an empty path is the working directory, and permissions are
-    // tightened on whatever this names, so a directory must never get that far.
-    private fun requireRegularFileLocation() {
-        val isEmpty = settingsFile.toString().isBlank()
-        if (isEmpty || (Files.exists(settingsFile) && !Files.isRegularFile(settingsFile))) {
-            throw InvalidSettingsException(listOf(SettingsViolation(SETTINGS_FILE_PROPERTY, NOT_A_FILE_MESSAGE)))
-        }
-    }
-
     private fun readFile(): ConfigurationPropertySource? {
         if (!Files.exists(settingsFile)) {
             log.info("No settings file at {}; using defaults", settingsFile)
@@ -102,8 +89,6 @@ class SettingsStore(
         return SettingsYaml.parse(Files.readString(settingsFile), settingsFile.fileName.toString())
     }
 
-    // A file created by hand or by deployment tooling may be world-readable; tighten it before trusting its secrets.
-    // A read-only mount cannot be changed, so that case is logged rather than stopping startup.
     private fun restrictToOwner(path: Path) {
         if (!supportsPosixPermissions(path)) return
         val ownerOnly = PosixFilePermissions.fromString(OWNER_ONLY_PERMISSIONS)
@@ -116,7 +101,6 @@ class SettingsStore(
         }
     }
 
-    // Written to a sibling file and moved into place, so a crash mid-write never leaves a truncated settings file.
     private fun writeFile(content: String) {
         val directory = settingsFile.toAbsolutePath().parent
         Files.createDirectories(directory)

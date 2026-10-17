@@ -15,12 +15,7 @@ import org.springframework.boot.context.properties.source.ConfigurationPropertyS
 private const val PREFIX_WITH_DOT = SettingsKeys.PREFIX + "."
 private const val UNKNOWN_SETTING_MESSAGE = "is not a recognized setting"
 
-/** Binds [Settings] from property sources with Spring's relaxed binding. */
 internal object SettingsBinder {
-    /**
-     * Binds the settings [file] with [overrides] taking precedence. Unknown keys in the file, such as a misspelt
-     * `connection.prot`, are rejected. Overrides are not checked: the environment holds many unrelated properties.
-     */
     fun bind(
         file: ConfigurationPropertySource?,
         overrides: List<ConfigurationPropertySource> = emptyList(),
@@ -38,7 +33,10 @@ internal object SettingsBinder {
     private fun violations(e: BindException): List<SettingsViolation> {
         val unbound = e.cause as? UnboundConfigurationPropertiesException
         if (unbound != null) {
-            return unbound.unboundProperties.map { SettingsViolation(fieldName(it.name), UNKNOWN_SETTING_MESSAGE) }
+            return unbound.unboundProperties.map {
+                val message = if (it.value?.toString().isNullOrBlank()) BLANK_MESSAGE else UNKNOWN_SETTING_MESSAGE
+                SettingsViolation(fieldName(it.name), message)
+            }
         }
         val type =
             e.target.type

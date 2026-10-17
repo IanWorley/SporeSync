@@ -79,6 +79,21 @@ class SettingsBinderTest {
     }
 
     @Test
+    fun `a blank path is rejected as blank rather than as an unknown key`() {
+        val file = SettingsYaml.parse("connection: { key-path: \"\" }\npaths: { local-dir: \"\" }", SOURCE_NAME)
+
+        val error = assertThrows<InvalidSettingsException> { SettingsBinder.bind(file) }
+
+        assertEquals(
+            listOf(
+                SettingsViolation("connection.key-path", "must not be blank"),
+                SettingsViolation("paths.local-dir", "must not be blank"),
+            ),
+            error.violations,
+        )
+    }
+
+    @Test
     fun `rendered settings bind back to the same values`() {
         val settings = SettingsBinder.bind(SettingsYaml.parse(sampleYaml(), SOURCE_NAME))
 

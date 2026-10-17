@@ -55,10 +55,13 @@ class SettingsStoreTest {
         val notAFile = Files.createDirectory(directory.resolve(SETTINGS_FILE_NAME))
         val before = Files.getPosixFilePermissions(notAFile)
 
-        val error = assertThrows<InvalidSettingsException> { SettingsStore(MockEnvironment(), ignoreEvents, notAFile) }
+        val error = runCatching { SettingsStore(MockEnvironment(), ignoreEvents, notAFile) }.exceptionOrNull()
 
-        assertEquals(listOf(SettingsViolation(SETTINGS_FILE_PROPERTY, "must name a regular file")), error.violations)
         assertEquals(before, Files.getPosixFilePermissions(notAFile))
+        assertEquals(
+            listOf(SettingsViolation(SETTINGS_FILE_PROPERTY, "must name a regular file")),
+            (error as? InvalidSettingsException)?.violations,
+        )
     }
 
     @Test

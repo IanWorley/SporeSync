@@ -10,13 +10,6 @@ import jakarta.persistence.Id
 import jakarta.persistence.Table
 import java.time.Instant
 
-/**
- * One finished transfer. Create entries through [completed] or [failed] so a failure reason is present
- * exactly when the transfer failed.
- *
- * This is history for display only. Whether a file counts as downloaded comes from `filestate`'s marker files,
- * which deliberately live outside the database.
- */
 @Entity
 @Table(name = "transfer_history")
 class TransferHistoryEntry private constructor(

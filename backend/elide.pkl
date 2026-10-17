@@ -42,7 +42,6 @@ kotlin {
     ["org.jetbrains.kotlin.allopen"] {
       ["preset"] = "spring"
     }
-    // JPA entities need a no-arg constructor for Hibernate; this generates one without default values.
     ["org.jetbrains.kotlin.noarg"] {
       ["preset"] = "jpa"
     }

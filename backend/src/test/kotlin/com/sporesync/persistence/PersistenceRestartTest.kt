@@ -18,7 +18,6 @@ private const val DIRECTORY_PROPERTY = "sporesync.persistence.directory"
 private const val DATABASE_FILE = "sporesync.mv.db"
 private val FINISHED_AT: Instant = Instant.parse("2026-01-02T03:04:05Z")
 
-/** Starts the real application against an H2 file in a temporary directory, so each test sees a fresh database. */
 class PersistenceRestartTest {
     @TempDir
     lateinit var dataDir: Path
@@ -48,7 +47,7 @@ class PersistenceRestartTest {
 
     @Test
     fun `records saved before a restart are read back afterwards`() {
-        val connectionHost = SettingKey("connection", "host")
+        val connectionHost = SettingId("connection", "host")
         startApp().use { context ->
             context.getBean(AutoQueuePatternRepository::class.java).save(AutoQueuePattern("*.mkv"))
             context.getBean(TransferHistoryRepository::class.java).saveAll(
@@ -77,7 +76,6 @@ class PersistenceRestartTest {
         }
     }
 
-    // Command-line arguments outrank the test application.yaml, which would otherwise pick its own temp directory.
     private fun startApp(): ConfigurableApplicationContext =
         SpringApplicationBuilder(SporeSyncApplication::class.java)
             .web(WebApplicationType.NONE)

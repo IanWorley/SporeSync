@@ -7,7 +7,6 @@ import jakarta.persistence.GenerationType
 import jakarta.persistence.Id
 import jakarta.persistence.Table
 
-/** A name pattern that the auto-queue matches against new remote files. */
 @Entity
 @Table(name = "autoqueue_pattern")
 class AutoQueuePattern(

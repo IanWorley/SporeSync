@@ -63,7 +63,7 @@ databaseChangeLog:
                   constraints:
                     primaryKey: true
               - column:
-                  name: name
+                  name: setting_key
                   type: VARCHAR
                   constraints:
                     primaryKey: true

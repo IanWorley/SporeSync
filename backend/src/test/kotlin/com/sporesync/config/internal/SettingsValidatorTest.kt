@@ -10,6 +10,7 @@ import com.sporesync.config.TransferSettings
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import org.springframework.util.unit.DataSize
+import java.nio.file.Path
 import java.time.Duration
 
 class SettingsValidatorTest {
@@ -40,6 +41,26 @@ class SettingsValidatorTest {
                 SettingsViolation("transfer.bandwidth-limit", "must be greater than zero"),
                 SettingsViolation("scan.remote-interval", "must be greater than zero"),
             ),
+            SettingsValidator.validate(settings),
+        )
+    }
+
+    @Test
+    fun `an empty key path counts as missing`() {
+        val settings =
+            Settings(
+                connection =
+                    ConnectionSettings(
+                        host = "seedbox.example",
+                        username = "ian",
+                        authMethod = AuthMethod.KEY,
+                        keyPath = Path.of(""),
+                    ),
+                paths = PathSettings(remoteDir = "/done"),
+            )
+
+        assertEquals(
+            listOf(SettingsViolation("connection.key-path", "is required once connection.host is set")),
             SettingsValidator.validate(settings),
         )
     }

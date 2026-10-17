@@ -10,6 +10,7 @@ import org.springframework.boot.context.properties.source.ConfigurationPropertyS
 import org.springframework.context.ApplicationEventPublisher
 import org.springframework.core.env.ConfigurableEnvironment
 import org.springframework.stereotype.Service
+import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
@@ -86,7 +87,22 @@ class SettingsStore(
             log.info("No settings file at {}; using defaults", settingsFile)
             return null
         }
+        restrictToOwner(settingsFile)
         return SettingsYaml.parse(Files.readString(settingsFile), settingsFile.fileName.toString())
+    }
+
+    // A file created by hand or by deployment tooling may be world-readable; tighten it before trusting its secrets.
+    // A read-only mount cannot be changed, so that case is logged rather than stopping startup.
+    private fun restrictToOwner(path: Path) {
+        if (!supportsPosixPermissions(path)) return
+        val ownerOnly = PosixFilePermissions.fromString(OWNER_ONLY_PERMISSIONS)
+        if (Files.getPosixFilePermissions(path) == ownerOnly) return
+        try {
+            Files.setPosixFilePermissions(path, ownerOnly)
+            log.warn("Restricted {} to owner-only permissions because it can hold secrets", path)
+        } catch (e: IOException) {
+            log.warn("Could not restrict {} to owner-only permissions: {}", path, e.javaClass.simpleName)
+        }
     }
 
     // Written to a sibling file and moved into place, so a crash mid-write never leaves a truncated settings file.
@@ -96,9 +112,7 @@ class SettingsStore(
         val temp = Files.createTempFile(directory, settingsFile.fileName.toString(), TEMP_FILE_SUFFIX)
         try {
             Files.writeString(temp, content)
-            if (supportsPosixPermissions(temp)) {
-                Files.setPosixFilePermissions(temp, PosixFilePermissions.fromString(OWNER_ONLY_PERMISSIONS))
-            }
+            restrictToOwner(temp)
             Files.move(temp, settingsFile, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
         } finally {
             Files.deleteIfExists(temp)

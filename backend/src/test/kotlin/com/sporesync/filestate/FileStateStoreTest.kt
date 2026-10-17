@@ -17,6 +17,8 @@ private const val SHOW_DIRECTORY = "shows/series"
 private const val EPISODE = "shows/series/episode.mkv"
 private const val SIBLING_SHOW_DIRECTORY = "shows/series-two"
 private const val NON_ASCII_MOVIE = "movies/amélie.mkv"
+private const val REPLACEMENT_CHARACTER = '\uFFFD'
+private const val MOVIE_ENDING_IN_REPLACEMENT_CHARACTER = "movies/film$REPLACEMENT_CHARACTER"
 
 class FileStateStoreTest {
     @TempDir
@@ -64,6 +66,18 @@ class FileStateStoreTest {
         store.mark(NON_ASCII_MOVIE, FileMarker.DOWNLOADED)
 
         assertEquals(setOf(FileMarker.DOWNLOADED), store.markersOf(NON_ASCII_MOVIE))
+    }
+
+    @Test
+    fun `a marker cut inside a trailing replacement character is not reported`() {
+        val store = FileStateStore(downloadRoot)
+        store.mark(MOVIE_ENDING_IN_REPLACEMENT_CHARACTER, FileMarker.DOWNLOADED)
+        val markerFile = downloadRoot.resolve(STATE_DIRECTORY_NAME).walk().single()
+        val throughFirstByteOfLastCharacter =
+            MOVIE_ENDING_IN_REPLACEMENT_CHARACTER.dropLast(1).toByteArray().size + 1
+        markerFile.writeBytes(markerFile.readBytes().copyOf(throughFirstByteOfLastCharacter))
+
+        assertEquals(emptySet<FileMarker>(), store.markersOf(MOVIE_ENDING_IN_REPLACEMENT_CHARACTER))
     }
 
     @Test

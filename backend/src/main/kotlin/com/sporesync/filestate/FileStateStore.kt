@@ -8,7 +8,7 @@ import kotlin.io.path.createDirectories
 import kotlin.io.path.deleteIfExists
 import kotlin.io.path.isDirectory
 import kotlin.io.path.listDirectoryEntries
-import kotlin.io.path.readText
+import kotlin.io.path.readBytes
 import kotlin.io.path.writeText
 
 /** Directory inside the download root that holds every marker. */
@@ -84,11 +84,14 @@ class FileStateStore(
         return segments.joinToString(PATH_SEPARATOR)
     }
 
-    private fun Path.isCompleteMarkerFor(normalizedPath: String): Boolean = markedPathOrNull() == normalizedPath
+    private fun Path.isCompleteMarkerFor(normalizedPath: String): Boolean =
+        markerBytesOrNull()?.contentEquals(normalizedPath.toByteArray()) == true
 
-    private fun Path.markedPathOrNull(): String? =
+    private fun Path.markedPathOrNull(): String? = markerBytesOrNull()?.decodeToString()
+
+    private fun Path.markerBytesOrNull(): ByteArray? =
         try {
-            readText()
+            readBytes()
         } catch (_: NoSuchFileException) {
             null
         }

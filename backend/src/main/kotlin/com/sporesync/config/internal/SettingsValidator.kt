@@ -14,7 +14,6 @@ private const val MIN_LIMIT = 1
 private const val PORT_RANGE_MESSAGE = "must be between $MIN_PORT and $MAX_PORT"
 private const val MIN_LIMIT_MESSAGE = "must be at least $MIN_LIMIT"
 private const val POSITIVE_MESSAGE = "must be greater than zero"
-private const val NEGATIVE_MESSAGE = "must not be negative"
 private const val REQUIRED_MESSAGE = "is required once connection.host is set"
 private const val BLANK_MESSAGE = "must not be blank"
 
@@ -54,8 +53,10 @@ internal object SettingsValidator {
                     ),
                 )
             }
-            if (transfer.bandwidthLimit?.isNegative == true) {
-                add(SettingsViolation(field(SettingsKeys.TRANSFER, SettingsKeys.BANDWIDTH_LIMIT), NEGATIVE_MESSAGE))
+            // `null` already means unlimited, so a set limit of zero would only stall every transfer.
+            val bandwidthLimit = transfer.bandwidthLimit
+            if (bandwidthLimit != null && bandwidthLimit.toBytes() <= 0) {
+                add(SettingsViolation(field(SettingsKeys.TRANSFER, SettingsKeys.BANDWIDTH_LIMIT), POSITIVE_MESSAGE))
             }
 
             if (!settings.scan.remoteInterval.isPositive()) {

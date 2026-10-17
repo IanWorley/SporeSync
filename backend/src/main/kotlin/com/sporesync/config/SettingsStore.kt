@@ -47,7 +47,7 @@ class SettingsStore(
 
     init {
         val fileSource = readFile()
-        persisted = SettingsBinder.bind(listOfNotNull(fileSource))
+        persisted = SettingsBinder.bind(fileSource)
         effectiveSettings = effective(fileSource)
         log.info("Loaded settings from {}", settingsFile)
     }
@@ -78,7 +78,7 @@ class SettingsStore(
 
     private fun effective(fileSource: ConfigurationPropertySource?): Settings {
         val overrides = ConfigurationPropertySources.from(environment.propertySources)
-        return SettingsValidator.requireValid(SettingsBinder.bind(overrides.toList() + listOfNotNull(fileSource)))
+        return SettingsValidator.requireValid(SettingsBinder.bind(fileSource, overrides.toList()))
     }
 
     private fun readFile(): ConfigurationPropertySource? {

@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: backend-test
+            directory: .
+            run: |
+              elide build
+              elide test
+          - name: backend-format
+            directory: backend
+            run: elide run format-check
+          - name: backend-lint
+            directory: backend
+            run: elide run lint
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - id: elide-version
+        run: printf 'version=%s\n' "$(cat .elideversion)" >> "$GITHUB_OUTPUT"
+      - uses: elide-dev/setup-elide@10fbf30cebffd3538c428369950dc2094137f02b # v4.2.0
+        with:
+          version: ${{ steps.elide-version.outputs.version }}
+          channel: release
+          telemetry: 'false'
+      - run: elide install
+      - run: ${{ matrix.run }}
+        working-directory: ${{ matrix.directory }}

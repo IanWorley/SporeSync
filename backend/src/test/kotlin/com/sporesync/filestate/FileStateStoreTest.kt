@@ -8,13 +8,15 @@ import org.junit.jupiter.api.io.TempDir
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
 import java.nio.file.Path
+import kotlin.io.path.readBytes
 import kotlin.io.path.walk
-import kotlin.io.path.writeText
+import kotlin.io.path.writeBytes
 
 private const val MOVIE = "movies/film.mkv"
 private const val SHOW_DIRECTORY = "shows/series"
 private const val EPISODE = "shows/series/episode.mkv"
 private const val SIBLING_SHOW_DIRECTORY = "shows/series-two"
+private const val NON_ASCII_MOVIE = "movies/amélie.mkv"
 
 class FileStateStoreTest {
     @TempDir
@@ -52,15 +54,16 @@ class FileStateStoreTest {
     @Test
     fun `a marker cut short by a crash is not reported and is repaired by the next mark`() {
         val store = FileStateStore(downloadRoot)
-        store.mark(MOVIE, FileMarker.DOWNLOADED)
+        store.mark(NON_ASCII_MOVIE, FileMarker.DOWNLOADED)
         val markerFile = downloadRoot.resolve(STATE_DIRECTORY_NAME).walk().single()
-        markerFile.writeText(MOVIE.dropLast(1))
+        val throughFirstByteOfAccent = NON_ASCII_MOVIE.substringBefore('é').toByteArray().size + 1
+        markerFile.writeBytes(markerFile.readBytes().copyOf(throughFirstByteOfAccent))
 
-        assertEquals(emptySet<FileMarker>(), store.markersOf(MOVIE))
+        assertEquals(emptySet<FileMarker>(), store.markersOf(NON_ASCII_MOVIE))
 
-        store.mark(MOVIE, FileMarker.DOWNLOADED)
+        store.mark(NON_ASCII_MOVIE, FileMarker.DOWNLOADED)
 
-        assertEquals(setOf(FileMarker.DOWNLOADED), store.markersOf(MOVIE))
+        assertEquals(setOf(FileMarker.DOWNLOADED), store.markersOf(NON_ASCII_MOVIE))
     }
 
     @Test

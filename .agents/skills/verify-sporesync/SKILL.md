@@ -24,6 +24,7 @@ Start an isolated instance:
 ```
 
 - Runs `elide run` in `backend/` with `SERVER_PORT=$SPORESYNC_VERIFY_PORT` (default `18080`, never the app default `8080`) and `SERVER_ADDRESS=$SPORESYNC_VERIFY_BIND` (default `127.0.0.1`). The bind must be `127.0.0.1` or `0.0.0.0`, because readiness and doctor probe `127.0.0.1`. `start` rejects any other value, and any port outside `1`-`65535`, before launching.
+- The app gets a minimal environment: `HOME`, `PATH`, `USER`, `LOGNAME`, `TMPDIR`, `LANG`, `LC_ALL`, and `LC_CTYPE` when set, plus `SERVER_PORT` and `SERVER_ADDRESS`. Ambient Spring settings such as `MANAGEMENT_*`, `SPRING_APPLICATION_JSON`, or the README's `LOGGING_LEVEL_COM_SPORESYNC` debug toggle never reach it, so the run reflects the checkout's own configuration.
 - T3 Preview runs on its own client and reaches this host by its network name, not by loopback. For a run that uses Preview, start with `SPORESYNC_VERIFY_BIND=0.0.0.0`. This is the app's own default bind, so it exposes the health endpoint on the host's networks for the length of the run.
 - Refuses to start if the port is already listening. Use another port for a second instance: `SPORESYNC_VERIFY_PORT=18081 .agents/skills/verify-sporesync/scripts/verify-sporesync.sh start`.
 - Ready means `GET http://127.0.0.1:$PORT/actuator/health` returns `"status":"UP"`. During startup the port first refuses connections, then health can briefly answer `503`. The script waits up to 120 s.

@@ -20,6 +20,9 @@ readonly EXIT_SIGTERM=143
 readonly OWNER_ONLY_MODE=700
 REQUIRED_COMMANDS=(curl git lsof mktemp pgrep ps shasum)
 readonly REQUIRED_COMMANDS
+# Spring binds almost any environment variable to configuration, so the app gets only these.
+LAUNCH_ENV_ALLOWLIST=(HOME PATH USER LOGNAME TMPDIR LANG LC_ALL LC_CTYPE)
+readonly LAUNCH_ENV_ALLOWLIST
 readonly INSTANCE_FILE="instance.env"
 readonly LOG_FILE="app.log"
 readonly EVIDENCE_DIR="evidence"
@@ -207,7 +210,7 @@ track_launch() {
 
 cmd_start() {
   require_commands elide
-  local want have run_dir launcher deadline pid found head tree state chain=()
+  local want have run_dir launcher deadline pid found head tree state name chain=() launch_env=()
   valid_port "$PORT" || die "SPORESYNC_VERIFY_PORT must be a port from 1 to $MAX_PORT, got '$PORT'"
   [[ "$BIND_ADDRESS" =~ $BIND_PATTERN ]] || die "SPORESYNC_VERIFY_BIND must be 127.0.0.1 or 0.0.0.0, the binds the loopback health probe can reach, got '$BIND_ADDRESS'"
   want="$(cat "$REPO_ROOT/.elideversion")"
@@ -228,7 +231,11 @@ cmd_start() {
   trap abort_start EXIT
   trap 'exit $EXIT_SIGINT' INT
   trap 'exit $EXIT_SIGTERM' TERM
-  SERVER_PORT="$PORT" SERVER_ADDRESS="$BIND_ADDRESS" nohup elide run </dev/null >"$run_dir/$LOG_FILE" 2>&1 &
+  for name in "${LAUNCH_ENV_ALLOWLIST[@]}"; do
+    if [ -n "${!name+set}" ]; then launch_env+=("$name=${!name}"); fi
+  done
+  env -i "${launch_env[@]}" SERVER_PORT="$PORT" SERVER_ADDRESS="$BIND_ADDRESS" \
+    nohup elide run </dev/null >"$run_dir/$LOG_FILE" 2>&1 &
   launcher=$!
   STARTING_PIDS=("$launcher")
 

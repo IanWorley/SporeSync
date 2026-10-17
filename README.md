@@ -5,8 +5,12 @@ It is a rewrite of [seedsync](https://github.com/nitrobass24/seedsync). See [doc
 
 ## Requirements
 
-[Elide](https://elide.dev) is the only tool you need. It bundles the JDK and Kotlin compiler, builds the
-backend, and will run the frontend toolchain. Node.js, Gradle, and Maven are not used.
+[Elide](https://elide.dev) bundles the JDK and Kotlin compiler and builds the backend. Gradle and Maven are
+not used.
+
+The frontend also needs [Node.js](https://nodejs.org), at the version in [`frontend/.nvmrc`](frontend/.nvmrc).
+Elide installs its npm packages, but Elide 1.6.0 cannot yet run Vite, Vitest, ESLint, or Prettier, so
+`elide run` hands those scripts to Node.
 
 ```bash
 curl -sSL --tlsv1.2 elide.sh | bash -s -- --channel=release --install-rev=1.6.0
@@ -21,9 +25,8 @@ The Elide version is pinned in [`.elideversion`](.elideversion).
 | `elide.pkl` | Elide workspace root |
 | `backend/` | Kotlin, Spring Boot, Spring Modulith application |
 | `tools/` | ktlint and detekt CLIs, run on Elide's JVM |
+| `frontend/` | TypeScript React app: Vite, TanStack Router, TanStack Query, Tailwind |
 | `docs/` | Specification |
-
-The `frontend/` member (TypeScript React on Vite, run by Elide) is added in a later issue.
 
 ## Build and run
 
@@ -56,6 +59,20 @@ From `backend/`. Each command exits non-zero on a violation.
 elide run format-check   # ktlint, check only
 elide run format         # ktlint, fix in place
 elide run lint           # detekt
+```
+
+## Frontend
+
+From `frontend/`. The check commands exit non-zero on a violation.
+
+```bash
+elide install --ecosystems=npm   # install npm packages
+elide run dev                    # Vite dev server, proxies /api to the backend on :8080
+elide run build                  # type-check and build the static bundle into dist/
+elide run test                   # Vitest
+elide run format-check           # Prettier, check only
+elide run format                 # Prettier, fix in place
+elide run lint                   # TypeScript type-check, then ESLint
 ```
 
 ## Logging

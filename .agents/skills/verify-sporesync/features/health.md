@@ -1,6 +1,6 @@
 # Health check
 
-An operator or orchestrator asks SporeSync whether it is up. `GET /actuator/health` answers `200` with `{"groups":["liveness","readiness"],"status":"UP"}`, and the two groups can be probed on their own. Health is the only exposed actuator endpoint, and every other route answers `404`.
+An operator or orchestrator asks SporeSync whether it is up. `GET /actuator/health` answers `200` with `{"groups":["liveness","readiness"],"status":"UP"}`, and the two groups can be probed on their own. Health is the only exposed actuator endpoint. The `/actuator` index also answers `200`; every other route answers `404`.
 
 ## Sub-features
 

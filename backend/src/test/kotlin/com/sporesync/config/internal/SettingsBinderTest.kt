@@ -31,7 +31,7 @@ class SettingsBinderTest {
             autoqueue: { enabled: false, patterns-only: true }
             """.trimIndent()
 
-        val settings = SettingsBinder.bind(listOfNotNull(SettingsYaml.parse(yaml, SOURCE_NAME)))
+        val settings = SettingsBinder.bind(SettingsYaml.parse(yaml, SOURCE_NAME))
 
         assertEquals(true, settings.general.verbose)
         assertEquals(AuthMethod.KEY, settings.connection.authMethod)
@@ -47,21 +47,21 @@ class SettingsBinderTest {
         val file = SettingsYaml.parse("connection: { port: 2222 }", SOURCE_NAME)
         val environment = environmentSource(mapOf("SPORESYNC_CONNECTION_PORT" to "2200"))
 
-        val settings = SettingsBinder.bind(listOfNotNull(environment, file))
+        val settings = SettingsBinder.bind(file, listOfNotNull(environment))
 
         assertEquals(2200, settings.connection.port)
     }
 
     @Test
     fun `missing values fall back to defaults`() {
-        assertEquals(Settings(), SettingsBinder.bind(emptyList()))
+        assertEquals(Settings(), SettingsBinder.bind(null))
     }
 
     @Test
     fun `a value of the wrong type is rejected with its field name`() {
         val file = SettingsYaml.parse("transfer: { concurrent-file-limit: lots }", SOURCE_NAME)
 
-        val error = assertThrows<InvalidSettingsException> { SettingsBinder.bind(listOfNotNull(file)) }
+        val error = assertThrows<InvalidSettingsException> { SettingsBinder.bind(file) }
 
         assertEquals(
             listOf(SettingsViolation("transfer.concurrent-file-limit", "is not a valid int")),
@@ -70,13 +70,35 @@ class SettingsBinderTest {
     }
 
     @Test
+    fun `an unknown key in the settings file is rejected with its field name`() {
+        val file = SettingsYaml.parse("connection: { prot: 2222 }", SOURCE_NAME)
+
+        val error = assertThrows<InvalidSettingsException> { SettingsBinder.bind(file) }
+
+        assertEquals(listOf(SettingsViolation("connection.prot", "is not a recognized setting")), error.violations)
+    }
+
+    @Test
+    fun `a blank path is rejected as blank rather than as an unknown key`() {
+        val file = SettingsYaml.parse("connection: { key-path: \"\" }\npaths: { local-dir: \"\" }", SOURCE_NAME)
+
+        val error = assertThrows<InvalidSettingsException> { SettingsBinder.bind(file) }
+
+        assertEquals(
+            listOf(
+                SettingsViolation("connection.key-path", "must not be blank"),
+                SettingsViolation("paths.local-dir", "must not be blank"),
+            ),
+            error.violations,
+        )
+    }
+
+    @Test
     fun `rendered settings bind back to the same values`() {
-        val settings = SettingsBinder.bind(listOfNotNull(SettingsYaml.parse(sampleYaml(), SOURCE_NAME)))
+        val settings = SettingsBinder.bind(SettingsYaml.parse(sampleYaml(), SOURCE_NAME))
 
         val roundTripped =
-            SettingsBinder.bind(
-                listOfNotNull(SettingsYaml.parse(SettingsYaml.render(settings), SOURCE_NAME)),
-            )
+            SettingsBinder.bind(SettingsYaml.parse(SettingsYaml.render(settings), SOURCE_NAME))
 
         assertEquals(settings, roundTripped)
     }

@@ -13,10 +13,9 @@ import org.yaml.snakeyaml.Yaml
 import org.yaml.snakeyaml.error.MarkedYAMLException
 
 private const val INVALID_YAML_MESSAGE = "is not valid YAML"
+private const val MULTIPLE_DOCUMENTS_MESSAGE = "must contain a single YAML document"
 
 /**
- * Converts between [Settings] and the settings-file YAML.
- *
  * YAML rather than TOML: Spring Boot already parses YAML for `application.yaml` and ships SnakeYAML, so there is
  * no new dependency and the project keeps one configuration format.
  */
@@ -25,10 +24,6 @@ internal object SettingsYaml {
 
     fun render(settings: Settings): String = yaml.dump(toMap(settings))
 
-    /**
-     * Parses settings-file YAML into a property source that answers for keys under [SettingsKeys.PREFIX], so it
-     * binds alongside environment variables. Returns `null` for an empty document.
-     */
     fun parse(
         content: String,
         sourceName: String,
@@ -42,8 +37,12 @@ internal object SettingsYaml {
                 val position = mark?.let { " at line ${it.line + 1}, column ${it.column + 1}" }.orEmpty()
                 throw InvalidSettingsException(listOf(SettingsViolation(sourceName, INVALID_YAML_MESSAGE + position)))
             }
+        if (sources.size >
+            1
+        ) {
+            throw InvalidSettingsException(listOf(SettingsViolation(sourceName, MULTIPLE_DOCUMENTS_MESSAGE)))
+        }
         val document = sources.firstOrNull() as? EnumerablePropertySource<*> ?: return null
-        // The file holds bare group keys; nest them under the prefix that environment overrides use.
         val prefixed =
             document.propertyNames
                 .mapNotNull { name -> document.getProperty(name)?.let { "${SettingsKeys.PREFIX}.$name" to it } }

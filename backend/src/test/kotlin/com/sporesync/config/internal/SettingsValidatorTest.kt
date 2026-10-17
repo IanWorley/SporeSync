@@ -9,6 +9,7 @@ import com.sporesync.config.SettingsViolation
 import com.sporesync.config.TransferSettings
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
+import org.springframework.util.unit.DataSize
 import java.time.Duration
 
 class SettingsValidatorTest {
@@ -22,7 +23,12 @@ class SettingsValidatorTest {
         val settings =
             Settings(
                 connection = ConnectionSettings(port = 0),
-                transfer = TransferSettings(concurrentFileLimit = 0, perFileConnectionLimit = -1),
+                transfer =
+                    TransferSettings(
+                        concurrentFileLimit = 0,
+                        perFileConnectionLimit = -1,
+                        bandwidthLimit = DataSize.ofBytes(0),
+                    ),
                 scan = ScanSettings(remoteInterval = Duration.ZERO),
             )
 
@@ -31,6 +37,7 @@ class SettingsValidatorTest {
                 SettingsViolation("connection.port", "must be between 1 and 65535"),
                 SettingsViolation("transfer.concurrent-file-limit", "must be at least 1"),
                 SettingsViolation("transfer.per-file-connection-limit", "must be at least 1"),
+                SettingsViolation("transfer.bandwidth-limit", "must be greater than zero"),
                 SettingsViolation("scan.remote-interval", "must be greater than zero"),
             ),
             SettingsValidator.validate(settings),

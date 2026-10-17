@@ -39,8 +39,11 @@ Run the backend from `backend/`:
 
 ```bash
 cd backend
-elide run
+SPORESYNC_PERSISTENCE_DIRECTORY="$PWD/.dev/config" elide run
 ```
+
+The H2 database defaults to `/config`, the Docker volume. Outside Docker that directory usually is not writable,
+so local runs point it at the git-ignored `.dev/config` instead.
 
 The server listens on <http://localhost:8080>. Check it with:
 
@@ -64,5 +67,5 @@ Logs are structured JSON (Elastic Common Schema), one object per line on stdout.
 for SporeSync's own code:
 
 ```bash
-LOGGING_LEVEL_COM_SPORESYNC=DEBUG elide run
+LOGGING_LEVEL_COM_SPORESYNC=DEBUG SPORESYNC_PERSISTENCE_DIRECTORY="$PWD/.dev/config" elide run
 ```

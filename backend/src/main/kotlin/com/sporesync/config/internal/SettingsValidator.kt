@@ -6,6 +6,7 @@ import com.sporesync.config.InvalidSettingsException
 import com.sporesync.config.Settings
 import com.sporesync.config.SettingsViolation
 import com.sporesync.config.internal.SettingsKeys.field
+import java.nio.file.Path
 
 private const val MIN_PORT = 1
 private const val MAX_PORT = 65_535
@@ -31,6 +32,9 @@ internal object SettingsValidator {
 
             if (settings.connection.isConfigured && settings.paths.remoteDir.isBlank()) {
                 add(SettingsViolation(field(SettingsKeys.PATHS, SettingsKeys.REMOTE_DIR), REQUIRED_MESSAGE))
+            }
+            if (settings.paths.localDir.isMissing()) {
+                add(SettingsViolation(field(SettingsKeys.PATHS, SettingsKeys.LOCAL_DIR), BLANK_MESSAGE))
             }
             if (settings.paths.remoteScannerPath.isBlank()) {
                 add(SettingsViolation(field(SettingsKeys.PATHS, SettingsKeys.REMOTE_SCANNER_PATH), BLANK_MESSAGE))
@@ -80,8 +84,7 @@ internal object SettingsValidator {
             }
             when (connection.authMethod) {
                 AuthMethod.KEY -> {
-                    // `key-path: ""` binds to an empty Path (the working directory), which is no key at all.
-                    if (connection.keyPath?.toString().isNullOrEmpty()) {
+                    if (connection.keyPath.isMissing()) {
                         add(SettingsViolation(field(SettingsKeys.CONNECTION, SettingsKeys.KEY_PATH), REQUIRED_MESSAGE))
                     }
                 }
@@ -93,4 +96,7 @@ internal object SettingsValidator {
                 }
             }
         }
+
+    // A blank YAML value binds to an empty Path, which resolves to the working directory rather than failing.
+    private fun Path?.isMissing(): Boolean = this == null || toString().isBlank()
 }

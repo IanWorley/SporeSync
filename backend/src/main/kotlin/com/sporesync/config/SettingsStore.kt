@@ -21,6 +21,7 @@ const val SETTINGS_FILE_PROPERTY = "sporesync.settings-file"
 private const val DEFAULT_SETTINGS_FILE = "/config/settings.yaml"
 private const val TEMP_FILE_SUFFIX = ".tmp"
 private const val POSIX_VIEW = "posix"
+private const val NOT_A_FILE_MESSAGE = "must name a regular file"
 
 // The file can hold the SSH password, so only the owner may read it.
 private const val OWNER_ONLY_PERMISSIONS = "rw-------"
@@ -47,6 +48,7 @@ class SettingsStore(
     private var effectiveSettings: Settings
 
     init {
+        requireRegularFileLocation()
         val fileSource = readFile()
         persisted = SettingsBinder.bind(fileSource)
         effectiveSettings = effective(fileSource)
@@ -80,6 +82,15 @@ class SettingsStore(
     private fun effective(fileSource: ConfigurationPropertySource?): Settings {
         val overrides = ConfigurationPropertySources.from(environment.propertySources)
         return SettingsValidator.requireValid(SettingsBinder.bind(fileSource, overrides.toList()))
+    }
+
+    // Checked before anything touches the path: an empty path is the working directory, and permissions are
+    // tightened on whatever this names, so a directory must never get that far.
+    private fun requireRegularFileLocation() {
+        val isEmpty = settingsFile.toString().isBlank()
+        if (isEmpty || (Files.exists(settingsFile) && !Files.isRegularFile(settingsFile))) {
+            throw InvalidSettingsException(listOf(SettingsViolation(SETTINGS_FILE_PROPERTY, NOT_A_FILE_MESSAGE)))
+        }
     }
 
     private fun readFile(): ConfigurationPropertySource? {

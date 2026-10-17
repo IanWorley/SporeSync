@@ -23,7 +23,8 @@ Start an isolated instance:
 .agents/skills/verify-sporesync/scripts/verify-sporesync.sh start
 ```
 
-- Runs `elide run` in `backend/` with `SERVER_PORT=$SPORESYNC_VERIFY_PORT` (default `18080`, never the app default `8080`) and `SERVER_ADDRESS=127.0.0.1`.
+- Runs `elide run` in `backend/` with `SERVER_PORT=$SPORESYNC_VERIFY_PORT` (default `18080`, never the app default `8080`) and `SERVER_ADDRESS=$SPORESYNC_VERIFY_BIND` (default `127.0.0.1`).
+- T3 Preview runs on its own client and reaches this host by its network name, not by loopback. For a run that uses Preview, start with `SPORESYNC_VERIFY_BIND=0.0.0.0`. This is the app's own default bind, so it exposes the health endpoint on the host's networks for the length of the run.
 - Refuses to start if the port is already listening. Use another port for a second instance: `SPORESYNC_VERIFY_PORT=18081 .agents/skills/verify-sporesync/scripts/verify-sporesync.sh start`.
 - Ready means `GET http://127.0.0.1:$PORT/actuator/health` returns `"status":"UP"`. During startup it briefly returns `503`; the script waits up to 120 s.
 - The last output line is `RUN_DIR=/tmp/verify-sporesync/<timestamp>-<port>`. Keep it; every later step takes it. Override the root with `SPORESYNC_VERIFY_ROOT`.
@@ -51,7 +52,7 @@ curl -sS -D "$RUN_DIR/evidence/health.headers.txt" -o "$RUN_DIR/evidence/health.
   -w '%{http_code}\n' "http://127.0.0.1:$PORT/actuator/health" | tee "$RUN_DIR/evidence/health.status"
 ```
 
-Browser view in T3: call `preview_status`. If no automation-capable tab is attached, call `preview_open`. Then call `preview_navigate` with `url` `http://127.0.0.1:$PORT/actuator/health`, followed by `preview_snapshot` with `save=true`. Copy the returned `screenshotPath` to `$RUN_DIR/evidence/health.png`.
+Browser view in T3 (requires `SPORESYNC_VERIFY_BIND=0.0.0.0`): call `preview_status`. If no automation-capable tab is attached, call `preview_open`. Then call `preview_navigate` with `target` `{"kind":"environment-port","port":$PORT,"path":"/actuator/health"}`, followed by `preview_snapshot` with `save=true`. Copy the returned `screenshotPath` to `$RUN_DIR/evidence/health.png`. A `url` of `http://127.0.0.1:$PORT` points at the Preview client's own loopback, not this host's, so it fails.
 
 Per-feature recipes: [features/README.md](features/README.md).
 
@@ -90,4 +91,4 @@ This sends `TERM` to `APP_PID` and the recorded chain, but only to PIDs whose cw
 | `verify-sporesync.sh doctor RUN_DIR` | Read-only health and ownership check; non-zero on any failure |
 | `verify-sporesync.sh stop RUN_DIR` | Stops exactly the recorded PIDs and keeps evidence |
 
-Environment: `SPORESYNC_VERIFY_PORT` (default `18080`), `SPORESYNC_VERIFY_ROOT` (default `/tmp/verify-sporesync`).
+Environment: `SPORESYNC_VERIFY_PORT` (default `18080`), `SPORESYNC_VERIFY_BIND` (default `127.0.0.1`), `SPORESYNC_VERIFY_ROOT` (default `/tmp/verify-sporesync`). Checks always use `127.0.0.1`, whatever the bind address.

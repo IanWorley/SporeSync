@@ -11,7 +11,9 @@ set -euo pipefail
 
 readonly DEFAULT_PORT=18080
 readonly DEFAULT_ROOT="/tmp/verify-sporesync"
-readonly BIND_ADDRESS="127.0.0.1"
+readonly DEFAULT_BIND_ADDRESS="127.0.0.1"
+# Checks always go through loopback, which reaches both a loopback and an all-interfaces bind.
+readonly CLIENT_ADDRESS="127.0.0.1"
 readonly HEALTH_PATH="/actuator/health"
 readonly STATUS_UP='"status":"UP"'
 readonly HTTP_OK="200"
@@ -28,6 +30,7 @@ REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)"
 BACKEND_DIR="$REPO_ROOT/backend"
 PORT="${SPORESYNC_VERIFY_PORT:-$DEFAULT_PORT}"
 ROOT="${SPORESYNC_VERIFY_ROOT:-$DEFAULT_ROOT}"
+BIND_ADDRESS="${SPORESYNC_VERIFY_BIND:-$DEFAULT_BIND_ADDRESS}"
 
 die() { echo "FAIL: $*" >&2; exit 1; }
 ok() { echo "OK:   $*"; }
@@ -50,7 +53,7 @@ descendants() {
   done
 }
 
-health_url() { echo "http://$BIND_ADDRESS:$1$HEALTH_PATH"; }
+health_url() { echo "http://$CLIENT_ADDRESS:$1$HEALTH_PATH"; }
 
 # Sends TERM to every owned PID, waits, then KILLs exact survivors.
 stop_pids() {
@@ -109,12 +112,13 @@ cmd_start() {
 
   cat >"$run_dir/$INSTANCE_FILE" <<EOF
 PORT=$PORT
+BIND_ADDRESS=$BIND_ADDRESS
 APP_PID=$pid
 LAUNCHER_PID=$launcher
 CHAIN_PIDS="$chain"
 STARTED_HEAD=$(git -C "$REPO_ROOT" rev-parse HEAD)
 EOF
-  ok "SporeSync UP at $(health_url "$PORT") (JVM pid $pid, launcher pid $launcher)"
+  ok "SporeSync UP at $(health_url "$PORT"), bound to $BIND_ADDRESS (JVM pid $pid, launcher pid $launcher)"
   echo "RUN_DIR=$run_dir"
 }
 

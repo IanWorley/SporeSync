@@ -27,11 +27,11 @@ Preconditions:
 - **Readiness.** Run `curl -sS -w '\n%{http_code}\n' "http://127.0.0.1:$PORT/actuator/health/readiness"`. The body is `{"status":"UP"}` and the status is `200`.
 - **Actuator index.** Run `curl -sS "http://127.0.0.1:$PORT/actuator"`. `_links` contains `self`, `health`, and `health-path`, and nothing else.
 - **Not exposed.** Run `curl -sS -o /dev/null -w '%{http_code}\n' "http://127.0.0.1:$PORT/actuator/info"`. The status is `404`.
-- **Browser view.** In T3, call `preview_status`, call `preview_open` if no automation-capable tab is attached, call `preview_navigate` with `url` `http://127.0.0.1:$PORT/actuator/health`, then call `preview_snapshot` with `save=true`. Copy `screenshotPath` to `$RUN_DIR/evidence/health.png`. The page shows the JSON body with `"status":"UP"`.
+- **Browser view.** This requires an instance started with `SPORESYNC_VERIFY_BIND=0.0.0.0`. In T3, call `preview_status`, call `preview_open` if no automation-capable tab is attached, call `preview_navigate` with `target` `{"kind":"environment-port","port":$PORT,"path":"/actuator/health"}`, then call `preview_snapshot` with `save=true`. Copy `screenshotPath` to `$RUN_DIR/evidence/health.png`. The page shows the JSON body with `"status":"UP"`.
 
 ## Gotchas
 
 - During startup the endpoint returns `503` before it returns `UP`. `start` waits for that. Do not treat an early `503` as a failure.
 - A `200` on port `8080` may come from a different SporeSync, such as the user's own `elide run`. Only `$PORT` from `instance.env` counts.
-- The instance binds `127.0.0.1` only. The app default binds all interfaces.
+- The instance binds `127.0.0.1` by default. In that mode, Preview navigation fails because Preview reaches the host by network name. Relaunch with `SPORESYNC_VERIFY_BIND=0.0.0.0` for the browser view.
 - `/`, `/api/*`, and the planned UI routes return `404` today. That is expected, not a regression.

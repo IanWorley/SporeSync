@@ -13,8 +13,8 @@ Today the only shipped user-facing feature is the health endpoint. The map expan
 
 ## Driving conventions
 
-- Address the app as `http://127.0.0.1:$PORT`, never the default `8080`.
-- Use `curl` for status, headers, and body. Use T3 Preview (`preview_navigate`, `preview_snapshot` with `save=true`) for the browser view.
+- Address the app from the shell as `http://127.0.0.1:$PORT`, never the default `8080`.
+- Use `curl` for status, headers, and body. Use T3 Preview (`preview_navigate` with an `environment-port` target, `preview_snapshot` with `save=true`) for the browser view. Preview needs an instance started with `SPORESYNC_VERIFY_BIND=0.0.0.0`.
 - Treat every command as literal.
 - Write artifacts to `$RUN_DIR/evidence/` and name them after the feature ID.
 

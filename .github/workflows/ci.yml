@@ -15,8 +15,6 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # frontend-test, frontend-format, and frontend-lint join this table when the frontend
-        # member lands (#3). docker-build joins as its own job when the Dockerfile lands (#5).
         include:
           - name: backend-test
             directory: .

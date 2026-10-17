@@ -59,7 +59,7 @@ class FileStateStore(
             .filter { it.isDirectory() }
             .flatMap { it.listDirectoryEntries() }
             .filter { markerFile ->
-                val markedPath = markerFile.readText()
+                val markedPath = markerFile.markedPathOrNull() ?: return@filter false
                 markedPath == path || markedPath.startsWith(descendantPrefix)
             }.forEach { it.deleteIfExists() }
     }
@@ -73,7 +73,7 @@ class FileStateStore(
 
     private fun normalize(relativePath: String): String {
         val candidate = Path.of(relativePath)
-        require(!candidate.isAbsolute) { "Path must be relative to the download root: $relativePath" }
+        require(candidate.root == null) { "Path must be relative to the download root: $relativePath" }
 
         val normalized = candidate.normalize()
         val segments = normalized.map(Path::toString)
@@ -84,11 +84,13 @@ class FileStateStore(
         return segments.joinToString(PATH_SEPARATOR)
     }
 
-    private fun Path.isCompleteMarkerFor(normalizedPath: String): Boolean =
+    private fun Path.isCompleteMarkerFor(normalizedPath: String): Boolean = markedPathOrNull() == normalizedPath
+
+    private fun Path.markedPathOrNull(): String? =
         try {
-            readText() == normalizedPath
+            readText()
         } catch (_: NoSuchFileException) {
-            false
+            null
         }
 
     private fun markerName(normalizedPath: String): String {

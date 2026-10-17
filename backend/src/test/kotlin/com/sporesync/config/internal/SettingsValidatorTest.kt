@@ -66,6 +66,16 @@ class SettingsValidatorTest {
     }
 
     @Test
+    fun `an empty local download directory is rejected`() {
+        val settings = Settings(paths = PathSettings(localDir = Path.of("")))
+
+        assertEquals(
+            listOf(SettingsViolation("paths.local-dir", "must not be blank")),
+            SettingsValidator.validate(settings),
+        )
+    }
+
+    @Test
     fun `a configured host requires the credentials for its auth method`() {
         val settings =
             Settings(

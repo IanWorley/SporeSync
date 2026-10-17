@@ -50,6 +50,18 @@ class SettingsStoreTest {
     }
 
     @Test
+    fun `a settings path naming a directory is rejected without changing its permissions`() {
+        assumeTrue(directory.fileSystem.supportedFileAttributeViews().contains(POSIX_VIEW))
+        val notAFile = Files.createDirectory(directory.resolve(SETTINGS_FILE_NAME))
+        val before = Files.getPosixFilePermissions(notAFile)
+
+        val error = assertThrows<InvalidSettingsException> { SettingsStore(MockEnvironment(), ignoreEvents, notAFile) }
+
+        assertEquals(listOf(SettingsViolation(SETTINGS_FILE_PROPERTY, "must name a regular file")), error.violations)
+        assertEquals(before, Files.getPosixFilePermissions(notAFile))
+    }
+
+    @Test
     fun `updates are written to the file and survive a restart`() {
         store().update { it.copy(scan = it.scan.copy(localInterval = Duration.ofSeconds(3))) }
 

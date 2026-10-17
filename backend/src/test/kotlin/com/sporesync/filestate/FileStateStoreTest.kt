@@ -9,10 +9,12 @@ import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
 import java.nio.file.Path
 import kotlin.io.path.walk
+import kotlin.io.path.writeText
 
 private const val MOVIE = "movies/film.mkv"
 private const val SHOW_DIRECTORY = "shows/series"
 private const val EPISODE = "shows/series/episode.mkv"
+private const val SIBLING_SHOW_DIRECTORY = "shows/series-two"
 
 class FileStateStoreTest {
     @TempDir
@@ -38,6 +40,30 @@ class FileStateStoreTest {
     }
 
     @Test
+    fun `marking an already marked file keeps it marked`() {
+        val store = FileStateStore(downloadRoot)
+        store.mark(MOVIE, FileMarker.DOWNLOADED)
+
+        store.mark(MOVIE, FileMarker.DOWNLOADED)
+
+        assertEquals(setOf(FileMarker.DOWNLOADED), store.markersOf(MOVIE))
+    }
+
+    @Test
+    fun `a marker cut short by a crash is not reported and is repaired by the next mark`() {
+        val store = FileStateStore(downloadRoot)
+        store.mark(MOVIE, FileMarker.DOWNLOADED)
+        val markerFile = downloadRoot.resolve(STATE_DIRECTORY_NAME).walk().single()
+        markerFile.writeText(MOVIE.dropLast(1))
+
+        assertEquals(emptySet<FileMarker>(), store.markersOf(MOVIE))
+
+        store.mark(MOVIE, FileMarker.DOWNLOADED)
+
+        assertEquals(setOf(FileMarker.DOWNLOADED), store.markersOf(MOVIE))
+    }
+
+    @Test
     fun `equivalent spellings of a path share markers`() {
         val store = FileStateStore(downloadRoot)
 
@@ -52,14 +78,14 @@ class FileStateStoreTest {
         store.mark(SHOW_DIRECTORY, FileMarker.DOWNLOADED)
         store.mark(EPISODE, FileMarker.EXTRACTED)
         store.mark(MOVIE, FileMarker.DOWNLOADED)
-        store.mark("shows/series-two", FileMarker.DOWNLOADED)
+        store.mark(SIBLING_SHOW_DIRECTORY, FileMarker.DOWNLOADED)
 
         store.clear(SHOW_DIRECTORY)
 
         assertEquals(emptySet<FileMarker>(), store.markersOf(SHOW_DIRECTORY))
         assertEquals(emptySet<FileMarker>(), store.markersOf(EPISODE))
         assertEquals(setOf(FileMarker.DOWNLOADED), store.markersOf(MOVIE))
-        assertEquals(setOf(FileMarker.DOWNLOADED), store.markersOf("shows/series-two"))
+        assertEquals(setOf(FileMarker.DOWNLOADED), store.markersOf(SIBLING_SHOW_DIRECTORY))
     }
 
     @Test

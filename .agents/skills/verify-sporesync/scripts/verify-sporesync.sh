@@ -23,8 +23,9 @@ readonly REQUIRED_COMMANDS
 readonly INSTANCE_FILE="instance.env"
 readonly LOG_FILE="app.log"
 readonly EVIDENCE_DIR="evidence"
-readonly PORT_PATTERN='^[0-9]+$'
-readonly BIND_PATTERN='^[0-9A-Fa-f.:]+$'
+readonly PORT_PATTERN='^[1-9][0-9]{0,4}$'
+readonly MAX_PORT=65535
+readonly BIND_PATTERN='^(127\.0\.0\.1|0\.0\.0\.0)$'
 readonly PROCESS_PATTERN='^[0-9]+@[A-Za-z0-9_:.]+$'
 readonly SHA1_PATTERN='^[0-9a-f]{40}$'
 readonly SHA256_PATTERN='^[0-9a-f]{64}$'
@@ -149,6 +150,8 @@ prepare_root() {
   chmod "$OWNER_ONLY_MODE" "$ROOT"
 }
 
+valid_port() { [[ "$1" =~ $PORT_PATTERN ]] && [ "$1" -le "$MAX_PORT" ]; }
+
 read_field() {
   local value
   value="$(sed -n "s/^$2=//p" "$1" | head -n 1)"
@@ -164,6 +167,7 @@ load_instance() {
   require_private "$run_dir"
   require_private "$file"
   PORT="$(read_field "$file" PORT "$PORT_PATTERN")"
+  valid_port "$PORT" || die "$file has an invalid PORT"
   BIND_ADDRESS="$(read_field "$file" BIND_ADDRESS "$BIND_PATTERN")"
   APP="$(read_field "$file" APP "$PROCESS_PATTERN")"
   read -r -a CHAIN <<<"$(sed -n 's/^CHAIN=//p' "$file" | head -n 1)"
@@ -196,8 +200,8 @@ track_launch() {
 cmd_start() {
   require_commands elide
   local want have run_dir launcher deadline pid found head tree state chain=()
-  [[ "$PORT" =~ $PORT_PATTERN ]] || die "SPORESYNC_VERIFY_PORT must be a port number, got '$PORT'"
-  [[ "$BIND_ADDRESS" =~ $BIND_PATTERN ]] || die "SPORESYNC_VERIFY_BIND must be a numeric IPv4 or IPv6 address, got '$BIND_ADDRESS'"
+  valid_port "$PORT" || die "SPORESYNC_VERIFY_PORT must be a port from 1 to $MAX_PORT, got '$PORT'"
+  [[ "$BIND_ADDRESS" =~ $BIND_PATTERN ]] || die "SPORESYNC_VERIFY_BIND must be 127.0.0.1 or 0.0.0.0, the binds the loopback health probe can reach, got '$BIND_ADDRESS'"
   want="$(cat "$REPO_ROOT/.elideversion")"
   have="$(elide --version)"
   case "$have" in "$want"*) ;; *) die "elide $have does not match .elideversion $want" ;; esac

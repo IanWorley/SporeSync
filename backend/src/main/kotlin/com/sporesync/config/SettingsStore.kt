@@ -71,8 +71,18 @@ class SettingsStore(
         effectiveSettings = updated
         log.info("Saved settings to {}", settingsFile)
 
-        events.publishEvent(ConfigChanged(previous, updated))
+        notify(ConfigChanged(previous, updated))
         return updated
+    }
+
+    // The update is already committed; a failing listener is that listener's bug, not a failed save.
+    @Suppress("TooGenericExceptionCaught")
+    private fun notify(event: ConfigChanged) {
+        try {
+            events.publishEvent(event)
+        } catch (e: RuntimeException) {
+            log.error("A ConfigChanged listener failed after settings were saved", e)
+        }
     }
 
     private fun effective(fileSource: ConfigurationPropertySource?): Settings {

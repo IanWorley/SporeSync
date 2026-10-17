@@ -1,0 +1,12 @@
+amends "elide:project.pkl"
+
+name = "sporesync"
+
+// Elide workspace root. `elide build` and `elide test` here cover every member.
+// The frontend joins as a member when it is scaffolded (issue #3).
+workspace {
+  members {
+    "backend"
+    "tools"
+  }
+}

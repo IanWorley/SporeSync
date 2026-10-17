@@ -1,0 +1,14 @@
+/// Kotlin format and lint CLIs: one place for their versions and installed jar paths.
+module LintTools
+
+local ktlintVersion = "1.8.0"
+local detektVersion = "1.23.8"
+
+/// Shaded ("all") CLI jars, resolved by the `tools` workspace member.
+ktlintCoordinate = "com.pinterest.ktlint:ktlint-cli:\(ktlintVersion):all"
+detektCoordinate = "io.gitlab.arturbosch.detekt:detekt-cli:\(detektVersion):all"
+
+/// Where `elide install` links the jars, relative to the workspace root.
+local m2 = ".dev/dependencies/m2"
+ktlintJar = "\(m2)/com/pinterest/ktlint/ktlint-cli/\(ktlintVersion)/ktlint-cli-\(ktlintVersion)-all.jar"
+detektJar = "\(m2)/io/gitlab/arturbosch/detekt/detekt-cli/\(detektVersion)/detekt-cli-\(detektVersion)-all.jar"

@@ -1,0 +1,16 @@
+amends "elide:project.pkl"
+import "LintTools.pkl"
+
+name = "sporesync-tools"
+description = "Kotlin format and lint CLIs, run on Elide's JVM by the backend's scripts."
+
+// Kept out of the backend project: Elide puts `devPackages` on the Kotlin compiler's
+// classpath, and the shaded detekt jar bundles an older Kotlin compiler that breaks it.
+dependencies {
+  maven {
+    packages {
+      LintTools.ktlintCoordinate
+      LintTools.detektCoordinate
+    }
+  }
+}

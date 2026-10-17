@@ -1,0 +1,93 @@
+---
+name: verify-sporesync
+description: Launch, health-check, drive, capture evidence from, and clean up a real SporeSync backend (Kotlin/Spring Boot on Elide) over HTTP. Use when proving SporeSync behavior in the running app rather than in unit tests.
+---
+
+# Verify SporeSync
+
+SporeSync today is a Spring Boot backend run by Elide 1.6.0 (no Node.js). Its only user-facing route is the operator health check `GET /actuator/health`. The frontend, `/api` routes, and every other feature in `docs/SPEC.md` are planned, not shipped; they return `404`. Mapped features live in [features/README.md](features/README.md); drive only what is mapped there.
+
+All commands run from the repository root. `scripts/verify-sporesync.sh` is relative to this skill directory: `.agents/skills/verify-sporesync/scripts/verify-sporesync.sh`.
+
+## Launch
+
+Prepare the checkout once (resolves Maven dependencies into the ignored `.dev/` directories):
+
+```bash
+elide install && elide build
+```
+
+Start an isolated instance:
+
+```bash
+.agents/skills/verify-sporesync/scripts/verify-sporesync.sh start
+```
+
+- Runs `elide run` in `backend/` with `SERVER_PORT=$SPORESYNC_VERIFY_PORT` (default `18080`, never the app default `8080`) and `SERVER_ADDRESS=127.0.0.1`.
+- Refuses to start if the port is already listening. Use another port for a second instance: `SPORESYNC_VERIFY_PORT=18081 .agents/skills/verify-sporesync/scripts/verify-sporesync.sh start`.
+- Ready means `GET http://127.0.0.1:$PORT/actuator/health` returns `"status":"UP"`. During startup it briefly returns `503`; the script waits up to 120 s.
+- The last output line is `RUN_DIR=/tmp/verify-sporesync/<timestamp>-<port>`. Keep it; every later step takes it. Override the root with `SPORESYNC_VERIFY_ROOT`.
+- `RUN_DIR/instance.env` is the process handle: `APP_PID` (the JVM that owns the port), `LAUNCHER_PID` (`elide run`), and `CHAIN_PIDS` (`elide run` → `elide java` → JVM).
+
+Data isolation: the current backend writes no data. It has no settings file, H2 database, or download directory yet. A run changes only the ignored `.dev/` build output and `RUN_DIR`. Two instances in the same checkout share `.dev/`, so start them one after another, not at the same time.
+
+## Doctor
+
+Read-only. Run it first, and again whenever anything looks off:
+
+```bash
+.agents/skills/verify-sporesync/scripts/verify-sporesync.sh doctor "$RUN_DIR"
+```
+
+It exits `0` only if every recorded PID is alive with cwd `<repo>/backend`, the port's listener is `APP_PID`, the current `HEAD` matches `STARTED_HEAD`, and health returns `200` with `"status":"UP"`. If `HEAD` moved, stop and relaunch, because `elide run` compiles only at startup. Never drive an instance that doctor does not pass, or one this run did not start.
+
+## Drive
+
+The user surface today is an operator's HTTP client or browser hitting the actuator. Use the real port and the real path, not test slices or `@SpringBootTest`.
+
+```bash
+. "$RUN_DIR/instance.env"
+curl -sS -D "$RUN_DIR/evidence/health.headers.txt" -o "$RUN_DIR/evidence/health.json" \
+  -w '%{http_code}\n' "http://127.0.0.1:$PORT/actuator/health" | tee "$RUN_DIR/evidence/health.status"
+```
+
+Browser view in T3: call `preview_status`. If no automation-capable tab is attached, call `preview_open`. Then call `preview_navigate` with `url` `http://127.0.0.1:$PORT/actuator/health`, followed by `preview_snapshot` with `save=true`. Copy the returned `screenshotPath` to `$RUN_DIR/evidence/health.png`.
+
+Per-feature recipes: [features/README.md](features/README.md).
+
+## Evidence
+
+Everything for a run goes under `RUN_DIR`. Cleanup deletes only `instance.env`.
+
+| Path | Contents |
+| --- | --- |
+| `RUN_DIR/app.log` | `elide run` build lines, then ECS JSON logs, one object per line. The `Started SporeSyncApplicationKt` message and `process.pid` identify the instance. |
+| `RUN_DIR/evidence/doctor.txt` | `doctor` output: `verify-sporesync.sh doctor "$RUN_DIR" \| tee "$RUN_DIR/evidence/doctor.txt"` |
+| `RUN_DIR/evidence/<feature>.*` | Status code, headers, and body from Drive, plus the Preview screenshot |
+
+Proof standards:
+
+- Hit the instance doctor verified, on its own port. A response from `8080` or from another checkout proves nothing about this run.
+- Record the request (method, URL), status code, headers, and body, not just a screenshot.
+- Report the `HEAD` SHA from `doctor.txt` with the proof.
+- Do not claim a `docs/SPEC.md` feature works because the spec lists it. It must be in `features/` and observed.
+
+## Cleanup
+
+```bash
+.agents/skills/verify-sporesync/scripts/verify-sporesync.sh stop "$RUN_DIR"
+```
+
+This sends `TERM` to `APP_PID` and the recorded chain, but only to PIDs whose cwd is this checkout's `backend/`. It waits 20 s, sends `KILL` to exact survivors, confirms the port is free, then deletes `instance.env`. Never kill by process name (`pkill java`, `pkill elide`): other Elide or JVM processes may belong to the user. Do not signal only `elide run`, because that orphans the JVM, which keeps the port. Run `stop` after failed attempts too. `start` already stops its own chain if readiness times out. `app.log` and `evidence/` survive cleanup; confirm with `ls "$RUN_DIR/evidence"`.
+
+## Helpers
+
+`scripts/verify-sporesync.sh` (executable, macOS/Linux bash; needs `elide`, `curl`, `lsof`, `pgrep`, `git`):
+
+| Command | Effect |
+| --- | --- |
+| `verify-sporesync.sh start` | Checks that `elide --version` matches `.elideversion`, launches, waits for UP, writes `instance.env`, and prints `RUN_DIR=` |
+| `verify-sporesync.sh doctor RUN_DIR` | Read-only health and ownership check; non-zero on any failure |
+| `verify-sporesync.sh stop RUN_DIR` | Stops exactly the recorded PIDs and keeps evidence |
+
+Environment: `SPORESYNC_VERIFY_PORT` (default `18080`), `SPORESYNC_VERIFY_ROOT` (default `/tmp/verify-sporesync`).

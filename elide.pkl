@@ -3,7 +3,8 @@ amends "elide:project.pkl"
 name = "sporesync"
 
 // Elide workspace root. `elide build` and `elide test` here cover every member.
-// The frontend joins as a member when it is scaffolded (issue #3).
+// The frontend is not a member: Elide 1.6.0 cannot run Vite or Vitest, so `frontend/` uses
+// Vite+ (vp) and bun instead.
 workspace {
   members {
     "backend"

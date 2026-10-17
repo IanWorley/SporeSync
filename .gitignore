@@ -27,3 +27,7 @@ replay_pid*
 .kotlin/
 # Elide build state, outputs, and dependency links
 .dev/
+
+# Frontend dependencies and build output
+node_modules/
+dist/

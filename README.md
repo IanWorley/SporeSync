@@ -5,14 +5,23 @@ It is a rewrite of [seedsync](https://github.com/nitrobass24/seedsync). See [doc
 
 ## Requirements
 
-[Elide](https://elide.dev) is the only tool you need. It bundles the JDK and Kotlin compiler, builds the
-backend, and will run the frontend toolchain. Node.js, Gradle, and Maven are not used.
+[Elide](https://elide.dev) bundles the JDK and Kotlin compiler and builds the backend. Gradle and Maven are
+not used.
 
 ```bash
 curl -sSL --tlsv1.2 elide.sh | bash -s -- --channel=release --install-rev=1.6.0
 ```
 
 The Elide version is pinned in [`.elideversion`](.elideversion).
+
+For now the frontend uses [Vite+](https://viteplus.dev) (`vp`) and [bun](https://bun.sh) instead of Elide,
+because Elide 1.6.0 cannot yet run Vite or Vitest. `vp` installs the Node.js version in
+[`frontend/.node-version`](frontend/.node-version) and the bun version in `frontend/package.json`, so the only
+thing to install by hand is `vp`:
+
+```bash
+curl -fsSL https://vite.plus | bash
+```
 
 ## Layout
 
@@ -21,9 +30,8 @@ The Elide version is pinned in [`.elideversion`](.elideversion).
 | `elide.pkl` | Elide workspace root |
 | `backend/` | Kotlin, Spring Boot, Spring Modulith application |
 | `tools/` | ktlint and detekt CLIs, run on Elide's JVM |
+| `frontend/` | TypeScript React app: Vite+, TanStack Router, TanStack Query, Tailwind |
 | `docs/` | Specification |
-
-The `frontend/` member (TypeScript React on Vite, run by Elide) is added in a later issue.
 
 ## Build and run
 
@@ -56,6 +64,20 @@ From `backend/`. Each command exits non-zero on a violation.
 elide run format-check   # ktlint, check only
 elide run format         # ktlint, fix in place
 elide run lint           # detekt
+```
+
+## Frontend
+
+From `frontend/`. The check commands exit non-zero on a violation.
+
+```bash
+vp install        # install npm packages with bun
+vp dev            # dev server, proxies /api to the backend on :8080
+vp build          # build the static bundle into dist/
+vp test           # Vitest
+vp fmt --check    # Oxfmt, check only
+vp fmt            # Oxfmt, fix in place
+vp lint           # Oxlint with type-aware rules and a full TypeScript type-check
 ```
 
 ## Logging

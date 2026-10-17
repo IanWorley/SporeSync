@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  check:
+  backend:
     name: ${{ matrix.name }}
     runs-on: ubuntu-latest
     strategy:
@@ -39,3 +39,29 @@ jobs:
       - run: elide install
       - run: ${{ matrix.run }}
         working-directory: ${{ matrix.directory }}
+
+  # Elide 1.6.0 cannot run Vite, Vitest, or the lint and format tools, so the frontend uses
+  # Vite+ (vp) on Node, with bun as the package manager, until it can.
+  frontend:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: frontend-test
+            run: vp test run
+          - name: frontend-format
+            run: vp fmt --check
+          - name: frontend-lint
+            run: vp lint
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: voidzero-dev/setup-vp@68f39c78aaf39be468cabd2afb09c162574c84af # v1.21.2
+        with:
+          working-directory: frontend
+          cache: true
+      - run: ${{ matrix.run }}

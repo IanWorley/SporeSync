@@ -54,14 +54,7 @@ curl -sS -D "$RUN_DIR/evidence/health.headers.txt" -o "$RUN_DIR/evidence/health.
 
 Browser view in T3 (requires `SPORESYNC_VERIFY_BIND=0.0.0.0`): call `preview_status`. If no automation-capable tab is attached, call `preview_open`. Then call `preview_navigate` with `target` `{"kind":"environment-port","port":$PORT,"path":"/actuator/health"}`, followed by `preview_snapshot` with `save=true`. Copy the returned `screenshotPath` to `$RUN_DIR/evidence/health.png`. A `url` of `http://127.0.0.1:$PORT` points at the Preview client's own loopback, not this host's, so it fails.
 
-If `preview_snapshot` fails while `preview_evaluate` still works, record the failure. Save the evaluated page as `$RUN_DIR/evidence/health.preview-dom.json` with `href`, `contentType`, and `document.body.innerText`. Then take the screenshot with headless Chrome and a throwaway profile, and label it as a fallback in the report:
-
-```bash
-PROFILE="$(mktemp -d /tmp/verify-sporesync-chrome.XXXXXX)"
-"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --user-data-dir="$PROFILE" \
-  --no-first-run --window-size=1280,400 --screenshot="$RUN_DIR/evidence/health.png" "http://127.0.0.1:$PORT/actuator/health"
-rm -rf "$PROFILE"
-```
+If `preview_snapshot` fails, call `preview_status` and check the tab URL. Confirm the response with `preview_evaluate`. If the URL is wrong, navigate again with the `environment-port` target, wait for text `UP`, and retry the snapshot. If capture still fails, open a fresh Preview tab and repeat once. Save the evaluated URL and body to `$RUN_DIR/evidence/health.preview-dom.json`, report the Preview error, and mark screenshot capture blocked. Do not switch to another browser tool.
 
 Per-feature recipes: [features/README.md](features/README.md).
 

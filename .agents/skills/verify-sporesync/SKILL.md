@@ -27,8 +27,9 @@ Start an isolated instance:
 - T3 Preview runs on its own client and reaches this host by its network name, not by loopback. For a run that uses Preview, start with `SPORESYNC_VERIFY_BIND=0.0.0.0`. This is the app's own default bind, so it exposes the health endpoint on the host's networks for the length of the run.
 - Refuses to start if the port is already listening. Use another port for a second instance: `SPORESYNC_VERIFY_PORT=18081 .agents/skills/verify-sporesync/scripts/verify-sporesync.sh start`.
 - Ready means `GET http://127.0.0.1:$PORT/actuator/health` returns `"status":"UP"`. During startup it briefly returns `503`; the script waits up to 120 s.
-- The last output line is `RUN_DIR=/tmp/verify-sporesync/<timestamp>-<port>`. Keep it; every later step takes it. Override the root with `SPORESYNC_VERIFY_ROOT`.
-- `RUN_DIR/instance.env` is the process handle: `APP_PID` (the JVM that owns the port), `LAUNCHER_PID` (`elide run`), and `CHAIN_PIDS` (`elide run` → `elide java` → JVM).
+- The last output line is `RUN_DIR=/tmp/verify-sporesync/<timestamp>-<port>.<random>`. Keep it; every later step takes it. Override the root with `SPORESYNC_VERIFY_ROOT`. The root is made owner-only (`700`), and `start` refuses a root that is a symlink or owned by another account.
+- Interrupting or failing `start` (Ctrl-C, TERM, timeout) stops everything it launched.
+- `RUN_DIR/instance.env` is the process handle. `APP` is the JVM that owns the port, and `CHAIN` is `elide run` → `elide java` → JVM. Each entry is `PID@start-time`, so a reused PID never matches. `STARTED_HEAD`, `STARTED_STATE` (`clean` or `dirty`), and `STARTED_TREE` (sha256 of HEAD plus uncommitted and untracked changes) record what was compiled. The script parses this file; do not source it. Read the port with `PORT="$(sed -n 's/^PORT=//p' "$RUN_DIR/instance.env")"`.
 
 Data isolation: the current backend writes no data. It has no settings file, H2 database, or download directory yet. A run changes only the ignored `.dev/` build output and `RUN_DIR`. Two instances in the same checkout share `.dev/`, so start them one after another, not at the same time.
 
@@ -40,16 +41,16 @@ Read-only. Run it first, and again whenever anything looks off:
 .agents/skills/verify-sporesync/scripts/verify-sporesync.sh doctor "$RUN_DIR"
 ```
 
-It exits `0` only if every recorded PID is alive with cwd `<repo>/backend`, the port's listener is `APP_PID`, the current `HEAD` matches `STARTED_HEAD`, and health returns `200` with `"status":"UP"`. If `HEAD` moved, stop and relaunch, because `elide run` compiles only at startup. Never drive an instance that doctor does not pass, or one this run did not start.
+It exits `0` only if every recorded process (same PID and start time) is alive with cwd `<repo>/backend`, the port's listener is the `APP` JVM, the working-tree fingerprint still equals `STARTED_TREE`, and health returns `200` with `"status":"UP"`. Any commit or uncommitted edit since launch fails doctor. Stop and relaunch, because `elide run` compiles only at startup. Never drive an instance that doctor does not pass, or one this run did not start.
 
 ## Drive
 
 The user surface today is an operator's HTTP client or browser hitting the actuator. Use the real port and the real path, not test slices or `@SpringBootTest`.
 
 ```bash
-. "$RUN_DIR/instance.env"
-curl -sS -D "$RUN_DIR/evidence/health.headers.txt" -o "$RUN_DIR/evidence/health.json" \
-  -w '%{http_code}\n' "http://127.0.0.1:$PORT/actuator/health" | tee "$RUN_DIR/evidence/health.status"
+PORT="$(sed -n 's/^PORT=//p' "$RUN_DIR/instance.env")"
+(set -o pipefail; curl -sS -D "$RUN_DIR/evidence/health.headers.txt" -o "$RUN_DIR/evidence/health.json" \
+  -w '%{http_code}\n' "http://127.0.0.1:$PORT/actuator/health" | tee "$RUN_DIR/evidence/health.status")
 ```
 
 Browser view in T3 (requires `SPORESYNC_VERIFY_BIND=0.0.0.0`): call `preview_status`. If no automation-capable tab is attached, call `preview_open`. Then call `preview_navigate` with `target` `{"kind":"environment-port","port":$PORT,"path":"/actuator/health"}`, followed by `preview_snapshot` with `save=true`. Copy the returned `screenshotPath` to `$RUN_DIR/evidence/health.png`. A `url` of `http://127.0.0.1:$PORT` points at the Preview client's own loopback, not this host's, so it fails.
@@ -65,14 +66,14 @@ Everything for a run goes under `RUN_DIR`. Cleanup deletes only `instance.env`.
 | Path | Contents |
 | --- | --- |
 | `RUN_DIR/app.log` | `elide run` build lines, then ECS JSON logs, one object per line. The `Started SporeSyncApplicationKt` message and `process.pid` identify the instance. |
-| `RUN_DIR/evidence/doctor.txt` | `doctor` output: `verify-sporesync.sh doctor "$RUN_DIR" \| tee "$RUN_DIR/evidence/doctor.txt"` |
+| `RUN_DIR/evidence/doctor.txt` | `doctor` output: `(set -o pipefail; verify-sporesync.sh doctor "$RUN_DIR" \| tee "$RUN_DIR/evidence/doctor.txt")`. Without `pipefail`, `tee` hides a failing doctor. |
 | `RUN_DIR/evidence/<feature>.*` | Status code, headers, and body from Drive, plus the Preview screenshot |
 
 Proof standards:
 
 - Hit the instance doctor verified, on its own port. A response from `8080` or from another checkout proves nothing about this run.
 - Record the request (method, URL), status code, headers, and body, not just a screenshot.
-- Report the `HEAD` SHA from `doctor.txt` with the proof.
+- Report the `HEAD` SHA and the `clean`/`dirty` state from `doctor.txt` with the proof. A `dirty` run proves the uncommitted tree identified by its tree sha256, not the bare HEAD.
 - Do not claim a `docs/SPEC.md` feature works because the spec lists it. It must be in `features/` and observed.
 
 ## Cleanup
@@ -81,7 +82,7 @@ Proof standards:
 .agents/skills/verify-sporesync/scripts/verify-sporesync.sh stop "$RUN_DIR"
 ```
 
-This sends `TERM` to `APP_PID` and the recorded chain, but only to PIDs whose cwd is this checkout's `backend/`. It waits 20 s, sends `KILL` to exact survivors, confirms the port is free, then deletes `instance.env`. Never kill by process name (`pkill java`, `pkill elide`): other Elide or JVM processes may belong to the user. Do not signal only `elide run`, because that orphans the JVM, which keeps the port. Run `stop` after failed attempts too. `start` already stops its own chain if readiness times out. `app.log` and `evidence/` survive cleanup; confirm with `ls "$RUN_DIR/evidence"`.
+This sends `TERM` to the recorded `APP` and `CHAIN` processes, but only to those whose PID, start time, and cwd (this checkout's `backend/`) all still match. It waits 20 s, sends `KILL` to exact survivors, confirms the port is free, then deletes `instance.env`. Never kill by process name (`pkill java`, `pkill elide`): other Elide or JVM processes may belong to the user. Do not signal only `elide run`, because that orphans the JVM, which keeps the port. Run `stop` after failed attempts too. `start` already stops its own chain if it fails or is interrupted. `app.log` and `evidence/` survive cleanup; confirm with `ls "$RUN_DIR/evidence"`.
 
 ## Helpers
 
@@ -90,7 +91,7 @@ This sends `TERM` to `APP_PID` and the recorded chain, but only to PIDs whose cw
 | Command | Effect |
 | --- | --- |
 | `verify-sporesync.sh start` | Checks that `elide --version` matches `.elideversion`, launches, waits for UP, writes `instance.env`, and prints `RUN_DIR=` |
-| `verify-sporesync.sh doctor RUN_DIR` | Read-only health and ownership check; non-zero on any failure |
+| `verify-sporesync.sh doctor RUN_DIR` | Read-only health, ownership, and working-tree check; non-zero on any failure |
 | `verify-sporesync.sh stop RUN_DIR` | Stops exactly the recorded PIDs and keeps evidence |
 
 Environment: `SPORESYNC_VERIFY_PORT` (default `18080`), `SPORESYNC_VERIFY_BIND` (default `127.0.0.1`), `SPORESYNC_VERIFY_ROOT` (default `/tmp/verify-sporesync`). Checks always use `127.0.0.1`, whatever the bind address.

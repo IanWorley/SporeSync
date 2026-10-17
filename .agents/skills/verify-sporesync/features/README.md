@@ -8,7 +8,7 @@ Today the only shipped user-facing feature is the health endpoint. The map expan
 
 - Start an instance with `.agents/skills/verify-sporesync/scripts/verify-sporesync.sh start` and keep the printed `RUN_DIR`.
 - `.agents/skills/verify-sporesync/scripts/verify-sporesync.sh doctor "$RUN_DIR"` exits `0`.
-- Load the handle with `. "$RUN_DIR/instance.env"` so `$PORT` names this run's port.
+- Read this run's port with `PORT="$(sed -n 's/^PORT=//p' "$RUN_DIR/instance.env")"`. Do not source `instance.env`.
 - Never drive an instance that this run did not start.
 
 ## Driving conventions
@@ -22,7 +22,7 @@ Today the only shipped user-facing feature is the health endpoint. The map expan
 
 - HTTP proof includes the request URL, status code, response headers, and body.
 - Browser proof is a saved Preview screenshot that shows the URL's response.
-- Report the `HEAD` SHA from doctor output with every proof.
+- Report the `HEAD` SHA and `clean`/`dirty` state from doctor output with every proof.
 - Report an unreachable path with the attempted command and the unmet precondition. Do not report it as verified through a different path.
 
 ## Feature entry contract

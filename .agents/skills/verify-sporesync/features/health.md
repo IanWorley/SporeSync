@@ -20,9 +20,9 @@ An operator or orchestrator asks SporeSync whether it is up. `GET /actuator/heal
 Preconditions:
 
 - `verify-sporesync.sh doctor "$RUN_DIR"` exits `0`.
-- `. "$RUN_DIR/instance.env"` has set `$PORT`.
+- `PORT="$(sed -n 's/^PORT=//p' "$RUN_DIR/instance.env")"` has set `$PORT`.
 
-- **Aggregate health.** Request the endpoint. Run `curl -sS -D "$RUN_DIR/evidence/health.headers.txt" -o "$RUN_DIR/evidence/health.json" -w '%{http_code}\n' "http://127.0.0.1:$PORT/actuator/health" | tee "$RUN_DIR/evidence/health.status"`. Status is `200`, `Content-Type` is `application/vnd.spring-boot.actuator.v3+json`, and the body is `{"groups":["liveness","readiness"],"status":"UP"}`.
+- **Aggregate health.** Request the endpoint. Run `(set -o pipefail; curl -sS -D "$RUN_DIR/evidence/health.headers.txt" -o "$RUN_DIR/evidence/health.json" -w '%{http_code}\n' "http://127.0.0.1:$PORT/actuator/health" | tee "$RUN_DIR/evidence/health.status")`. Status is `200`, `Content-Type` is `application/vnd.spring-boot.actuator.v3+json`, and the body is `{"groups":["liveness","readiness"],"status":"UP"}`.
 - **Liveness.** Run `curl -sS -w '\n%{http_code}\n' "http://127.0.0.1:$PORT/actuator/health/liveness"`. The body is `{"status":"UP"}` and the status is `200`.
 - **Readiness.** Run `curl -sS -w '\n%{http_code}\n' "http://127.0.0.1:$PORT/actuator/health/readiness"`. The body is `{"status":"UP"}` and the status is `200`.
 - **Actuator index.** Run `curl -sS "http://127.0.0.1:$PORT/actuator"`. `_links` contains `self`, `health`, and `health-path`, and nothing else.

@@ -132,19 +132,21 @@ class TransferQueue internal constructor(
             }
 
         /** Publishes [event] unless the transfer already ended. Returns whether this call ended it. */
-        fun finish(event: Any): Boolean =
-            synchronized(this) {
-                if (finished) return false
-                synchronized(lifecycle) {
-                    if (executor.isShutdown) {
-                        finished = true
-                        return false
+        fun finish(event: Any): Boolean {
+            val shouldPublish =
+                synchronized(this) {
+                    if (finished) {
+                        false
+                    } else {
+                        synchronized(lifecycle) {
+                            finished = true
+                            !executor.isShutdown
+                        }
                     }
-                    finished = true
-                    events.publishEvent(event)
-                    true
                 }
-            }
+            if (shouldPublish) events.publishEvent(event)
+            return shouldPublish
+        }
 
         fun stop() {
             synchronized(this) {

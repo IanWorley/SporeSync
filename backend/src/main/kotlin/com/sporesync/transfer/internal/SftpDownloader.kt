@@ -47,7 +47,11 @@ internal class SftpDownloader(
     @Value("\${$KNOWN_HOSTS_FILE_PROPERTY:$DEFAULT_KNOWN_HOSTS_FILE}") knownHostsFile: Path,
 ) : Downloader,
     AutoCloseable {
-    private val pool = SshConnectionPool { SshConnection.open(it, knownHostsFile) }
+    private val pool =
+        SshConnectionPool(
+            { SshConnection.open(it, knownHostsFile) },
+            { settings.current.transfer.concurrentFileLimit },
+        )
     private val limiter =
         BandwidthLimiter({
             settings.current.transfer.bandwidthLimit
@@ -68,8 +72,10 @@ internal class SftpDownloader(
         var reusable = false
         try {
             val remotePath = current.paths.remoteDir.trimEnd('/') + REMOTE_SEPARATOR + path
+            val localTarget = localRoot.resolve(path).normalize()
+            requireLocalChild(localTarget, path, localRoot)
             validateRemoteAncestors(connection.sftp, current.paths.remoteDir, path)
-            val files = plan(connection.sftp, remotePath, localRoot.resolve(path), localRoot)
+            val files = plan(connection.sftp, remotePath, localTarget, localRoot)
             progress.start(files.sumOf { it.size }, files.sumOf { it.resumeOffset })
             files.forEach { download(connection.sftp, it, progress) }
             reusable = true

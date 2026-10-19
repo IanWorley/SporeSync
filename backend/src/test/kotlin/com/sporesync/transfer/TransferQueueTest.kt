@@ -4,6 +4,7 @@ import com.sporesync.config.SettingsStore
 import com.sporesync.transfer.internal.Downloader
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -162,6 +163,38 @@ class TransferQueueTest {
 
         assertTrue(interrupted.await(TIMEOUT.toMillis(), TimeUnit.MILLISECONDS))
         assertEquals(listOf<Any>(TransferFailed("failing", FAILURE_MESSAGE)), events.all())
+    }
+
+    @Test
+    fun `closing the queue can interrupt a blocked terminal event listener`() {
+        val listenerEntered = CountDownLatch(1)
+        val listenerInterrupted = CountDownLatch(1)
+        val releaseListener = CountDownLatch(1)
+        val blockingPublisher =
+            ApplicationEventPublisher { event ->
+                if (event is TransferCompleted) {
+                    listenerEntered.countDown()
+                    try {
+                        releaseListener.await()
+                    } catch (e: InterruptedException) {
+                        listenerInterrupted.countDown()
+                    }
+                }
+            }
+        val queue = queue({ _, _ -> }, CONCURRENT_LIMIT, blockingPublisher)
+        queue.enqueue("a")
+        assertTrue(listenerEntered.await(TIMEOUT.toMillis(), TimeUnit.MILLISECONDS))
+
+        val closer = Thread(queue::close)
+        closer.start()
+        try {
+            assertTrue(listenerInterrupted.await(TIMEOUT.toMillis(), TimeUnit.MILLISECONDS))
+            closer.join(TIMEOUT.toMillis())
+            assertFalse(closer.isAlive)
+        } finally {
+            releaseListener.countDown()
+            closer.join(TIMEOUT.toMillis())
+        }
     }
 
     @Test

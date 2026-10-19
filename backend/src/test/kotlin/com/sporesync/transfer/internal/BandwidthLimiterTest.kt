@@ -1,6 +1,7 @@
 package com.sporesync.transfer.internal
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import java.util.concurrent.TimeUnit
@@ -18,7 +19,8 @@ class BandwidthLimiterTest {
         repeat(3) { limiter.acquire(HALF_A_SECOND_OF_BYTES) }
 
         val halfSecond = TimeUnit.MILLISECONDS.toNanos(500)
-        assertEquals(listOf(halfSecond, halfSecond), ticker.sleeps)
+        assertEquals(2 * halfSecond, ticker.sleeps.sum())
+        assertTrue(ticker.sleeps.all { it <= TimeUnit.MILLISECONDS.toNanos(100) })
     }
 
     @Test
@@ -41,6 +43,31 @@ class BandwidthLimiterTest {
         limiter.acquire(HALF_A_SECOND_OF_BYTES)
 
         assertEquals(emptyList<Long>(), ticker.sleeps)
+    }
+
+    @Test
+    fun `disabling the cap during a wait releases the waiting chunk`() {
+        var rate: Long? = BYTES_PER_SECOND
+        val changingTicker =
+            object : Ticker {
+                var now = 0L
+                val sleeps = mutableListOf<Long>()
+
+                override fun nanoTime(): Long = now
+
+                override fun sleep(nanos: Long) {
+                    sleeps += nanos
+                    now += nanos
+                    rate = null
+                }
+            }
+        val limiter = BandwidthLimiter({ rate }, changingTicker)
+        limiter.acquire(HALF_A_SECOND_OF_BYTES)
+
+        limiter.acquire(HALF_A_SECOND_OF_BYTES)
+
+        assertEquals(1, changingTicker.sleeps.size)
+        assertTrue(changingTicker.sleeps.single() <= TimeUnit.MILLISECONDS.toNanos(100))
     }
 
     @Test
@@ -69,6 +96,7 @@ class BandwidthLimiterTest {
         assertThrows<InterruptedException> { limiter.acquire(HALF_A_SECOND_OF_BYTES) }
         limiter.acquire(HALF_A_SECOND_OF_BYTES)
 
-        assertEquals(listOf(halfSecond, halfSecond), interruptedTicker.sleeps)
+        assertTrue(interruptedTicker.sleeps.first() <= TimeUnit.MILLISECONDS.toNanos(100))
+        assertEquals(halfSecond, interruptedTicker.sleeps.drop(1).sum())
     }
 }

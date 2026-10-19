@@ -83,22 +83,20 @@ internal class SshConnection private constructor(
     }
 }
 
-/**
- * Keeps idle SSH connections for reuse, so each transfer skips the handshake. The pool holds no upper bound of its
- * own: every connection is held by a transfer worker, and the queue already caps workers at the concurrent limit.
- */
+/** Keeps up to the current transfer concurrency limit of idle SSH connections for reuse. */
 internal class SshConnectionPool(
     private val connect: (ConnectionSettings) -> SshConnection,
+    private val maxIdleConnections: () -> Int,
 ) : AutoCloseable {
     private val idle = ConcurrentLinkedDeque<SshConnection>()
+    private val lock = Any()
 
-    @Volatile
     private var closed = false
 
     /** Reuses an idle connection opened with the same [settings], closing stale ones on the way. */
     fun borrow(settings: ConnectionSettings): SshConnection {
         while (true) {
-            val connection = idle.pollFirst() ?: return connect(settings)
+            val connection = synchronized(lock) { idle.pollFirst() } ?: return connect(settings)
             if (connection.settings == settings && connection.isConnected) return connection
             connection.close()
         }
@@ -109,17 +107,26 @@ internal class SshConnectionPool(
         connection: SshConnection,
         reusable: Boolean,
     ) {
-        if (reusable && !closed) idle.offerFirst(connection) else connection.close()
-        // A close() racing with the offer above may have missed this connection.
-        if (closed) evictIdle()
+        val toClose = mutableListOf<SshConnection>()
+        synchronized(lock) {
+            if (!reusable || closed) {
+                toClose += connection
+            } else {
+                idle.offerFirst(connection)
+                while (idle.size > maxIdleConnections()) {
+                    idle.pollLast()?.let(toClose::add)
+                }
+            }
+        }
+        toClose.forEach(SshConnection::close)
     }
 
     override fun close() {
-        closed = true
-        evictIdle()
-    }
-
-    private fun evictIdle() {
-        generateSequence { idle.pollFirst() }.forEach { it.close() }
+        val toClose =
+            synchronized(lock) {
+                closed = true
+                generateSequence { idle.pollFirst() }.toList()
+            }
+        toClose.forEach(SshConnection::close)
     }
 }

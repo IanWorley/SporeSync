@@ -37,6 +37,18 @@ internal class ProgressTracker(
         publish(TransferProgress(path, transferred, totalBytes, bytesPerSecond = 0, eta = null))
     }
 
+    /** Corrects the planned resume total when a partial file changed before its download began. */
+    fun reconcileResume(
+        plannedOffset: Long,
+        actualOffset: Long,
+    ) {
+        if (plannedOffset == actualOffset) return
+        transferred += actualOffset - plannedOffset
+        lastPublishNanos = ticker.nanoTime()
+        lastPublishBytes = transferred
+        publish(TransferProgress(path, transferred, totalBytes, bytesPerSecond = 0, eta = null))
+    }
+
     fun advance(bytes: Int) {
         transferred += bytes
         val now = ticker.nanoTime()

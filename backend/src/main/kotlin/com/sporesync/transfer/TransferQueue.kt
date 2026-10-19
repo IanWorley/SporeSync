@@ -117,7 +117,12 @@ class TransferQueue internal constructor(
         val path: String,
     ) {
         private var finished = false
+
+        @Volatile
         private var worker: Thread? = null
+
+        @Volatile
+        private var stopRequested = false
 
         /** Claims the transfer for the current worker thread. False when it was stopped while still queued. */
         fun begin(): Boolean =
@@ -135,7 +140,7 @@ class TransferQueue internal constructor(
         fun finish(event: Any): Boolean {
             val shouldPublish =
                 synchronized(this) {
-                    if (finished) {
+                    if (finished || (stopRequested && event !is TransferStopped)) {
                         false
                     } else {
                         synchronized(lifecycle) {
@@ -149,6 +154,8 @@ class TransferQueue internal constructor(
         }
 
         fun stop() {
+            stopRequested = true
+            worker?.interrupt()
             synchronized(this) {
                 if (finished) return
                 val running = worker

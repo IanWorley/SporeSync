@@ -42,4 +42,14 @@ class ProgressTrackerTest {
             published.last(),
         )
     }
+
+    @Test
+    fun `corrects resumed bytes when the partial file changed after planning`() {
+        tracker.start(TOTAL_BYTES, RESUMED_BYTES)
+
+        tracker.reconcileResume(RESUMED_BYTES, RESUMED_BYTES / 2)
+
+        assertEquals(RESUMED_BYTES / 2, published.last().bytesTransferred)
+        assertEquals(0L, published.last().bytesPerSecond)
+    }
 }

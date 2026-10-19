@@ -143,6 +143,38 @@ class TransferQueueTest {
     }
 
     @Test
+    fun `stop interrupts a blocked progress listener before waiting for the transfer lock`() {
+        val listenerEntered = CountDownLatch(1)
+        val listenerInterrupted = CountDownLatch(1)
+        val blockingPublisher =
+            ApplicationEventPublisher { event ->
+                events.publishEvent(event)
+                if (event is TransferProgress) {
+                    listenerEntered.countDown()
+                    try {
+                        CountDownLatch(1).await()
+                    } catch (e: InterruptedException) {
+                        listenerInterrupted.countDown()
+                    }
+                }
+            }
+        val queue =
+            queue(
+                { _, progress -> progress.start(1, 0) },
+                CONCURRENT_LIMIT,
+                blockingPublisher,
+            )
+        queue.enqueue("a")
+        assertTrue(listenerEntered.await(TIMEOUT.toMillis(), TimeUnit.MILLISECONDS))
+
+        queue.stop("a")
+
+        assertTrue(listenerInterrupted.await(TIMEOUT.toMillis(), TimeUnit.MILLISECONDS))
+        assertEquals(listOf(TransferStopped("a")), events.ofType<TransferStopped>())
+        assertTrue(events.ofType<TransferCompleted>().isEmpty())
+    }
+
+    @Test
     fun `closing the queue interrupts downloads without reporting them as failed`() {
         // An interrupted file write surfaces as ClosedByInterruptException, not InterruptedException.
         val queue =

@@ -53,10 +53,11 @@ curl http://localhost:8080/actuator/health   # {"groups":["liveness","readiness"
 SporeSync connects only to a seedbox whose host key is in an OpenSSH `known_hosts` file, by default
 `/config/known_hosts` on the config volume. An unknown or changed key fails the transfer, and the reason
 names the file. Set `SPORESYNC_KNOWN_HOSTS_FILE` to use another path. To trust a server, append its key and
-check the fingerprint against one from the seedbox provider:
+check the fingerprint against one from the seedbox provider. Set `SSH_PORT` to the port configured in
+`connection.port` before running the scan:
 
 ```bash
-ssh-keyscan -p 22 seedbox.example.com >> /config/known_hosts
+ssh-keyscan -p "$SSH_PORT" seedbox.example.com >> /config/known_hosts
 ssh-keygen -lf /config/known_hosts
 ```
 

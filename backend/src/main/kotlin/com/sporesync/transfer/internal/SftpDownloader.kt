@@ -31,8 +31,6 @@ private data class PlannedFile(
     val size: Long,
     val localSize: Long?,
 ) {
-    val isComplete: Boolean get() = localSize == size
-
     val resumeOffset: Long get() = localSize?.takeIf { it <= size } ?: 0L
 }
 
@@ -125,7 +123,7 @@ internal class SftpDownloader(
                     FileMode.Type.FIFO_SPECIAL,
                     -> Unit
 
-                    FileMode.Type.UNKNOWN -> throw unknownRemoteEntry(child.path)
+                    FileMode.Type.UNKNOWN -> throw IOException("Could not determine type of remote entry ${child.path}")
                 }
             }
         }
@@ -139,9 +137,6 @@ internal class SftpDownloader(
     ) {
         if (!localChild.startsWith(localRoot)) throw IOException("Remote name $remoteName escapes $localRoot")
     }
-
-    private fun unknownRemoteEntry(remotePath: String): IOException =
-        IOException("Could not determine type of remote entry $remotePath")
 
     private fun checkNotInterrupted() {
         if (Thread.currentThread().isInterrupted) throw InterruptedException()
@@ -176,21 +171,33 @@ internal class SftpDownloader(
         file: PlannedFile,
         progress: ProgressTracker,
     ) {
-        if (file.isComplete) return
-
-        sftp.open(file.remotePath).use { remote ->
-            val input = remote.ReadAheadRemoteFileInputStream(READ_AHEAD_REQUESTS, file.resumeOffset)
-            input.use {
-                FileChannel.open(file.localPath, StandardOpenOption.CREATE, StandardOpenOption.WRITE).use { output ->
-                    output.truncate(file.resumeOffset)
-                    output.position(file.resumeOffset)
-                    copy(input, output, progress)
-                }
+        FileChannel.open(file.localPath, StandardOpenOption.CREATE, StandardOpenOption.WRITE).use { output ->
+            val resumeOffset = output.size().takeIf { it <= file.size } ?: 0L
+            progress.reconcileResume(file.resumeOffset, resumeOffset)
+            output.truncate(resumeOffset)
+            if (resumeOffset < file.size) {
+                copyFile(sftp, file, output, resumeOffset, progress)
             }
         }
         val downloaded = Files.size(file.localPath)
         if (downloaded != file.size) {
             throw IOException("${file.remotePath} changed size during download: $downloaded of ${file.size} bytes")
+        }
+    }
+
+    private fun copyFile(
+        sftp: SFTPClient,
+        file: PlannedFile,
+        output: FileChannel,
+        resumeOffset: Long,
+        progress: ProgressTracker,
+    ) {
+        sftp.open(file.remotePath).use { remote ->
+            val input = remote.ReadAheadRemoteFileInputStream(READ_AHEAD_REQUESTS, resumeOffset)
+            input.use {
+                output.position(resumeOffset)
+                copy(input, output, progress)
+            }
         }
     }
 

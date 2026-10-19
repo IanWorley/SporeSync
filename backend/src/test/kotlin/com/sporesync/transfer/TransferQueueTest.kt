@@ -83,6 +83,19 @@ class TransferQueueTest {
     }
 
     @Test
+    fun `enqueuing overlapping paths does nothing`() {
+        val queue = queue(blockingDownloader, CONCURRENT_LIMIT)
+        queue.enqueue("a")
+        assertEquals("a", nextStart())
+
+        queue.enqueue("a/child")
+        release.countDown()
+        events.await<TransferCompleted>(TIMEOUT) { it.path == "a" }
+
+        assertNull(started.poll(QUIET_PERIOD.toMillis(), TimeUnit.MILLISECONDS))
+    }
+
+    @Test
     fun `stopping a queued transfer publishes TransferStopped and never runs it`() {
         val queue = queue(blockingDownloader, 1)
         queue.enqueue("a")
@@ -164,7 +177,7 @@ class TransferQueueTest {
     fun `paths are normalized and must stay under the remote root`() {
         val queue = queue({ _, _ -> }, CONCURRENT_LIMIT)
 
-        listOf("", "/", "/etc/passwd", "../outside", "show/../../outside", "./show").forEach { path ->
+        listOf("", "   ", "/", "/etc/passwd", "../outside", "show/../../outside", "./show").forEach { path ->
             assertThrows<IllegalArgumentException>(path) { queue.enqueue(path) }
         }
         queue.enqueue("show//season-1/")

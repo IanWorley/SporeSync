@@ -36,6 +36,7 @@ class TransferQueue internal constructor(
 
     /** Queued and in-flight transfers by normalized path. A path is removed once no worker can touch its files. */
     private val transfers = ConcurrentHashMap<String, Transfer>()
+    private val lifecycle = Any()
 
     private val executor: ThreadPoolExecutor =
         settings.current.transfer.concurrentFileLimit.let { limit ->
@@ -52,7 +53,12 @@ class TransferQueue internal constructor(
      */
     fun enqueue(path: String) {
         val transfer = Transfer(normalize(path))
-        if (transfers.putIfAbsent(transfer.path, transfer) == null) executor.execute { run(transfer) }
+        synchronized(transfers) {
+            if (transfers.keys.none { pathsOverlap(it, transfer.path) }) {
+                transfers[transfer.path] = transfer
+                executor.execute { run(transfer) }
+            }
+        }
     }
 
     /** Stops [path] whether queued or in flight, and publishes [TransferStopped]. Partial files are kept. */
@@ -78,7 +84,9 @@ class TransferQueue internal constructor(
 
     /** Interrupts every transfer without publishing events; partial files stay on disk for the next run. */
     override fun close() {
-        executor.shutdownNow()
+        synchronized(lifecycle) {
+            executor.shutdownNow()
+        }
         executor.awaitTermination(SHUTDOWN_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS)
     }
 
@@ -127,9 +135,15 @@ class TransferQueue internal constructor(
         fun finish(event: Any): Boolean =
             synchronized(this) {
                 if (finished) return false
-                finished = true
-                events.publishEvent(event)
-                true
+                synchronized(lifecycle) {
+                    if (executor.isShutdown) {
+                        finished = true
+                        return false
+                    }
+                    finished = true
+                    events.publishEvent(event)
+                    true
+                }
             }
 
         fun stop() {
@@ -139,8 +153,13 @@ class TransferQueue internal constructor(
                 if (running != null) {
                     running.interrupt()
                 } else {
-                    // Still queued: no worker will reach end(), so free the path now.
-                    transfers.remove(path, this)
+                    // Still queued: no worker will reach end(), so free the path after its stop event.
+                    try {
+                        finish(TransferStopped(path))
+                    } finally {
+                        synchronized(transfers) { transfers.remove(path, this) }
+                    }
+                    return
                 }
                 finish(TransferStopped(path))
             }
@@ -150,7 +169,7 @@ class TransferQueue internal constructor(
         fun end() {
             synchronized(this) {
                 worker = null
-                transfers.remove(path, this)
+                synchronized(transfers) { transfers.remove(path, this) }
                 // Clears a stop that landed after the download ended, so it cannot leak into the thread's next task.
                 Thread.interrupted()
             }
@@ -160,11 +179,17 @@ class TransferQueue internal constructor(
     private companion object {
         fun normalize(path: String): String {
             val segments = path.split(PATH_SEPARATOR).filter { it.isNotEmpty() }
-            require(!path.startsWith(PATH_SEPARATOR) && segments.isNotEmpty()) {
+            require(!path.isBlank() && !path.startsWith(PATH_SEPARATOR) && segments.isNotEmpty()) {
                 "Transfer path must be relative to the remote root: $path"
             }
             require(segments.none { it in ILLEGAL_SEGMENTS }) { "Transfer path must not contain . or ..: $path" }
             return segments.joinToString(PATH_SEPARATOR)
         }
+
+        private fun pathsOverlap(
+            first: String,
+            second: String,
+        ): Boolean =
+            first == second || first.startsWith("$second$PATH_SEPARATOR") || second.startsWith("$first$PATH_SEPARATOR")
     }
 }

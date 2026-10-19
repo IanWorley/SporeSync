@@ -15,6 +15,8 @@ import java.util.concurrent.ConcurrentLinkedDeque
 
 private const val CONNECT_TIMEOUT_SECONDS = 30L
 private val CONNECT_TIMEOUT: Duration = Duration.ofSeconds(CONNECT_TIMEOUT_SECONDS)
+private const val SOCKET_TIMEOUT_SECONDS = 30L
+private val SOCKET_TIMEOUT: Duration = Duration.ofSeconds(SOCKET_TIMEOUT_SECONDS)
 private const val NOT_CONFIGURED_MESSAGE = "SSH connection is not configured"
 
 private val log = LoggerFactory.getLogger(SshConnection::class.java)
@@ -47,6 +49,7 @@ internal class SshConnection private constructor(
                 // SSHJ treats a missing file as empty and rejects unknown or changed keys.
                 client.addHostKeyVerifier(OpenSSHKnownHosts(knownHostsFile.toFile()))
                 client.connectTimeout = CONNECT_TIMEOUT.toMillis().toInt()
+                client.timeout = SOCKET_TIMEOUT.toMillis().toInt()
                 connect(client, settings, knownHostsFile)
                 when (settings.authMethod) {
                     AuthMethod.PASSWORD -> {

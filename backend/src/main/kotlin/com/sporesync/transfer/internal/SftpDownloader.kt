@@ -68,6 +68,7 @@ internal class SftpDownloader(
         var reusable = false
         try {
             val remotePath = current.paths.remoteDir.trimEnd('/') + REMOTE_SEPARATOR + path
+            validateRemoteAncestors(connection.sftp, current.paths.remoteDir, path)
             val files = plan(connection.sftp, remotePath, localRoot.resolve(path), localRoot)
             progress.start(files.sumOf { it.size }, files.sumOf { it.resumeOffset })
             files.forEach { download(connection.sftp, it, progress) }
@@ -98,23 +99,61 @@ internal class SftpDownloader(
         val files = mutableListOf<PlannedFile>()
         val pending = ArrayDeque(listOf(remoteRoot to localTarget))
         while (pending.isNotEmpty()) {
+            checkNotInterrupted()
             val (remoteDir, localDir) = pending.removeFirst()
             Files.createDirectories(localDir)
             for (child in sftp.ls(remoteDir)) {
+                checkNotInterrupted()
                 val localChild = localDir.resolve(child.name).normalize()
                 // A name from the server must never point outside the download directory.
-                if (!localChild.startsWith(localRoot)) throw IOException("Remote name ${child.name} escapes $localRoot")
+                requireLocalChild(localChild, child.name, localRoot)
                 when (child.attributes.type) {
                     FileMode.Type.DIRECTORY -> pending += child.path to localChild
 
                     FileMode.Type.REGULAR -> files += planFile(child.path, localChild, child.attributes.size)
 
-                    // Symlinks and special files are not mirrored.
-                    else -> Unit
+                    FileMode.Type.SYMLINK,
+                    FileMode.Type.SOCKET_SPECIAL,
+                    FileMode.Type.CHAR_SPECIAL,
+                    FileMode.Type.BLOCK_SPECIAL,
+                    FileMode.Type.FIFO_SPECIAL,
+                    -> Unit
+
+                    FileMode.Type.UNKNOWN -> throw unknownRemoteEntry(child.path)
                 }
             }
         }
         return files
+    }
+
+    private fun requireLocalChild(
+        localChild: Path,
+        remoteName: String,
+        localRoot: Path,
+    ) {
+        if (!localChild.startsWith(localRoot)) throw IOException("Remote name $remoteName escapes $localRoot")
+    }
+
+    private fun unknownRemoteEntry(remotePath: String): IOException =
+        IOException("Could not determine type of remote entry $remotePath")
+
+    private fun checkNotInterrupted() {
+        if (Thread.currentThread().isInterrupted) throw InterruptedException()
+    }
+
+    private fun validateRemoteAncestors(
+        sftp: SFTPClient,
+        remoteRoot: String,
+        relativePath: String,
+    ) {
+        var ancestor = remoteRoot.trimEnd('/')
+        for (segment in relativePath.split(REMOTE_SEPARATOR).dropLast(1)) {
+            checkNotInterrupted()
+            ancestor += REMOTE_SEPARATOR + segment
+            val type = sftp.lstat(ancestor).type
+            if (type == FileMode.Type.SYMLINK) throw IOException("Remote path ancestor $ancestor is a symlink")
+            if (type != FileMode.Type.DIRECTORY) throw IOException("Remote path ancestor $ancestor is not a directory")
+        }
     }
 
     private fun planFile(

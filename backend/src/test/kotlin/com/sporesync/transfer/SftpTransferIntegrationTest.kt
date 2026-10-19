@@ -48,6 +48,7 @@ private const val SHRINKING = "shrinking.bin"
 private const val EMPTY = "empty.bin"
 private const val SYMLINK = "hostname-link"
 private const val SYMLINK_TARGET = "/etc/hostname"
+private const val SYMLINK_ANCESTOR = "outside-link"
 private const val STALE_CONTENT = "stale"
 private val REMOTE_FILES: Map<String, Int> =
     mapOf(
@@ -177,6 +178,16 @@ class SftpTransferIntegrationTest {
 
         assertEquals(SYMLINK, failure.path)
         assertFalse(Files.exists(downloads.resolve(SYMLINK)))
+    }
+
+    @Test
+    fun `a queued path through a remote symlink ancestor is refused`() {
+        exec("ln", "-sfn", "/etc", "$REMOTE_DIR/$SYMLINK_ANCESTOR")
+
+        val failure = downloadExpectingFailure("$SYMLINK_ANCESTOR/hostname", trustedKnownHosts())
+
+        assertEquals("$SYMLINK_ANCESTOR/hostname", failure.path)
+        assertFalse(Files.exists(downloads.resolve(SYMLINK_ANCESTOR)))
     }
 
     private fun downloadExpectingFailure(

@@ -1,0 +1,74 @@
+databaseChangeLog:
+  - changeSet:
+      id: 0001-autoqueue-pattern
+      author: sporesync
+      changes:
+        - createTable:
+            tableName: autoqueue_pattern
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+              - column:
+                  name: pattern
+                  type: VARCHAR
+                  constraints:
+                    nullable: false
+                    unique: true
+                    uniqueConstraintName: uq_autoqueue_pattern_pattern
+  - changeSet:
+      id: 0001-transfer-history
+      author: sporesync
+      changes:
+        - createTable:
+            tableName: transfer_history
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+              - column:
+                  name: path
+                  type: VARCHAR
+                  constraints:
+                    nullable: false
+              - column:
+                  name: outcome
+                  type: VARCHAR
+                  constraints:
+                    nullable: false
+              - column:
+                  name: finished_at
+                  type: TIMESTAMP WITH TIME ZONE
+                  constraints:
+                    nullable: false
+              - column:
+                  name: failure_reason
+                  type: VARCHAR
+  - changeSet:
+      id: 0001-settings-cache
+      author: sporesync
+      changes:
+        - createTable:
+            tableName: settings_cache
+            columns:
+              - column:
+                  name: section
+                  type: VARCHAR
+                  constraints:
+                    primaryKey: true
+              - column:
+                  name: setting_key
+                  type: VARCHAR
+                  constraints:
+                    primaryKey: true
+              - column:
+                  name: setting_value
+                  type: VARCHAR
+                  constraints:
+                    nullable: false

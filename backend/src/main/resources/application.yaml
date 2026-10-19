@@ -1,6 +1,18 @@
+sporesync:
+  persistence:
+    directory: /config
+    database-name: sporesync
+
 spring:
   application:
     name: sporesync
+  datasource:
+    # Spring closes the database on shutdown, not H2's JVM hook.
+    url: jdbc:h2:file:${sporesync.persistence.directory}/${sporesync.persistence.database-name};DB_CLOSE_ON_EXIT=FALSE
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
 
 logging:
   structured:

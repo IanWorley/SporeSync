@@ -118,7 +118,8 @@ class TransferQueue internal constructor(
     ) {
         private var finished = false
 
-        @Volatile
+        // Separate from the event lock so stop can interrupt a listener holding that lock.
+        private val workerOwnership = Any()
         private var worker: Thread? = null
 
         @Volatile
@@ -127,7 +128,9 @@ class TransferQueue internal constructor(
         /** Claims the transfer for the current worker thread. False when it was stopped while still queued. */
         fun begin(): Boolean =
             synchronized(this) {
-                if (!finished) worker = Thread.currentThread()
+                if (!finished) {
+                    synchronized(workerOwnership) { worker = Thread.currentThread() }
+                }
                 !finished
             }
 
@@ -155,10 +158,10 @@ class TransferQueue internal constructor(
 
         fun stop() {
             stopRequested = true
-            worker?.interrupt()
+            synchronized(workerOwnership) { worker?.interrupt() }
             synchronized(this) {
                 if (finished) return
-                val running = worker
+                val running = synchronized(workerOwnership) { worker }
                 if (running != null) {
                     running.interrupt()
                 } else {
@@ -177,10 +180,12 @@ class TransferQueue internal constructor(
         /** Frees the path once the worker is done with it, so a new enqueue never shares files with this one. */
         fun end() {
             synchronized(this) {
-                worker = null
+                synchronized(workerOwnership) {
+                    worker = null
+                    // Clear the final stop interrupt before this worker can start another transfer.
+                    Thread.interrupted()
+                }
                 synchronized(transfers) { transfers.remove(path, this) }
-                // Clears a stop that landed after the download ended, so it cannot leak into the thread's next task.
-                Thread.interrupted()
             }
         }
     }

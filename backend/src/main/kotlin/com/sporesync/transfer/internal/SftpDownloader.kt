@@ -10,8 +10,10 @@ import java.io.InputStream
 import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
 import java.nio.file.Files
+import java.nio.file.LinkOption.NOFOLLOW_LINKS
 import java.nio.file.Path
-import java.nio.file.StandardOpenOption
+import java.nio.file.StandardOpenOption.CREATE
+import java.nio.file.StandardOpenOption.WRITE
 
 /** Bytes per read and write; also the granularity at which stop and the bandwidth cap take effect. */
 private const val CHUNK_BYTES = 32 * 1024
@@ -75,7 +77,10 @@ internal class SftpDownloader(
             validateRemoteAncestors(connection.sftp, current.paths.remoteDir, path)
             val files = plan(connection.sftp, remotePath, localTarget, localRoot)
             progress.start(files.sumOf { it.size }, files.sumOf { it.resumeOffset })
-            files.forEach { download(connection.sftp, it, progress) }
+            files.forEach {
+                requireLocalChild(it.localPath, it.remotePath, localRoot)
+                download(connection.sftp, it, progress)
+            }
             reusable = true
         } finally {
             pool.release(connection, reusable)
@@ -136,6 +141,11 @@ internal class SftpDownloader(
         localRoot: Path,
     ) {
         if (!localChild.startsWith(localRoot)) throw IOException("Remote name $remoteName escapes $localRoot")
+        var current: Path? = localChild
+        while (current != null && current.startsWith(localRoot)) {
+            if (Files.isSymbolicLink(current)) throw IOException("Local path $current is a symlink")
+            current = current.parent
+        }
     }
 
     private fun checkNotInterrupted() {
@@ -162,7 +172,7 @@ internal class SftpDownloader(
         localPath: Path,
         size: Long,
     ): PlannedFile {
-        val localSize = if (Files.isRegularFile(localPath)) Files.size(localPath) else null
+        val localSize = if (Files.isRegularFile(localPath, NOFOLLOW_LINKS)) Files.size(localPath) else null
         return PlannedFile(remotePath, localPath, size, localSize)
     }
 
@@ -171,7 +181,7 @@ internal class SftpDownloader(
         file: PlannedFile,
         progress: ProgressTracker,
     ) {
-        FileChannel.open(file.localPath, StandardOpenOption.CREATE, StandardOpenOption.WRITE).use { output ->
+        FileChannel.open(file.localPath, CREATE, WRITE, NOFOLLOW_LINKS).use { output ->
             val resumeOffset = output.size().takeIf { it <= file.size } ?: 0L
             progress.reconcileResume(file.resumeOffset, resumeOffset)
             output.truncate(resumeOffset)

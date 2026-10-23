@@ -190,6 +190,41 @@ class SftpTransferIntegrationTest {
         assertFalse(Files.exists(downloads.resolve(SYMLINK_ANCESTOR)))
     }
 
+    @Test
+    fun `a local symlink target cannot truncate an outside file`() {
+        exec("touch", "$REMOTE_DIR/$EMPTY")
+        Files.createDirectories(downloads)
+        val outside = Files.writeString(directory.resolve("outside.txt"), STALE_CONTENT)
+        Files.createSymbolicLink(downloads.resolve(EMPTY), outside)
+
+        val events = RecordingEvents()
+        transferQueue(settings(bandwidthLimit = null), events) { queue ->
+            queue.enqueue(EMPTY)
+            events.awaitAny(TIMEOUT, "terminal event") { it is TransferCompleted || it is TransferFailed }
+        }
+
+        assertEquals(STALE_CONTENT, Files.readString(outside))
+        assertEquals(listOf(EMPTY), events.ofType<TransferFailed>().map { it.path })
+        assertEquals(emptyList<TransferCompleted>(), events.ofType<TransferCompleted>())
+    }
+
+    @Test
+    fun `a local symlink ancestor cannot create files outside the download directory`() {
+        Files.createDirectories(downloads)
+        val outside = Files.createDirectory(directory.resolve("outside"))
+        Files.createSymbolicLink(downloads.resolve(TREE), outside)
+
+        val events = RecordingEvents()
+        transferQueue(settings(bandwidthLimit = null), events) { queue ->
+            queue.enqueue(TREE)
+            events.awaitAny(TIMEOUT, "terminal event") { it is TransferCompleted || it is TransferFailed }
+        }
+
+        Files.list(outside).use { assertEquals(emptyList<Path>(), it.toList()) }
+        assertEquals(listOf(TREE), events.ofType<TransferFailed>().map { it.path })
+        assertEquals(emptyList<TransferCompleted>(), events.ofType<TransferCompleted>())
+    }
+
     private fun downloadExpectingFailure(
         path: String,
         knownHosts: Path,

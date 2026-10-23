@@ -50,6 +50,7 @@ private const val SYMLINK = "hostname-link"
 private const val SYMLINK_TARGET = "/etc/hostname"
 private const val SYMLINK_ANCESTOR = "outside-link"
 private const val STALE_CONTENT = "stale"
+private const val MOUNTED_DOWNLOADS = "mounted-downloads"
 private val REMOTE_FILES: Map<String, Int> =
     mapOf(
         "$TREE/season-1/episode-1.bin" to DataSize.ofMegabytes(2).toBytes().toInt(),
@@ -152,6 +153,22 @@ class SftpTransferIntegrationTest {
         }
 
         assertEquals(0L, Files.size(downloads.resolve(EMPTY)))
+    }
+
+    @Test
+    fun `a download directory that is itself a symlink still receives downloads`() {
+        exec("touch", "$REMOTE_DIR/$EMPTY")
+        val mounted = Files.createDirectories(directory.resolve(MOUNTED_DOWNLOADS))
+        Files.createSymbolicLink(downloads, mounted)
+        val events = RecordingEvents()
+
+        transferQueue(settings(bandwidthLimit = null), events) { queue ->
+            queue.enqueue(EMPTY)
+            events.awaitAny(TIMEOUT, "terminal event") { it is TransferCompleted || it is TransferFailed }
+        }
+
+        assertEquals(listOf(EMPTY), events.ofType<TransferCompleted>().map { it.path })
+        assertTrue(Files.isRegularFile(mounted.resolve(EMPTY)))
     }
 
     @Test

@@ -142,7 +142,8 @@ internal class SftpDownloader(
     ) {
         if (!localChild.startsWith(localRoot)) throw IOException("Remote name $remoteName escapes $localRoot")
         var current: Path? = localChild
-        while (current != null && current.startsWith(localRoot)) {
+        // The root itself may be a link, as a mounted download directory often is; only what is below it is checked.
+        while (current != null && current != localRoot && current.startsWith(localRoot)) {
             if (Files.isSymbolicLink(current)) throw IOException("Local path $current is a symlink")
             current = current.parent
         }

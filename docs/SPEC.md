@@ -114,7 +114,7 @@ Merges remote and local trees into one `ModelFile` tree. Each file has a state: 
 File-based record of which files have been downloaded or extracted, stored as marker files under a `.sporesync` directory inside the local download dir. Pure Kotlin, no database. This is deliberately file-based so the state survives a reset of H2 and matches seedsync behavior.
 
 **transfer**
-Native SFTP download queue built on SSHJ. Maintains a pool of SSH connections. Downloads up to N files concurrently (`concurrentFiles`), and splits each file into up to M byte-range segments downloaded over separate SFTP channels (`connectionsPerFile`). Supports resume by checking existing partial file size, pause/stop of an in-flight transfer, and a global bandwidth cap. Publishes `TransferProgress` (bytes, speed, ETA) at a throttled rate and `TransferCompleted` or `TransferFailed`.
+Native SFTP download queue built on SSHJ. Maintains a pool of SSH connections. Downloads up to N files concurrently (`concurrentFiles`), and splits each file into up to M byte-range segments downloaded over separate SFTP channels (`connectionsPerFile`). Supports resume by checking existing partial file size, pause/stop of an in-flight transfer, and a global bandwidth cap. Publishes `TransferProgress` (bytes, speed, ETA) at a throttled rate and `TransferCompleted` or `TransferFailed`. Verifies the server's host key against an OpenSSH `known_hosts` file (`/config/known_hosts` by default) and refuses unknown or changed keys.
 
 **extract**
 Subscribes to `TransferCompleted` and to explicit extract requests from the API. Detects archives by extension and magic bytes, including multi-part RAR sets and nested archives inside directories. Extracts with Commons Compress or junrar into the file's own directory. Publishes `Extracted` and records the result in `filestate`. Optionally deletes the archive afterwards per config.
@@ -170,7 +170,7 @@ A single Python 3 file with no third-party dependencies. Invoked as `python3 sca
 
 - Dockerfile based on the Elide image. Build stage uses Elide to compile the Kotlin backend and to run the Vite build for the frontend; final image runs Elide with the backend and serves the bundle. No Node.js in any stage.
 - Local development: `elide` runs the backend and the Vite dev server with hot reload; the dev server proxies `/api` to the backend.
-- Volumes: `/config` (settings file, H2 data) and `/downloads` (local directory).
+- Volumes: `/config` (settings file, `known_hosts`, H2 data) and `/downloads` (local directory).
 - Environment variables override settings file values using Spring's relaxed binding.
 - Health endpoint at `/actuator/health`.
 - Structured JSON logging with a debug toggle in settings.

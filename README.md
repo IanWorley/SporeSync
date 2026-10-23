@@ -48,6 +48,22 @@ The server listens on <http://localhost:8080>. Check it with:
 curl http://localhost:8080/actuator/health   # {"groups":["liveness","readiness"],"status":"UP"}
 ```
 
+## SSH host keys
+
+SporeSync connects only to a seedbox whose host key is in an OpenSSH `known_hosts` file, by default
+`/config/known_hosts` on the config volume. An unknown or changed key fails the transfer, and the reason
+names the file. Set `SPORESYNC_KNOWN_HOSTS_FILE` to use another path. To trust a server, append its key and
+check the fingerprint against one from the seedbox provider. Set `SSH_PORT` to the port configured in
+`connection.port` before running the scan:
+
+```bash
+ssh-keyscan -p "$SSH_PORT" seedbox.example.com >> /config/known_hosts
+ssh-keygen -lf /config/known_hosts
+```
+
+You can also copy the matching lines from your own `~/.ssh/known_hosts`. The file is read on every connection,
+so no restart is needed.
+
 ## Format and lint
 
 From `backend/`. Each command exits non-zero on a violation.

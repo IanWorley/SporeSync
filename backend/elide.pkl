@@ -10,6 +10,8 @@ local springModulithVersion = "2.1.1"
 local kotlinVersion = "2.4.21"
 // Matches `jackson.version.annotations` in the Jackson 3 BOM that Spring Boot uses.
 local jacksonAnnotationsVersion = "2.21"
+local sshjVersion = "0.41.2"
+local testcontainersVersion = "2.0.5"
 
 // Paths in LintTools are relative to the workspace root, one level up.
 local workspaceRoot = ".."
@@ -52,12 +54,15 @@ dependencies {
   maven {
     packages {
       "org.springframework.modulith:spring-modulith-starter-core:\(springModulithVersion)"
+      "com.hierynomus:sshj:\(sshjVersion)"
     }
     testPackages {
       "org.springframework.modulith:spring-modulith-starter-test:\(springModulithVersion)"
       // Modulith docs pull in Structurizr, which pins jackson-annotations 2.20. Elide resolves nearest-first
       // without Spring Boot's BOM, so pin the version Jackson 3 needs or Spring's JSON converters fail to load.
       "com.fasterxml.jackson.core:jackson-annotations:\(jacksonAnnotationsVersion)"
+      // Starts a throwaway SSH server for the transfer integration test.
+      "org.testcontainers:testcontainers:\(testcontainersVersion)"
     }
     kotlinPlugins {
       "org.jetbrains.kotlin:kotlin-allopen-compiler-plugin:\(kotlinVersion)"

@@ -12,6 +12,8 @@ local kotlinVersion = "2.4.21"
 local jacksonAnnotationsVersion = "2.21"
 local sshjVersion = "0.41.2"
 local testcontainersVersion = "2.0.5"
+// Matches `h2.version` in the Spring Boot BOM.
+local h2Version = "2.4.240"
 
 // Paths in LintTools are relative to the workspace root, one level up.
 local workspaceRoot = ".."
@@ -42,19 +44,23 @@ kotlin {
     ["org.jetbrains.kotlin.allopen"] {
       ["preset"] = "spring"
     }
+    ["org.jetbrains.kotlin.noarg"] {
+      ["preset"] = "jpa"
+    }
   }
 }
 
 dependencies {
   spring {
     version = springBootVersion
-    starter { "web"; "actuator" }
+    starter { "web"; "actuator"; "data-jpa"; "liquibase" }
     testStarter { "test" }
   }
   maven {
     packages {
       "org.springframework.modulith:spring-modulith-starter-core:\(springModulithVersion)"
       "com.hierynomus:sshj:\(sshjVersion)"
+      "com.h2database:h2:\(h2Version)"
     }
     testPackages {
       "org.springframework.modulith:spring-modulith-starter-test:\(springModulithVersion)"
@@ -66,6 +72,7 @@ dependencies {
     }
     kotlinPlugins {
       "org.jetbrains.kotlin:kotlin-allopen-compiler-plugin:\(kotlinVersion)"
+      "org.jetbrains.kotlin:kotlin-noarg-compiler-plugin:\(kotlinVersion)"
     }
   }
 }

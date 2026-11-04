@@ -199,17 +199,21 @@ private fun hostKeyFingerprintMd5(key: PublicKey): String = SecurityUtils.getFin
 private fun normalizeExpectedFingerprint(fingerprint: String): String {
     val normalized = fingerprint.trim()
     return when {
-        normalized.startsWith(SHA_256_PREFIX, ignoreCase = true) ->
+        normalized.startsWith(SHA_256_PREFIX, ignoreCase = true) -> {
             SHA_256_PREFIX + normalized.substringAfter(':')
+        }
 
-        normalized.startsWith("MD5:", ignoreCase = true) ->
+        normalized.startsWith("MD5:", ignoreCase = true) -> {
             normalized.substringAfter(':').lowercase()
+        }
 
-        normalized.contains(':') ->
+        normalized.contains(':') -> {
             normalized.lowercase()
+        }
 
-        else ->
+        else -> {
             SHA_256_PREFIX + normalized
+        }
     }
 }
 

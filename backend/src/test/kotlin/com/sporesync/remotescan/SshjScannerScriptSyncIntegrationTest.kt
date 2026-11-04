@@ -25,7 +25,8 @@ private const val SSH_PORT = 2222
 private const val SSH_USER = "sporesync"
 private const val SSH_PASSWORD = "sporesync-test"
 private const val READY_LOG = ".*\\[ls.io-init\\] done.*"
-private const val REMOTE_SCANNER = "/data/.sporesync/scanner.py"
+private const val REMOTE_SCANNER = "/tmp/.sporesync/scanner.py"
+private const val LARGE_TREE_ROOT = "/tmp/huge-tree"
 
 class SshjScannerScriptSyncIntegrationTest {
     @TempDir
@@ -35,7 +36,7 @@ class SshjScannerScriptSyncIntegrationTest {
     fun `uploads then skips then reuploads when remote copy changes`() {
         val sync = ScannerScriptSync(EmbeddedScannerScript())
         openConnection(knownHostsFile = trustedKnownHosts()).use { connection ->
-            connection.run("rm -rf /data/.sporesync").requireSuccess("clear remote scanner")
+            connection.run("rm -rf /tmp/.sporesync").requireSuccess("clear remote scanner")
 
             val first = sync.ensureCurrent(connection, REMOTE_SCANNER)
             val second = sync.ensureCurrent(connection, REMOTE_SCANNER)
@@ -100,7 +101,7 @@ class SshjScannerScriptSyncIntegrationTest {
                     """
                     python3 - <<'PY'
                     from pathlib import Path
-                    root = Path('/data/huge')
+                    root = Path('$LARGE_TREE_ROOT')
                     root.mkdir(parents=True, exist_ok=True)
                     for d in range(80):
                         folder = root / f'd{d:03d}'
@@ -114,7 +115,7 @@ class SshjScannerScriptSyncIntegrationTest {
 
             val result =
                 assertTimeoutPreemptively(Duration.ofSeconds(30)) {
-                    connection.run("python3 $REMOTE_SCANNER /data/huge")
+                    connection.run("python3 $REMOTE_SCANNER $LARGE_TREE_ROOT")
                 }
 
             result.requireSuccess("scan huge tree")

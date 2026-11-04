@@ -8,6 +8,10 @@ description = "Kotlin format and lint CLIs, run on Elide's JVM by the backend's 
 // classpath, and the shaded detekt jar bundles an older Kotlin compiler that breaks it.
 dependencies {
   maven {
+    enableDefaultRepositories = false
+    repositories {
+      ["central"] = "https://repo.maven.apache.org/maven2"
+    }
     packages {
       LintTools.ktlintCoordinate
       LintTools.detektCoordinate

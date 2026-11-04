@@ -1,6 +1,9 @@
 spring:
   application:
     name: sporesync
+  web:
+    resources:
+      static-locations: classpath:/static/,file:${SPORESYNC_FRONTEND_DIST:../frontend/dist}/
 
 logging:
   structured:

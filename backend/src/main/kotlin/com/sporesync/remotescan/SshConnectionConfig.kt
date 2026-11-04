@@ -16,6 +16,8 @@ data class SshConnectionConfig(
     val authMethod: SshAuthMethod,
     val password: String? = null,
     val keyPath: Path? = null,
+    val knownHostsFile: Path? = null,
+    val hostKeyFingerprint: String? = null,
 ) {
     init {
         require(host.isNotBlank()) { "host must not be blank" }
@@ -24,6 +26,9 @@ data class SshConnectionConfig(
         when (authMethod) {
             SshAuthMethod.PASSWORD -> require(!password.isNullOrBlank()) { "password auth requires a password" }
             SshAuthMethod.KEY -> require(keyPath != null) { "key auth requires keyPath" }
+        }
+        require(knownHostsFile != null || !hostKeyFingerprint.isNullOrBlank()) {
+            "knownHostsFile or hostKeyFingerprint must be set"
         }
     }
 
@@ -34,5 +39,7 @@ data class SshConnectionConfig(
             "username=$username, " +
             "authMethod=$authMethod, " +
             "password=${password?.let { MASKED_SECRET }}, " +
-            "keyPath=$keyPath)"
+            "keyPath=$keyPath, " +
+            "knownHostsFile=$knownHostsFile, " +
+            "hostKeyFingerprint=$hostKeyFingerprint)"
 }

@@ -6,6 +6,7 @@ import com.sporesync.remotescan.SshConnectionConfig
 import com.sporesync.remotescan.SshSftpConnection
 import com.sporesync.remotescan.SshSftpConnectionFactory
 import net.schmizz.sshj.SSHClient
+import net.schmizz.sshj.common.SecurityUtils
 import net.schmizz.sshj.sftp.OpenMode
 import net.schmizz.sshj.sftp.RenameFlags
 import net.schmizz.sshj.sftp.Response.StatusCode.NO_SUCH_FILE
@@ -20,8 +21,8 @@ import java.security.MessageDigest
 import java.security.PublicKey
 import java.util.Base64
 import java.util.UUID
-import java.util.concurrent.ExecutorService
 import java.util.concurrent.ExecutionException
+import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
 import java.util.concurrent.TimeUnit
@@ -59,13 +60,7 @@ internal class SshjSshSftpConnectionFactory : SshSftpConnectionFactory {
     private fun SSHClient.configureHostKeyVerification(config: SshConnectionConfig) {
         val expectedFingerprint = config.hostKeyFingerprint?.trim()?.takeIf(String::isNotEmpty)
         if (expectedFingerprint != null) {
-            val normalized =
-                if (expectedFingerprint.startsWith(SHA_256_PREFIX)) {
-                    expectedFingerprint
-                } else {
-                    SHA_256_PREFIX + expectedFingerprint
-                }
-            addHostKeyVerifier(FingerprintHostKeyVerifier(normalized))
+            addHostKeyVerifier(FingerprintHostKeyVerifier(normalizeExpectedFingerprint(expectedFingerprint)))
             return
         }
         val knownHostsFile = requireNotNull(config.knownHostsFile)
@@ -80,7 +75,7 @@ private class FingerprintHostKeyVerifier(
         hostname: String,
         port: Int,
         key: PublicKey,
-    ): Boolean = hostKeyFingerprintSha256(key) == expectedFingerprint
+    ): Boolean = expectedFingerprint in setOf(hostKeyFingerprintMd5(key), hostKeyFingerprintSha256(key))
 
     override fun findExistingAlgorithms(
         hostname: String,
@@ -197,6 +192,25 @@ private fun hostKeyFingerprintSha256(key: PublicKey): String {
     val digest = MessageDigest.getInstance(SHA_256).digest(key.encoded)
     val encoded = Base64.getEncoder().withoutPadding().encodeToString(digest)
     return SHA_256_PREFIX + encoded
+}
+
+private fun hostKeyFingerprintMd5(key: PublicKey): String = SecurityUtils.getFingerprint(key).lowercase()
+
+private fun normalizeExpectedFingerprint(fingerprint: String): String {
+    val normalized = fingerprint.trim()
+    return when {
+        normalized.startsWith(SHA_256_PREFIX, ignoreCase = true) ->
+            SHA_256_PREFIX + normalized.substringAfter(':')
+
+        normalized.startsWith("MD5:", ignoreCase = true) ->
+            normalized.substringAfter(':').lowercase()
+
+        normalized.contains(':') ->
+            normalized.lowercase()
+
+        else ->
+            SHA_256_PREFIX + normalized
+    }
 }
 
 private fun SSHClient.closeSilently() {

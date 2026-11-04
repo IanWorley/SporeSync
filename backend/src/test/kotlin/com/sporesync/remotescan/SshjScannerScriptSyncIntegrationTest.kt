@@ -152,6 +152,8 @@ class SshjScannerScriptSyncIntegrationTest {
         val knownHosts =
             local(
                 "ssh-keyscan",
+                "-t",
+                "ed25519",
                 "-p",
                 server.getMappedPort(SSH_PORT).toString(),
                 server.host,
@@ -168,8 +170,8 @@ class SshjScannerScriptSyncIntegrationTest {
         local(
             "sh",
             "-c",
-            "ssh-keyscan -p ${server.getMappedPort(SSH_PORT)} ${server.host} 2>/dev/null " +
-                "| ssh-keygen -lf - -E sha256 | awk 'NR==1 {print \$2}'",
+            "ssh-keyscan -t ed25519 -p ${server.getMappedPort(SSH_PORT)} ${server.host} 2>/dev/null " +
+                "| ssh-keygen -lf - -E md5 | awk 'NR==1 {print \$2}'",
         )
 
     private fun impostorPublicKey(): String =

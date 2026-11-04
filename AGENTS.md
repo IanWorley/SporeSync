@@ -66,8 +66,9 @@ The "Module rules" section of `docs/SPEC.md` says which modules may depend on wh
 - Kotlin code follows `ktlint_official` style at 120 columns (`backend/.editorconfig`).
 - The frontend uses strict TypeScript (`frontend/tsconfig.json`). `vp lint` fails on the Oxlint `correctness`,
   `suspicious`, and `pedantic` categories, on `any`, and on non-null assertions (`frontend/vite.config.ts`).
-- PR titles follow Conventional Commits, for example `feat(filestate): persist downloaded/extracted markers on disk`.
-  The squash merge uses the title as the commit subject.
+- PR titles and commit subjects follow Conventional Commits, for example
+  `feat(filestate): persist downloaded/extracted markers on disk`. A squash merge of a one-commit PR takes the
+  commit's subject, not the PR title.
 
 ## Verify in the running app
 

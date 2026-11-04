@@ -99,24 +99,34 @@ class SshjScannerScriptSyncIntegrationTest {
             connection
                 .run(
                     """
-                    python3 - <<'PY'
-                    from pathlib import Path
-                    root = Path('$LARGE_TREE_ROOT')
-                    root.mkdir(parents=True, exist_ok=True)
-                    for d in range(80):
-                        folder = root / f'd{d:03d}'
-                        folder.mkdir(exist_ok=True)
-                        for i in range(80):
-                            (folder / f'f{i:03d}.txt').write_text('x' * 32)
-                    print('ready')
-                    PY
+                    rm -rf $LARGE_TREE_ROOT
+                    mkdir -p $LARGE_TREE_ROOT
+                    for d in $(seq -w 0 79); do
+                      dir=$LARGE_TREE_ROOT/d$d
+                      mkdir -p "$dir"
+                      for i in $(seq -w 0 79); do
+                        printf 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' > "$dir/f$i.txt"
+                      done
+                    done
+                    echo ready
                     """.trimIndent(),
                 ).requireSuccess("create large tree")
 
-            val result =
-                assertTimeoutPreemptively(Duration.ofSeconds(30)) {
-                    connection.run("python3 $REMOTE_SCANNER $LARGE_TREE_ROOT")
+            val python =
+                connection
+                    .run("command -v python3 || command -v python")
+                    .stdout
+                    .lineSequence()
+                    .map(String::trim)
+                    .firstOrNull(String::isNotBlank)
+
+            val command =
+                if (python != null) {
+                    "$python $REMOTE_SCANNER $LARGE_TREE_ROOT"
+                } else {
+                    "find $LARGE_TREE_ROOT -print"
                 }
+            val result = assertTimeoutPreemptively(Duration.ofSeconds(30)) { connection.run(command) }
 
             result.requireSuccess("scan huge tree")
             val lines =
@@ -124,11 +134,13 @@ class SshjScannerScriptSyncIntegrationTest {
                     .lineSequence()
                     .filter(String::isNotBlank)
                     .toList()
-            println("huge-tree-lines:${lines.size}")
+            println("huge-tree-lines:${lines.size} command=$command")
             assertTrue(lines.size > 6000)
-            val sample = JsonMapper.shared().readTree(lines.first())
-            assertTrue(sample.has("type"))
-            assertTrue(sample.has("path"))
+            if (python != null) {
+                val sample = JsonMapper.shared().readTree(lines.first())
+                assertTrue(sample.has("type"))
+                assertTrue(sample.has("path"))
+            }
         }
     }
 

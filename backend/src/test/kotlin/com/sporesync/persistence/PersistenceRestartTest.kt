@@ -10,8 +10,10 @@ import org.springframework.boot.builder.SpringApplicationBuilder
 import org.springframework.context.ConfigurableApplicationContext
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.jdbc.core.queryForList
+import java.nio.file.FileSystems
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.attribute.PosixFilePermission
 import java.time.Instant
 
 private const val DIRECTORY_PROPERTY = "sporesync.persistence.directory"
@@ -34,20 +36,26 @@ class PersistenceRestartTest {
             val changeSets = jdbc.queryForList<String>("SELECT ID FROM DATABASECHANGELOG ORDER BY ORDEREXECUTED")
 
             assertTrue(
-                tables.containsAll(listOf("AUTOQUEUE_PATTERN", "TRANSFER_HISTORY", "SETTINGS_CACHE")),
+                tables.containsAll(listOf("AUTOQUEUE_PATTERN", "TRANSFER_HISTORY")),
                 "tables: $tables",
             )
             assertEquals(
-                listOf("0001-autoqueue-pattern", "0001-transfer-history", "0001-settings-cache"),
+                listOf("0001-autoqueue-pattern", "0001-transfer-history"),
                 changeSets,
             )
         }
-        assertTrue(Files.exists(dataDir.resolve(DATABASE_FILE)))
+        val databaseFile = dataDir.resolve(DATABASE_FILE)
+        assertTrue(Files.exists(databaseFile))
+        if (FileSystems.getDefault().supportedFileAttributeViews().contains("posix")) {
+            assertEquals(
+                setOf(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE),
+                Files.getPosixFilePermissions(databaseFile),
+            )
+        }
     }
 
     @Test
     fun `records saved before a restart are read back afterwards`() {
-        val connectionHost = SettingId("connection", "host")
         startApp().use { context ->
             context.getBean(AutoQueuePatternRepository::class.java).save(AutoQueuePattern("*.mkv"))
             context.getBean(TransferHistoryRepository::class.java).saveAll(
@@ -56,13 +64,11 @@ class PersistenceRestartTest {
                     TransferHistoryEntry.failed("movies/film.mkv", FINISHED_AT, "connection reset"),
                 ),
             )
-            context.getBean(SettingsCacheRepository::class.java).save(SettingsCacheEntry(connectionHost, "seedbox"))
         }
 
         startApp().use { context ->
             val patterns = context.getBean(AutoQueuePatternRepository::class.java).findAll()
             val history = context.getBean(TransferHistoryRepository::class.java).findAll().sortedBy { it.id }
-            val host = context.getBean(SettingsCacheRepository::class.java).findById(connectionHost).orElseThrow()
 
             assertEquals(listOf("*.mkv"), patterns.map { it.pattern })
             assertEquals(
@@ -72,7 +78,6 @@ class PersistenceRestartTest {
                 ),
                 history.map { HistoryRow(it.path, it.outcome, it.finishedAt, it.failureReason) },
             )
-            assertEquals("seedbox", host.value)
         }
     }
 

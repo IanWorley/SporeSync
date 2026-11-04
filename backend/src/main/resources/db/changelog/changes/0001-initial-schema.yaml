@@ -50,25 +50,3 @@ databaseChangeLog:
               - column:
                   name: failure_reason
                   type: VARCHAR
-  - changeSet:
-      id: 0001-settings-cache
-      author: sporesync
-      changes:
-        - createTable:
-            tableName: settings_cache
-            columns:
-              - column:
-                  name: section
-                  type: VARCHAR
-                  constraints:
-                    primaryKey: true
-              - column:
-                  name: setting_key
-                  type: VARCHAR
-                  constraints:
-                    primaryKey: true
-              - column:
-                  name: setting_value
-                  type: VARCHAR
-                  constraints:
-                    nullable: false

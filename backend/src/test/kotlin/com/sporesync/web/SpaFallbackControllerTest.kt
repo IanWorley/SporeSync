@@ -14,36 +14,57 @@ import java.net.http.HttpResponse
 
 private const val HTML_OK = 200
 private const val NOT_FOUND = 404
-private const val ROOT_MARKER = "SporeSync frontend shell"
+private const val STATUS_FIELD = "status"
+private const val STATUS_UP = "UP"
 private const val PATH_FIELD = "path"
 
-@SpringBootTest(
-    webEnvironment = WebEnvironment.RANDOM_PORT,
-    properties = ["spring.web.resources.static-locations=classpath:/test-frontend/"],
-)
+@SpringBootTest(webEnvironment = WebEnvironment.RANDOM_PORT)
 class SpaFallbackControllerTest(
     @LocalServerPort private val port: Int,
 ) {
     @Test
-    fun `client route falls back to index html`() {
-        val response = get("/settings")
+    fun `root serves the frontend bundle`() {
+        val response = get("/")
 
         assertEquals(HTML_OK, response.statusCode())
         assertTrue(response.headers().firstValue("content-type").orElse("").contains("text/html"))
-        assertTrue(response.body().contains(ROOT_MARKER))
+        assertTrue(response.body().contains("<div id=\"root\"></div>"))
+    }
+
+    @Test
+    fun `nested client route falls back to index html`() {
+        val response = get("/a/nested/route")
+
+        assertEquals(HTML_OK, response.statusCode())
+        assertTrue(response.headers().firstValue("content-type").orElse("").contains("text/html"))
+        assertTrue(response.body().contains("<div id=\"root\"></div>"))
+    }
+
+    @Test
+    fun `actuator health route stays on backend routing`() {
+        val response = get("/actuator/health")
+        val status = JsonMapper.shared().readTree(response.body()).get(STATUS_FIELD).asString()
+
+        assertEquals(HTML_OK, response.statusCode())
+        assertEquals(STATUS_UP, status)
     }
 
     @Test
     fun `api routes stay on backend routing`() {
-        val response = get("/api/status")
-        val errorPath = JsonMapper.shared().readTree(response.body()).get(PATH_FIELD).asText()
+        val response = get("/api/x", "application/json")
+        val body = JsonMapper.shared().readTree(response.body())
+        val errorStatus = body.get(STATUS_FIELD).asInt()
+        val errorPath = body.get(PATH_FIELD).asString()
 
         assertEquals(NOT_FOUND, response.statusCode())
-        assertEquals("/api/status", errorPath)
+        assertEquals(NOT_FOUND, errorStatus)
+        assertEquals("/api/x", errorPath)
     }
 
-    private fun get(path: String): HttpResponse<String> {
-        val request = HttpRequest.newBuilder(URI.create("http://localhost:$port$path")).build()
+    private fun get(path: String, accept: String? = null): HttpResponse<String> {
+        val requestBuilder = HttpRequest.newBuilder(URI.create("http://localhost:$port$path"))
+        if (accept != null) requestBuilder.header("Accept", accept)
+        val request = requestBuilder.build()
         return HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString())
     }
 }

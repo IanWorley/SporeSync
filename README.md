@@ -90,6 +90,8 @@ cd ../backend
 elide run
 ```
 
+If `frontend/dist/index.html` is missing, the backend now fails fast at startup with a clear error.
+
 ## Logging
 
 Logs are structured JSON (Elastic Common Schema), one object per line on stdout. To turn on debug logging

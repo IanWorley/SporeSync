@@ -50,10 +50,6 @@ dependencies {
     testStarter { "test" }
   }
   maven {
-    enableDefaultRepositories = false
-    repositories {
-      ["central"] = "https://repo.maven.apache.org/maven2"
-    }
     packages {
       "org.springframework.modulith:spring-modulith-starter-core:\(springModulithVersion)"
     }

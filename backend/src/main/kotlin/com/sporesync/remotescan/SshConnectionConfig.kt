@@ -3,6 +3,8 @@ package com.sporesync.remotescan
 import java.nio.file.Path
 
 private const val DEFAULT_SSH_PORT = 22
+private const val MIN_SSH_PORT = 1
+private const val MAX_SSH_PORT = 65535
 private const val MASKED_SECRET = "****"
 
 enum class SshAuthMethod { PASSWORD, KEY }
@@ -17,7 +19,7 @@ data class SshConnectionConfig(
 ) {
     init {
         require(host.isNotBlank()) { "host must not be blank" }
-        require(port in 1..65535) { "port must be between 1 and 65535" }
+        require(port in MIN_SSH_PORT..MAX_SSH_PORT) { "port must be between $MIN_SSH_PORT and $MAX_SSH_PORT" }
         require(username.isNotBlank()) { "username must not be blank" }
         when (authMethod) {
             SshAuthMethod.PASSWORD -> require(!password.isNullOrBlank()) { "password auth requires a password" }

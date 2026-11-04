@@ -23,8 +23,9 @@ internal class SshjSshSftpConnectionFactory : SshSftpConnectionFactory {
             client.addHostKeyVerifier(PromiscuousVerifier())
             client.connect(config.host, config.port)
             when (config.authMethod) {
-                SshAuthMethod.PASSWORD ->
+                SshAuthMethod.PASSWORD -> {
                     client.authPassword(config.username, requireNotNull(config.password))
+                }
 
                 SshAuthMethod.KEY -> {
                     val keyPath = requireNotNull(config.keyPath)

@@ -30,7 +30,6 @@ readonly LAUNCH_ENV_ALLOWLIST
 readonly INSTANCE_FILE="instance.env"
 readonly LOG_FILE="app.log"
 readonly EVIDENCE_DIR="evidence"
-readonly COMPONENT_NAME_PATTERN='^[a-z]+$'
 readonly PORT_PATTERN='^[1-9][0-9]{0,4}$'
 readonly MAX_PORT=65535
 readonly BIND_PATTERN='^(127\.0\.0\.1|0\.0\.0\.0)$'
@@ -198,8 +197,9 @@ load_instance() {
   [ -e "$file" ] || die "no live instance recorded in $file"
   require_private "$run_dir"
   require_private "$file"
-  component="$(read_field "$file" COMPONENT "$COMPONENT_NAME_PATTERN")"
-  use_component "$component"
+  # Handles written before the frontend component have no COMPONENT line and are all backends.
+  component="$(sed -n 's/^COMPONENT=//p' "$file" | head -n 1)"
+  use_component "${component:-$DEFAULT_COMPONENT}"
   PORT="$(read_field "$file" PORT "$PORT_PATTERN")"
   valid_port "$PORT" || die "$file has an invalid PORT"
   BIND_ADDRESS="$(read_field "$file" BIND_ADDRESS "$BIND_PATTERN")"

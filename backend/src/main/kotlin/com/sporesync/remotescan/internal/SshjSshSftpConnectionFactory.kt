@@ -92,8 +92,8 @@ private class SshjSshSftpConnection(
     private val client: SSHClient,
     private val sftp: SFTPClient,
 ) : SshSftpConnection {
-    override fun run(command: String): SshCommandResult {
-        return client
+    override fun run(command: String): SshCommandResult =
+        client
             .startSession()
             .use { session ->
                 session
@@ -125,7 +125,6 @@ private class SshjSshSftpConnection(
                         }
                     }
             }
-    }
 
     override fun readFile(path: String): ByteArray? =
         try {

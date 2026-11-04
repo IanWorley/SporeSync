@@ -9,8 +9,8 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.assertTimeoutPreemptively
 import org.junit.jupiter.api.assertThrows
+import org.junit.jupiter.api.assertTimeoutPreemptively
 import org.junit.jupiter.api.io.TempDir
 import org.testcontainers.containers.GenericContainer
 import org.testcontainers.containers.wait.strategy.Wait
@@ -82,10 +82,10 @@ class SshjScannerScriptSyncIntegrationTest {
         val mismatch = fingerprint.dropLast(1) + if (fingerprint.last() == 'A') "B" else "A"
         val exception =
             assertThrows<Exception> {
-            openConnection(knownHostsFile = null, hostKeyFingerprint = mismatch).use { connection ->
-                connection.run("echo never")
+                openConnection(knownHostsFile = null, hostKeyFingerprint = mismatch).use { connection ->
+                    connection.run("echo never")
+                }
             }
-        }
         println("fingerprint-mismatch:${exception.message}")
     }
 

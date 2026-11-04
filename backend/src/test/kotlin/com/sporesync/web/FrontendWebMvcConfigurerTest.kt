@@ -18,8 +18,15 @@ private const val STATUS_FIELD = "status"
 private const val STATUS_UP = "UP"
 private const val PATH_FIELD = "path"
 
-@SpringBootTest(webEnvironment = WebEnvironment.RANDOM_PORT)
-class SpaFallbackControllerTest(
+@SpringBootTest(
+    webEnvironment = WebEnvironment.RANDOM_PORT,
+    properties =
+        [
+            "sporesync.frontend.required=true",
+            "sporesync.frontend.dist=backend/src/test/resources/test-frontend",
+        ],
+)
+class FrontendWebMvcConfigurerTest(
     @LocalServerPort private val port: Int,
 ) {
     @Test
@@ -38,6 +45,12 @@ class SpaFallbackControllerTest(
         assertEquals(HTML_OK, response.statusCode())
         assertTrue(response.headers().firstValue("content-type").orElse("").contains("text/html"))
         assertTrue(response.body().contains("<div id=\"root\"></div>"))
+    }
+
+    @Test
+    fun `missing asset with extension returns 404`() {
+        val response = get("/assets/missing.js")
+        assertEquals(NOT_FOUND, response.statusCode())
     }
 
     @Test

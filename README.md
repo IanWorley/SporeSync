@@ -90,7 +90,9 @@ cd ../backend
 elide run
 ```
 
-If `frontend/dist/index.html` is missing, the backend now fails fast at startup with a clear error.
+By default (`sporesync.frontend.required=false`), missing `frontend/dist/index.html` only disables frontend routes
+and logs a warning so backend-only development still works. Set `sporesync.frontend.required=true` (for example in
+production) to fail fast on missing frontend assets.
 
 ## Logging
 

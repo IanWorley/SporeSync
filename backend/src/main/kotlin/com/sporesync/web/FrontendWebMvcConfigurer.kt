@@ -1,5 +1,6 @@
 package com.sporesync.web
 
+import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.annotation.Configuration
 import org.springframework.core.io.Resource
@@ -11,58 +12,46 @@ import java.nio.file.Files
 import java.nio.file.Path
 
 private const val FRONTEND_DIST_PROPERTY = "sporesync.frontend.dist"
+private const val FRONTEND_REQUIRED_PROPERTY = "sporesync.frontend.required"
 private const val FRONTEND_DIST_ENV = "SPORESYNC_FRONTEND_DIST"
 private const val FRONTEND_DIST_INDEX = "index.html"
-private const val FRONTEND_DIST_RELATIVE = "frontend/dist"
+private const val FRONTEND_DIST_DEFAULT = "../frontend/dist"
 
 @Configuration
-class SpaFallbackController(
-    @Value("\${$FRONTEND_DIST_PROPERTY:}") configuredDist: String,
+class FrontendWebMvcConfigurer(
+    @Value("\${$FRONTEND_DIST_PROPERTY:$FRONTEND_DIST_DEFAULT}") configuredDist: String,
+    @Value("\${$FRONTEND_REQUIRED_PROPERTY:false}") frontendRequired: Boolean,
 ) : WebMvcConfigurer {
-    private val frontendDist = resolveFrontendDist(configuredDist)
+    private val logger = LoggerFactory.getLogger(javaClass)
+    private val frontendDist = resolveFrontendDist(configuredDist, frontendRequired)
 
     override fun addViewControllers(registry: ViewControllerRegistry) {
+        if (frontendDist == null) return
         registry.addViewController("/").setViewName("forward:/$FRONTEND_DIST_INDEX")
     }
 
     override fun addResourceHandlers(registry: ResourceHandlerRegistry) {
+        if (frontendDist == null) return
         registry
             .addResourceHandler("/**")
             .addResourceLocations(frontendDist.toUri().toString())
             .resourceChain(false)
-            .addResolver(SpaFallbackResourceResolver())
+            .addResolver(FrontendSpaFallbackResourceResolver())
     }
 
-    private fun resolveFrontendDist(configuredDist: String): Path {
-        if (configuredDist.isNotBlank()) {
-            val configuredPath = Path.of(configuredDist).toAbsolutePath().normalize()
-            return requireFrontendDist(configuredPath)
-        }
-        val codeSource = Path.of(SpaFallbackController::class.java.protectionDomain.codeSource.location.toURI())
-        val start = if (Files.isRegularFile(codeSource)) codeSource.parent else codeSource
-        val resolved =
-            generateSequence(start.toAbsolutePath().normalize()) { it.parent }
-                .map { it.resolve(FRONTEND_DIST_RELATIVE) }
-                .firstOrNull(::hasFrontendIndex)
-        if (resolved != null) return resolved
-        throw missingFrontendDistError("unable to locate frontend/dist from application code location")
+    private fun resolveFrontendDist(configuredDist: String, frontendRequired: Boolean): Path? {
+        val frontendPath = Path.of(configuredDist).toAbsolutePath().normalize()
+        if (Files.isRegularFile(frontendPath.resolve(FRONTEND_DIST_INDEX))) return frontendPath
+        val message =
+            "Frontend bundle is missing ($FRONTEND_DIST_INDEX at $frontendPath). Build it with " +
+                "`cd frontend && vp build`, or set $FRONTEND_DIST_ENV."
+        if (frontendRequired) throw IllegalStateException(message)
+        logger.warn("$message Frontend routes are disabled because $FRONTEND_REQUIRED_PROPERTY=false.")
+        return null
     }
-
-    private fun requireFrontendDist(path: Path): Path {
-        if (hasFrontendIndex(path)) return path
-        throw missingFrontendDistError("missing $FRONTEND_DIST_INDEX at $path")
-    }
-
-    private fun hasFrontendIndex(path: Path): Boolean = Files.isRegularFile(path.resolve(FRONTEND_DIST_INDEX))
-
-    private fun missingFrontendDistError(reason: String): IllegalStateException =
-        IllegalStateException(
-            "Frontend bundle is missing ($reason). Build it with `cd frontend && vp build`, or set " +
-                "$FRONTEND_DIST_ENV to an absolute dist directory.",
-        )
 }
 
-private class SpaFallbackResourceResolver : PathResourceResolver() {
+private class FrontendSpaFallbackResourceResolver : PathResourceResolver() {
     override fun getResource(resourcePath: String, location: Resource): Resource? {
         val staticResource = super.getResource(resourcePath, location)
         if (staticResource != null) return staticResource

@@ -35,7 +35,12 @@ class ScannerScriptTest {
         val exitCode = process.waitFor()
 
         assertEquals(0, exitCode, stderr)
-        val entries = stdout.lineSequence().filter(String::isNotBlank).map(JsonMapper.shared()::readTree).toList()
+        val entries =
+            stdout
+                .lineSequence()
+                .filter(String::isNotBlank)
+                .map(JsonMapper.shared()::readTree)
+                .toList()
         val byPath = entries.associateBy { it.get("path").asText() }
 
         assertEquals(
@@ -73,7 +78,12 @@ class ScannerScriptTest {
             val exitCode = process.waitFor()
 
             assertEquals(0, exitCode, stderr)
-            val entries = stdout.lineSequence().filter(String::isNotBlank).map(JsonMapper.shared()::readTree).toList()
+            val entries =
+                stdout
+                    .lineSequence()
+                    .filter(String::isNotBlank)
+                    .map(JsonMapper.shared()::readTree)
+                    .toList()
             val paths = entries.map { it.get("path").asText() }.toSet()
             assertTrue(paths.contains("private"))
             assertTrue(paths.contains("public/visible.txt"))

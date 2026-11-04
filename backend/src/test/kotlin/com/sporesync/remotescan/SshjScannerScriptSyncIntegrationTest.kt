@@ -9,9 +9,9 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertTimeoutPreemptively
 import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.api.io.TempDir
-import org.junit.jupiter.api.assertTimeoutPreemptively
 import org.testcontainers.containers.GenericContainer
 import org.testcontainers.containers.wait.strategy.Wait
 import org.testcontainers.utility.DockerImageName
@@ -25,7 +25,6 @@ private const val SSH_PORT = 2222
 private const val SSH_USER = "sporesync"
 private const val SSH_PASSWORD = "sporesync-test"
 private const val READY_LOG = ".*\\[ls.io-init\\] done.*"
-private const val HOST_PUBLIC_KEY = "/config/ssh_host_keys/ssh_host_ed25519_key.pub"
 private const val REMOTE_SCANNER = "/data/.sporesync/scanner.py"
 
 class SshjScannerScriptSyncIntegrationTest {
@@ -119,7 +118,11 @@ class SshjScannerScriptSyncIntegrationTest {
                 }
 
             result.requireSuccess("scan huge tree")
-            val lines = result.stdout.lineSequence().filter(String::isNotBlank).toList()
+            val lines =
+                result.stdout
+                    .lineSequence()
+                    .filter(String::isNotBlank)
+                    .toList()
             println("huge-tree-lines:${lines.size}")
             assertTrue(lines.size > 6000)
             val sample = JsonMapper.shared().readTree(lines.first())
@@ -145,7 +148,16 @@ class SshjScannerScriptSyncIntegrationTest {
         return SshjSshSftpConnectionFactory().open(config)
     }
 
-    private fun trustedKnownHosts(): Path = knownHosts(exec("cat", HOST_PUBLIC_KEY))
+    private fun trustedKnownHosts(): Path {
+        val knownHosts =
+            local(
+                "ssh-keyscan",
+                "-p",
+                server.getMappedPort(SSH_PORT).toString(),
+                server.host,
+            )
+        return Files.writeString(tempDir.resolve("known_hosts"), knownHosts)
+    }
 
     private fun knownHosts(publicKey: String): Path {
         val line = "[${server.host}]:${server.getMappedPort(SSH_PORT)} $publicKey"
@@ -153,7 +165,12 @@ class SshjScannerScriptSyncIntegrationTest {
     }
 
     private fun hostFingerprint(): String =
-        exec("sh", "-c", "ssh-keygen -lf $HOST_PUBLIC_KEY -E sha256 | awk '{print \$2}'")
+        local(
+            "sh",
+            "-c",
+            "ssh-keyscan -p ${server.getMappedPort(SSH_PORT)} ${server.host} 2>/dev/null " +
+                "| ssh-keygen -lf - -E sha256 | awk 'NR==1 {print \$2}'",
+        )
 
     private fun impostorPublicKey(): String =
         exec(
@@ -189,6 +206,15 @@ class SshjScannerScriptSyncIntegrationTest {
             val result = server.execInContainer(*command)
             check(result.exitCode == 0) { "${command.joinToString(" ")} failed: ${result.stderr}" }
             return result.stdout.trim()
+        }
+
+        private fun local(vararg command: String): String {
+            val process = ProcessBuilder(*command).start()
+            val stdout = process.inputStream.readAllBytes().decodeToString()
+            val stderr = process.errorStream.readAllBytes().decodeToString()
+            val exitCode = process.waitFor()
+            check(exitCode == 0) { "${command.joinToString(" ")} failed: $stderr" }
+            return stdout.trim()
         }
     }
 }

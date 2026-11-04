@@ -21,6 +21,7 @@ import java.security.PublicKey
 import java.util.Base64
 import java.util.UUID
 import java.util.concurrent.ExecutorService
+import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
 import java.util.concurrent.TimeUnit
@@ -36,7 +37,7 @@ private val COMMAND_TIMEOUT: Long = TimeUnit.SECONDS.toMillis(COMMAND_TIMEOUT_SE
 internal class SshjSshSftpConnectionFactory : SshSftpConnectionFactory {
     override fun open(config: SshConnectionConfig): SshSftpConnection {
         val client = SSHClient()
-        try {
+        return runCatching {
             client.configureHostKeyVerification(config)
             client.connect(config.host, config.port)
             when (config.authMethod) {
@@ -49,11 +50,10 @@ internal class SshjSshSftpConnectionFactory : SshSftpConnectionFactory {
                     client.authPublickey(config.username, client.loadKeys(keyPath.toString()))
                 }
             }
-            return SshjSshSftpConnection(client, client.newSFTPClient())
-        } catch (t: Throwable) {
+            SshjSshSftpConnection(client, client.newSFTPClient())
+        }.onFailure {
             client.closeSilently()
-            throw t
-        }
+        }.getOrThrow()
     }
 
     private fun SSHClient.configureHostKeyVerification(config: SshConnectionConfig) {
@@ -111,9 +111,13 @@ private class SshjSshSftpConnection(
                         } catch (e: TimeoutException) {
                             process.closeSilently()
                             throw IOException("SSH command timed out after ${COMMAND_TIMEOUT_SECONDS}s: $command", e)
-                        } catch (e: Exception) {
+                        } catch (e: InterruptedException) {
                             process.closeSilently()
-                            throw e
+                            Thread.currentThread().interrupt()
+                            throw IOException("SSH command interrupted: $command", e)
+                        } catch (e: ExecutionException) {
+                            process.closeSilently()
+                            throw IOException("SSH command failed: $command", e)
                         } finally {
                             stdout.cancel(true)
                             stderr.cancel(true)
@@ -150,7 +154,7 @@ private class SshjSshSftpConnection(
                     remoteFile.RemoteFileOutputStream(0L).use { output -> output.write(content) }
                 }
             renameWithOverwrite(tempPath, path)
-        } catch (e: Exception) {
+        } catch (e: IOException) {
             try {
                 sftp.rm(tempPath)
             } catch (_: SFTPException) {

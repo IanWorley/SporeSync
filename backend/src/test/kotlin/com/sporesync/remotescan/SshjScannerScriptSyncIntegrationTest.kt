@@ -102,10 +102,10 @@ class SshjScannerScriptSyncIntegrationTest {
                     rm -rf $LARGE_TREE_ROOT
                     mkdir -p $LARGE_TREE_ROOT
                     for d in $(seq -w 0 79); do
-                      dir=$LARGE_TREE_ROOT/d$d
+                      dir=$LARGE_TREE_ROOT/d\$d
                       mkdir -p "$dir"
                       for i in $(seq -w 0 79); do
-                        printf 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' > "$dir/f$i.txt"
+                        printf 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' > "$dir/f\$i.txt"
                       done
                     done
                     echo ready

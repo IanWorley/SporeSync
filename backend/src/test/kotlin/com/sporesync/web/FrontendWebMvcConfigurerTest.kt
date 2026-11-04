@@ -34,7 +34,13 @@ class FrontendWebMvcConfigurerTest(
         val response = get("/")
 
         assertEquals(HTML_OK, response.statusCode())
-        assertTrue(response.headers().firstValue("content-type").orElse("").contains("text/html"))
+        assertTrue(
+            response
+                .headers()
+                .firstValue("content-type")
+                .orElse("")
+                .contains("text/html"),
+        )
         assertTrue(response.body().contains("<div id=\"root\"></div>"))
     }
 
@@ -43,7 +49,13 @@ class FrontendWebMvcConfigurerTest(
         val response = get("/a/nested/route")
 
         assertEquals(HTML_OK, response.statusCode())
-        assertTrue(response.headers().firstValue("content-type").orElse("").contains("text/html"))
+        assertTrue(
+            response
+                .headers()
+                .firstValue("content-type")
+                .orElse("")
+                .contains("text/html"),
+        )
         assertTrue(response.body().contains("<div id=\"root\"></div>"))
     }
 
@@ -56,7 +68,12 @@ class FrontendWebMvcConfigurerTest(
     @Test
     fun `actuator health route stays on backend routing`() {
         val response = get("/actuator/health")
-        val status = JsonMapper.shared().readTree(response.body()).get(STATUS_FIELD).asString()
+        val status =
+            JsonMapper
+                .shared()
+                .readTree(response.body())
+                .get(STATUS_FIELD)
+                .asString()
 
         assertEquals(HTML_OK, response.statusCode())
         assertEquals(STATUS_UP, status)
@@ -74,7 +91,10 @@ class FrontendWebMvcConfigurerTest(
         assertEquals("/api/x", errorPath)
     }
 
-    private fun get(path: String, accept: String? = null): HttpResponse<String> {
+    private fun get(
+        path: String,
+        accept: String? = null,
+    ): HttpResponse<String> {
         val requestBuilder = HttpRequest.newBuilder(URI.create("http://localhost:$port$path"))
         if (accept != null) requestBuilder.header("Accept", accept)
         val request = requestBuilder.build()

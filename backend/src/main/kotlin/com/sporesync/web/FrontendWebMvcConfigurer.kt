@@ -39,7 +39,10 @@ class FrontendWebMvcConfigurer(
             .addResolver(FrontendSpaFallbackResourceResolver())
     }
 
-    private fun resolveFrontendDist(configuredDist: String, frontendRequired: Boolean): Path? {
+    private fun resolveFrontendDist(
+        configuredDist: String,
+        frontendRequired: Boolean,
+    ): Path? {
         val frontendPath = Path.of(configuredDist).toAbsolutePath().normalize()
         if (Files.isRegularFile(frontendPath.resolve(FRONTEND_DIST_INDEX))) return frontendPath
         val message =
@@ -52,18 +55,28 @@ class FrontendWebMvcConfigurer(
 }
 
 private class FrontendSpaFallbackResourceResolver : PathResourceResolver() {
-    override fun getResource(resourcePath: String, location: Resource): Resource? {
+    override fun getResource(
+        resourcePath: String,
+        location: Resource,
+    ): Resource? {
         val staticResource = super.getResource(resourcePath, location)
-        if (staticResource != null) return staticResource
-        if (!shouldFallbackToIndex(resourcePath)) return null
-        return super.getResource(FRONTEND_DIST_INDEX, location)
+        val fallbackResource =
+            if (staticResource == null && shouldFallbackToIndex(resourcePath)) {
+                super.getResource(FRONTEND_DIST_INDEX, location)
+            } else {
+                null
+            }
+        return staticResource ?: fallbackResource
     }
 
     private fun shouldFallbackToIndex(resourcePath: String): Boolean {
         val normalized = resourcePath.trimStart('/')
-        if (normalized.isBlank()) return true
-        if (normalized == "api" || normalized.startsWith("api/")) return false
-        if (normalized == "actuator" || normalized.startsWith("actuator/")) return false
-        return !normalized.substringAfterLast('/').contains('.')
+        val excludedPrefix =
+            normalized == "api" ||
+                normalized.startsWith("api/") ||
+                normalized == "actuator" ||
+                normalized.startsWith("actuator/")
+        val hasExtension = normalized.substringAfterLast('/').contains('.')
+        return normalized.isBlank() || (!excludedPrefix && !hasExtension)
     }
 }

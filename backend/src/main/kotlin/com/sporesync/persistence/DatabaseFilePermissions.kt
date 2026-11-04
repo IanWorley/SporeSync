@@ -27,9 +27,10 @@ class DatabaseFilePermissions(
     }
 
     private companion object {
-        val OWNER_ONLY_FILE_PERMISSIONS = setOf(
-            PosixFilePermission.OWNER_READ,
-            PosixFilePermission.OWNER_WRITE,
-        )
+        val OWNER_ONLY_FILE_PERMISSIONS =
+            setOf(
+                PosixFilePermission.OWNER_READ,
+                PosixFilePermission.OWNER_WRITE,
+            )
     }
 }

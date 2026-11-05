@@ -53,6 +53,7 @@ elide run
 The server listens on <http://localhost:8080>. Check it with:
 
 ```bash
+curl http://localhost:8080/             # frontend index.html from frontend/dist/
 curl http://localhost:8080/actuator/health   # {"groups":["liveness","readiness"],"status":"UP"}
 ```
 
@@ -79,6 +80,19 @@ vp fmt --check    # Oxfmt, check only
 vp fmt            # Oxfmt, fix in place
 vp lint           # Oxlint with type-aware rules and a full TypeScript type-check
 ```
+
+Build the frontend before starting the backend when you want one server to serve both:
+
+```bash
+cd frontend
+vp build
+cd ../backend
+elide run
+```
+
+By default (`sporesync.frontend.required=false`), missing `frontend/dist/index.html` only disables frontend routes
+and logs a warning so backend-only development still works. Set `sporesync.frontend.required=true` (for example in
+production) to fail fast on missing frontend assets.
 
 ## Logging
 

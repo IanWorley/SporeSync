@@ -1,6 +1,6 @@
 # Frontend home page
 
-A user opens SporeSync's web UI at `/` and sees one heading, "SporeSync", at the top left of an otherwise empty page. The Vite+ dev server (`vp dev`) serves it from `frontend/`. The server answers `/` with an HTML shell whose `#root` element is empty, and React renders the heading in the browser. An HTTP client sees the page title `SporeSync` but never the heading.
+A user opens SporeSync's web UI at `/` and sees the nav bar described in [Frontend pages and nav](./frontend-pages.md) and, below it, one heading, "SporeSync", on an otherwise empty page. The Vite+ dev server (`vp dev`) serves it from `frontend/`. The server answers `/` with an HTML shell whose `#root` element is empty, and React renders the heading in the browser. An HTTP client sees the page title `SporeSync` but never the heading.
 
 ## Sub-features
 
@@ -20,7 +20,7 @@ Preconditions:
 - `PORT` is set and `probe` is defined, per [Driving conventions](./README.md#driving-conventions).
 
 - **HTML shell.** Run `probe frontend-shell /`. It prints `200`, and `frontend-shell.headers.txt` has `Content-Type: text/html`. Run `grep -cF -e '<title>SporeSync</title>' -e '<div id="root"></div>' -e '<script type="module" src="/src/main.tsx"></script>' "$RUN_DIR/evidence/frontend-shell.body"`. It prints `3`.
-- **Rendered heading.** In T3, call `preview_status`, and call `preview_open` with `open=false` if no automation-capable tab is attached. Call `preview_navigate` with `target` `{"kind":"environment-port","port":$PORT,"path":"/"}`. Its `url` is `http://localhost:$PORT/` and its `title` is `SporeSync`. Call `preview_wait_for` with `selector` `h1` and `text` `SporeSync`. Call `preview_evaluate` with `({ url: location.href, h1: [...document.querySelectorAll("h1")].map((h) => h.textContent) })`. Its `value.h1` is `["SporeSync"]`. Save that value to `$RUN_DIR/evidence/frontend-home.preview-dom.json`. Call `preview_snapshot` with `save=true` and copy `screenshotPath` to `$RUN_DIR/evidence/frontend-home.png`. The screenshot shows "SporeSync" at the top left of a blank page.
+- **Rendered heading.** In T3, call `preview_status`, and call `preview_open` with `open=false` if no automation-capable tab is attached. Call `preview_navigate` with `target` `{"kind":"environment-port","port":$PORT,"path":"/"}`. Its `url` is `http://localhost:$PORT/` and its `title` is `SporeSync`. Call `preview_wait_for` with `selector` `h1` and `text` `SporeSync`. Call `preview_evaluate` with `({ url: location.href, h1: [...document.querySelectorAll("h1")].map((h) => h.textContent) })`. Its `value.h1` is `["SporeSync"]`. Save that value to `$RUN_DIR/evidence/frontend-home.preview-dom.json`. Call `preview_snapshot` with `save=true` and copy `screenshotPath` to `$RUN_DIR/evidence/frontend-home.png`. The screenshot shows the nav bar with `Files` in bold and "SporeSync" below it on a blank page.
 - **No Preview.** If Preview is unreachable, report `frontend-home` as `could not run` with the Preview error. `frontend-shell` does not prove the heading.
 
 ## Gotchas

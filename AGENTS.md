@@ -57,7 +57,18 @@ module has a marker class annotated `@PackageInfo` and `@ApplicationModule`, suc
 - Another test compares the modules that Modulith finds against `SPEC_MODULES`. To add a module, create the package
   and its marker class, then add the module name to `SPEC_MODULES`.
 
+Put a module's implementation types in its `internal` subpackage and mark them with Kotlin `internal` visibility, as
+`backend/src/main/kotlin/com/sporesync/config/internal` does.
+
 The "Module rules" section of `docs/SPEC.md` says which modules may depend on which.
+
+## Persistence schema
+
+Liquibase owns the database schema, and Hibernate only validates it (`ddl-auto: validate` in
+`backend/src/main/resources/application.yaml`). If you add or change a JPA `@Entity`, add a changeset file under
+`backend/src/main/resources/db/changelog/changes/`, and add an `include` entry for it to `db.changelog-master.yaml`.
+The master file has no `includeAll`, so Liquibase runs only the files it names. If the schema does not match the
+entities, the app fails at startup.
 
 ## Conventions
 
@@ -76,4 +87,5 @@ The "Module rules" section of `docs/SPEC.md` says which modules may depend on wh
 ## Verify in the running app
 
 Unit tests do not prove that the running app works. To prove backend behavior in the running app, use the project
-skill in `.agents/skills/verify-sporesync`. Read its `SKILL.md` before you start an instance.
+skill in `.agents/skills/verify-sporesync`. Read its `SKILL.md` before you start an instance. Claude Code loads the same
+skill as `/verify-sporesync` through the `.claude/skills` symlink.

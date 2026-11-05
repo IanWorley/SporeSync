@@ -20,8 +20,13 @@ import java.time.Instant
 private const val POSIX_VIEW = "posix"
 private const val NO_PERMISSIONS = "---------"
 private const val OWNER_PERMISSIONS = "rwx------"
+private const val TOP_CONTENT = "12345"
+private const val E01_CONTENT = "abc"
+private const val E02_CONTENT = "de"
 private val FILE_MODIFIED = Instant.parse("2026-01-02T03:04:05Z")
 private val DIRECTORY_MODIFIED = Instant.parse("2026-02-03T04:05:06Z")
+
+private fun sizeOf(content: String): Long = content.toByteArray().size.toLong()
 
 class LocalScannerTest {
     @TempDir
@@ -29,19 +34,20 @@ class LocalScannerTest {
 
     @Test
     fun `lists every entry with its relative path, size, and modification time`() {
-        write("top.bin", "12345")
-        write("show/s01/e01.mkv", "abc")
-        write("show/s01/e02.mkv", "de")
+        write("top.bin", TOP_CONTENT)
+        write("show/s01/e01.mkv", E01_CONTENT)
+        write("show/s01/e02.mkv", E02_CONTENT)
         touch("show/s01", DIRECTORY_MODIFIED)
         touch("show", DIRECTORY_MODIFIED)
+        val seasonSize = sizeOf(E01_CONTENT) + sizeOf(E02_CONTENT)
 
         assertEquals(
             setOf(
-                LocalFile("top.bin", size = 5, FILE_MODIFIED, isDirectory = false),
-                LocalFile("show", size = 5, DIRECTORY_MODIFIED, isDirectory = true),
-                LocalFile("show/s01", size = 5, DIRECTORY_MODIFIED, isDirectory = true),
-                LocalFile("show/s01/e01.mkv", size = 3, FILE_MODIFIED, isDirectory = false),
-                LocalFile("show/s01/e02.mkv", size = 2, FILE_MODIFIED, isDirectory = false),
+                LocalFile("top.bin", sizeOf(TOP_CONTENT), FILE_MODIFIED, isDirectory = false),
+                LocalFile("show", seasonSize, DIRECTORY_MODIFIED, isDirectory = true),
+                LocalFile("show/s01", seasonSize, DIRECTORY_MODIFIED, isDirectory = true),
+                LocalFile("show/s01/e01.mkv", sizeOf(E01_CONTENT), FILE_MODIFIED, isDirectory = false),
+                LocalFile("show/s01/e02.mkv", sizeOf(E02_CONTENT), FILE_MODIFIED, isDirectory = false),
             ),
             LocalScanner.scan(root).toSet(),
         )
@@ -89,8 +95,8 @@ class LocalScannerTest {
 
     @Test
     fun `drops a directory that vanishes mid-walk along with the entries already read from it`() {
-        write("keep.mkv", "abc")
-        write("show/e01.mkv", "de")
+        write("keep.mkv", E01_CONTENT)
+        write("show/e01.mkv", E02_CONTENT)
         val show = root.resolve("show")
         val visitor = ScanVisitor(root)
 
@@ -101,7 +107,10 @@ class LocalScannerTest {
         visitor.postVisitDirectory(show, NoSuchFileException("$show"))
         visitor.postVisitDirectory(root, null)
 
-        assertEquals(listOf(LocalFile("keep.mkv", size = 3, FILE_MODIFIED, isDirectory = false)), visitor.files)
+        assertEquals(
+            listOf(LocalFile("keep.mkv", sizeOf(E01_CONTENT), FILE_MODIFIED, isDirectory = false)),
+            visitor.files,
+        )
     }
 
     @Test

@@ -27,10 +27,7 @@ internal class ConfigChangedMulticaster(
         event: ApplicationEvent,
     ) {
         if ((event as? PayloadApplicationEvent<*>)?.payload !is ConfigChanged) {
-            return super.invokeListener(
-                listener,
-                event,
-            )
+            return super.invokeListener(listener, event)
         }
         try {
             super.invokeListener(listener, event)

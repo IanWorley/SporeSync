@@ -34,7 +34,7 @@ internal object SettingsBinder {
         val unbound = e.cause as? UnboundConfigurationPropertiesException
         if (unbound != null) {
             return unbound.unboundProperties.map {
-                val message = if (it.value?.toString().isNullOrBlank()) BLANK_MESSAGE else UNKNOWN_SETTING_MESSAGE
+                val message = if (it.value.toString().isBlank()) BLANK_MESSAGE else UNKNOWN_SETTING_MESSAGE
                 SettingsViolation(fieldName(it.name), message)
             }
         }

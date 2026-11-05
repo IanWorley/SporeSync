@@ -41,6 +41,7 @@ vp install
 vp test run
 vp fmt --check   # Oxfmt. Fix with `vp fmt`.
 vp lint          # Oxlint and a full TypeScript type-check
+vp build         # CI's backend-test check runs this before `elide build`
 ```
 
 ## Backend modules
@@ -60,12 +61,14 @@ The "Module rules" section of `docs/SPEC.md` says which modules may depend on wh
 
 ## Conventions
 
-- Use named constants, not magic values. detekt's `MagicNumber` rule fails the lint for `src/main`. It skips test
-  sources, but the tests use named constants too, as in `FileStateStoreTest`.
+- Use named constants, not magic values. detekt's `MagicNumber` rule fails the lint for `src/main`, and Oxlint's
+  `no-magic-numbers` rule fails `vp lint` outside `*.test.ts` and `*.test.tsx` files. The tests use named constants
+  too, as in `FileStateStoreTest`.
 - detekt runs its default rule set. The repo has no detekt config file.
 - Kotlin code follows `ktlint_official` style at 120 columns (`backend/.editorconfig`).
 - The frontend uses strict TypeScript (`frontend/tsconfig.json`). `vp lint` fails on the Oxlint `correctness`,
-  `suspicious`, and `pedantic` categories, on `any`, and on non-null assertions (`frontend/vite.config.ts`).
+  `suspicious`, and `pedantic` categories, on `any`, on non-null assertions, and on the other rules in
+  `frontend/vite.config.ts`.
 - PR titles and commit subjects follow Conventional Commits, for example
   `feat(filestate): persist downloaded/extracted markers on disk`. A squash merge of a one-commit PR takes the
   commit's subject, not the PR title.

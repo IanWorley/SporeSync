@@ -31,7 +31,7 @@ curl -fsSL https://vite.plus | bash
 | `backend/` | Kotlin, Spring Boot, Spring Modulith application |
 | `tools/` | ktlint and detekt CLIs, run on Elide's JVM |
 | `frontend/` | TypeScript React app: Vite+, TanStack Router, TanStack Query, Tailwind |
-| `docs/` | Specification |
+| `docs/` | Specification and user guide |
 
 ## Build and run
 
@@ -56,7 +56,7 @@ so local runs point it at the git-ignored `.dev/config` instead.
 The server listens on <http://localhost:8080>. Check it with:
 
 ```bash
-curl http://localhost:8080/             # frontend index.html from frontend/dist/
+curl http://localhost:8080/             # index.html from frontend/dist/, or 404 until you build it
 curl http://localhost:8080/actuator/health   # {"groups":["liveness","readiness"],"status":"UP"}
 ```
 
@@ -90,7 +90,7 @@ Build the frontend before starting the backend when you want one server to serve
 cd frontend
 vp build
 cd ../backend
-elide run
+SPORESYNC_PERSISTENCE_DIRECTORY="$PWD/.dev/config" elide run
 ```
 
 By default (`sporesync.frontend.required=false`), missing `frontend/dist/index.html` only disables frontend routes

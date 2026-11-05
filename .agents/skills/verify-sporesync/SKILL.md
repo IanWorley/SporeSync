@@ -5,7 +5,7 @@ description: Launch, health-check, drive, capture evidence from, and clean up a 
 
 # Verify SporeSync
 
-SporeSync today has two parts that launch separately. The backend is a Spring Boot app run by Elide 1.6.0. Its only user-facing route is the operator health check: `GET /actuator/health`, its `liveness` and `readiness` groups, and the `/actuator` index. The frontend is a React app served by the Vite+ dev server (`vp dev`, on Node.js). Its only route is `/`, a page with a "SporeSync" heading. The backend does not serve the frontend, and the backend has no `/api` routes. Every other feature in `docs/SPEC.md` is planned, not shipped. Mapped features live in [features/README.md](features/README.md); drive only what is mapped there.
+SporeSync today has two parts that launch separately. The backend is a Spring Boot app run by Elide 1.6.0. Its only user-facing route is the operator health check: `GET /actuator/health`, its `liveness` and `readiness` groups, and the `/actuator` index. The frontend is a React app served by the Vite+ dev server (`vp dev`, on Node.js). It has four routes, `/`, `/settings`, `/autoqueue`, and `/about`. Each is a placeholder page with one heading, under a nav bar that links all four. The backend does not serve the frontend, and the backend has no `/api` routes. Every other feature in `docs/SPEC.md` is planned, not shipped. Mapped features live in [features/README.md](features/README.md); drive only what is mapped there.
 
 All commands run from the repository root. `scripts/verify-sporesync.sh` is relative to this skill directory: `.agents/skills/verify-sporesync/scripts/verify-sporesync.sh`.
 
@@ -57,7 +57,7 @@ Any commit or uncommitted edit since launch fails doctor. Stop and relaunch, bec
 
 ## Drive
 
-Backend users are operators whose HTTP client or browser hits the actuator. Frontend users open `/` in a browser. Use the real port and the real path, not test slices, `@SpringBootTest`, or Vitest.
+Backend users are operators whose HTTP client or browser hits the actuator. Frontend users open a route in a browser or click through the nav. Use the real port and the real path, not test slices, `@SpringBootTest`, or Vitest.
 
 Define `PORT` and `probe` per [Driving conventions](features/README.md#driving-conventions), then probe each mapped sub-feature:
 

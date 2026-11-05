@@ -1,4 +1,4 @@
-package com.sporesync.persistence
+package com.sporesync.persistence.internal
 
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.boot.context.event.ApplicationReadyEvent
@@ -13,7 +13,7 @@ private const val POSIX_VIEW = "posix"
 private const val H2_DATABASE_FILE_SUFFIX = ".mv.db"
 
 @Component
-class DatabaseFilePermissions(
+internal class DatabaseFilePermissions(
     @Value("\${sporesync.persistence.directory}") private val directory: String,
     @Value("\${sporesync.persistence.database-name}") private val databaseName: String,
 ) {

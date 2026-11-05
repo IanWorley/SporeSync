@@ -1,4 +1,4 @@
-package com.sporesync.web
+package com.sporesync.web.internal
 
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
@@ -19,7 +19,7 @@ private const val FRONTEND_DIST_DEFAULT = "../frontend/dist"
 private val BACKEND_ROUTE_PREFIXES = listOf("api", "actuator")
 
 @Configuration
-class FrontendWebMvcConfigurer(
+internal class FrontendWebMvcConfigurer(
     @Value("\${$FRONTEND_DIST_PROPERTY:$FRONTEND_DIST_DEFAULT}") configuredDist: String,
     @Value("\${$FRONTEND_REQUIRED_PROPERTY:false}") frontendRequired: Boolean,
 ) : WebMvcConfigurer {

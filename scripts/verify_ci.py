@@ -20,6 +20,8 @@ import sys
 import time
 from typing import Sequence
 
+import check_disclosure as disclosure
+
 REPOSITORY = "IanWorley/SporeSync"
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_TIMEOUT = 900.0
@@ -27,12 +29,16 @@ GH_TIMEOUT = 60
 FAILURE_TAIL_LINES = 20
 GH_PAGE_SIZE = 100
 MIN_SECRET_LENGTH = 4
-WORKFLOW_HASHES = {"ci.yml": "df0d35855dbfaea293d3190cb5e90730091bb18be49400faeb640c0689f86b8a"}
+TERMINATION_TIMEOUT = 2.0
+MIN_PYTHON_VERSION = (3, 11)
+USERNAME_PATTERN = disclosure.USERNAME.pattern.removeprefix("@")
+WORKFLOW_HASHES = {'ci.yml': '587e6c038f71e3463875a11a7cefd31e9742922f46dd87b76a67ec6de9752518', 'disclosure.yml': 'f726666a965d7c57fd2bbf60e16b882f863c193a9e6ea36d8455896a2217d5dd'}
 EXCLUSIONS = (
     "GitHub runner provisioning, checkout, caches, and toolchain downloads are hosted setup. "
     "Install Python 3.11+, pinned Elide (.elideversion), and Vite+ with bun locally. "
     "Dependency installation runs below. CodeRabbit and Cursor Security Agent require hosted services "
-    "and are excluded, never counted as passing. No app smoke job exists in these workflows."
+    "and are excluded, never counted as passing. No app smoke job exists in these workflows. "
+    "Local disclosure checks cover this PR and its commits; unrelated issue/review event text is not verified by this run."
 )
 
 
@@ -45,7 +51,12 @@ class Check:
 
 
 CHECKS = (
-    Check("runner-tests", (sys.executable, "-m", "unittest", "discover", "-s", "scripts", "-p", "test_*.py", "-v"), ".", "ci.yml / verifier"),
+    Check("python-version", ("python3", "--version"), ".", "ci.yml / verifier / local Python prerequisite"),
+    Check("elide-version", ("elide", "--version"), ".", "ci.yml / setup-elide / .elideversion pin"),
+    Check("vp-version", ("vp", "--version"), "frontend", "ci.yml / setup-vp / local Vite+ prerequisite"),
+    Check("bun-version", ("bun", "--version"), "frontend", "ci.yml / setup-vp / frontend/package.json packageManager pin"),
+    Check("authorship-disclosure", ("python3", "scripts/check_disclosure.py", "local"), ".", "disclosure.yml / disclosure / PR body and every new commit"),
+    Check("runner-tests", ("python3", "-m", "unittest", "discover", "-s", "scripts", "-p", "test_*.py", "-v"), ".", "ci.yml / verifier"),
     Check("frontend-install", ("vp", "install"), "frontend", "ci.yml / setup-vp dependency installation for frontend-* and backend-test"),
     Check("backend-install", ("elide", "install"), ".", "ci.yml / backend-* / elide install"),
     Check("frontend-build", ("vp", "build"), "frontend", "ci.yml / backend-test / vp build"),
@@ -72,10 +83,10 @@ class Result:
 
 
 def redact(value: str) -> str:
+    value = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", value)
     for key, secret in os.environ.items():
         if re.search(r"TOKEN|SECRET|PASSWORD|CREDENTIAL|API_KEY", key, re.I) and len(secret) >= MIN_SECRET_LENGTH:
             value = value.replace(secret, "[REDACTED]")
-    value = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", value)
     value = re.sub(r"(?:gh[pousr]_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+)", "[REDACTED]", value)
     value = re.sub(r"(?i)(authorization\s*[:=]\s*)([^\r\n]+)", r"\1[REDACTED]", value)
     value = re.sub(r"(https?://)[^\s/@]+:[^\s/@]+@", r"\1[REDACTED]@", value)
@@ -87,6 +98,16 @@ def escaped(value: str) -> str:
     return html.escape(redact(value), quote=True).replace("|", "&#124;").replace("`", "&#96;").replace("\n", "<br>")
 
 
+def safe_disclosure_value(value: str) -> str:
+    return re.sub(r"[^A-Za-z0-9 ./+_()-]", " ", redact(value)).strip()
+
+
+def metadata(value: str) -> str:
+    value = redact(re.sub(r"[\x00-\x1f\x7f]+", " ", value))
+    encoded = "".join(f"&#{ord(character)};" if character in "\\*_[]()!@#|`" else html.escape(character, quote=True) for character in value)
+    return f"<code>{encoded}</code>"
+
+
 def git(root: Path, *args: str) -> str:
     return subprocess.check_output(("git", *args), cwd=root, text=True, stderr=subprocess.PIPE).strip()
 
@@ -95,6 +116,11 @@ def source_state(root: Path) -> dict[str, str]:
     head = git(root, "rev-parse", "HEAD")
     status = git(root, "status", "--porcelain=v1", "--untracked-files=all")
     digest = hashlib.sha256(subprocess.check_output(("git", "diff", "HEAD", "--binary"), cwd=root))
+    flags = subprocess.check_output(("git", "ls-files", "-v", "-z"), cwd=root)
+    hidden = [os.fsdecode(entry) for entry in flags.split(b"\0") if entry and (entry[:1].islower() or entry[:1] == b"S")]
+    if hidden:
+        status += "\nIndex flags can hide edits: " + "; ".join(hidden)
+    digest.update(flags)
     untracked = subprocess.check_output(("git", "ls-files", "--others", "--exclude-standard", "-z"), cwd=root)
     for name in untracked.split(b"\0"):
         if name:
@@ -128,25 +154,66 @@ def run_check(check: Check, root: Path, output: Path, timeout: float) -> Result:
             status = "passed" if process.returncode == 0 else "failed"
             detail = f"exit {process.returncode}"
         except subprocess.TimeoutExpired:
-            os.killpg(process.pid, signal.SIGKILL)
-            captured, _ = process.communicate()
-            status, detail = "timed-out", f"timeout after {timeout:g}s; process group killed"
+            status, detail = "timed-out", f"timeout after {timeout:g}s; process-group termination attempted"
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+            try:
+                captured, _ = process.communicate(timeout=TERMINATION_TIMEOUT)
+            except subprocess.TimeoutExpired as error:
+                captured = error.output or b""
+                if isinstance(captured, bytes):
+                    captured = captured.decode(errors="replace")
+                process.stdout.close()
+                try:
+                    process.wait(timeout=TERMINATION_TIMEOUT)
+                except subprocess.TimeoutExpired:
+                    detail += "; command could not be reaped within the termination deadline"
+                detail += "; detached descendants may still be running"
     except OSError as error:
         status, detail = "unavailable", str(error)
+    try:
+        if status == "passed" and check.name.endswith("-version"):
+            detail += "; " + redact(captured.splitlines()[0] if captured.splitlines() else "no version output")
+            if check.name == "elide-version":
+                expected = (root / ".elideversion").read_text().strip()
+                if not re.search(rf"(?<![\d.]){re.escape(expected)}(?:\+[^\s]+)?(?=\s|$)", captured):
+                    status, detail = "failed", f"Elide version does not match required {expected}"
+            elif check.name == "bun-version":
+                expected = json.loads((root / "frontend/package.json").read_text())["packageManager"].removeprefix("bun@")
+                if captured.strip() != expected:
+                    status, detail = "failed", f"bun version does not match required {expected}"
+            elif check.name == "python-version":
+                version = re.search(r"Python (\d+)\.(\d+)", captured)
+                if not version or tuple(map(int, version.groups())) < MIN_PYTHON_VERSION:
+                    status, detail = "failed", "Python 3.11+ is required"
+    except (OSError, KeyError, ValueError) as error:
+        status, detail = "unavailable", f"Cannot validate toolchain prerequisite: {redact(str(error))}"
     seconds = time.monotonic() - start
     (output / log).write_text(redact(f"cwd: {check.directory}\n$ {command}\n{detail}\n{captured}"))
     return Result(check.name, command, check.directory, check.ci, status, seconds, redact(detail), log)
 
 
-def run_checks(checks: Sequence[Check], root: Path, output: Path, timeout: float) -> list[Result]:
+def run_checks(checks: Sequence[Check], root: Path, output: Path, timeout: float, source: dict | None = None) -> list[Result]:
     results = []
+    drift = []
     for check in checks:
+        if source is not None and source_state(root) != source:
+            drift.append(f"Source changed before {check.name}")
         result = run_check(check, root, output, timeout)
+        if source is not None and source_state(root) != source:
+            drift.append(f"Source changed after {check.name}")
         results.append(result)
         print(f"{'✅' if result.status == 'passed' else '❌'} {result.name}: {result.status} ({result.seconds:.2f}s)", flush=True)
         print(f"  [{result.directory}] {result.command}\n  {result.detail}", flush=True)
         if result.status != "passed":
             print("\n".join((output / result.log).read_text().splitlines()[-FAILURE_TAIL_LINES:]), flush=True)
+    if drift:
+        detail = "; ".join(drift) + "; rerun on stable source"
+        (output / "source-stability.log").write_text(redact(detail) + "\n")
+        results.append(Result("source-stability", "source snapshots before and after every command", ".", "evidence integrity", "failed", 0.0, detail, "source-stability.log"))
+        print(f"❌ source-stability: {detail}", flush=True)
     return results
 
 
@@ -154,11 +221,17 @@ def render_summary(evidence: dict) -> str:
     results = evidence["results"]
     passed = sum(result["status"] == "passed" for result in results)
     source = evidence["source"]
-    lines = ["## SporeSync local verification", "", f"Verification performed on behalf of @{escaped(evidence['username'])}.",
+    disclosure = ["SporeSync-Authorship: human"] if evidence.get("authorship") == "human" else [
+        "SporeSync-Authorship: agent (not a person)",
+        f"SporeSync-Harness: {safe_disclosure_value(evidence['harness'])}",
+        f"SporeSync-Effort: {safe_disclosure_value(evidence['effort'])}",
+        f"SporeSync-Model: {safe_disclosure_value(evidence['model'])}",
+        f"SporeSync-On-Behalf-Of: @{evidence['username']}"]
+    lines = ["## SporeSync local verification", "", "```text", *disclosure, "```", "", f"Verification performed on behalf of @{escaped(evidence['username'])}.",
              "Supplied metadata is attribution, not a verified identity.",
-             f"Harness {escaped(evidence['harness'])}. Model {escaped(evidence['model'])}. Effort {escaped(evidence['effort'])}.",
+             f"Harness {metadata(evidence['harness'])}. Model {metadata(evidence['model'])}. Effort {metadata(evidence['effort'])}.",
              f"Source SHA `{source['head']}`. Working tree {'dirty' if source['status'] else 'clean'}.",
-             f"Started {evidence['started']}. Duration {evidence['seconds']:.2f}s.",
+             f"Started {metadata(evidence['started'])}. Duration {evidence['seconds']:.2f}s.",
              f"{'✅' if passed == len(results) else '❌'} **{passed}/{len(results)} required checks passed.**", "",
              "| Check | Result | Exact command | Directory | CI mapping |", "|---|---|---|---|---|"]
     for result in results:
@@ -185,7 +258,39 @@ def write_evidence(output: Path, evidence: dict) -> str:
             tail = "\n".join((output / result["log"]).read_text().splitlines()[-FAILURE_TAIL_LINES:])
             report += f"\n<details><summary>{escaped(result['name'])} failure</summary><pre>{escaped(tail)}</pre></details>\n\n"
     (output / "report.md").write_text(report)
+    files = ["evidence.json", "summary.md", *[result["log"] for result in evidence["results"]]]
+    integrity = {name: hashlib.sha256((output / name).read_bytes()).hexdigest() for name in files}
+    (output / "integrity.json").write_text(json.dumps(integrity, indent=2) + "\n")
     return summary
+
+
+def validate_evidence(output: Path, evidence: dict) -> None:
+    expected = ["ci-coverage", *[check.name for check in CHECKS]]
+    names = [result["name"] for result in evidence["results"]]
+    if names not in (expected, [*expected, "source-stability"]):
+        raise ValueError("Saved evidence does not contain the complete required check inventory")
+    if not re.fullmatch(USERNAME_PATTERN, evidence["username"]):
+        raise ValueError("Saved attribution contains an invalid username")
+    datetime.fromisoformat(evidence["started"])
+    if not math.isfinite(evidence["seconds"]) or evidence["seconds"] < 0:
+        raise ValueError("Saved duration must be finite and nonnegative")
+    for result in evidence["results"]:
+        if result["status"] not in {"passed", "failed", "unavailable", "timed-out"}:
+            raise ValueError("Saved evidence contains an invalid status")
+        if not math.isfinite(result["seconds"]) or result["seconds"] < 0:
+            raise ValueError("Saved check duration must be finite and nonnegative")
+        if result["log"] != result["name"] + ".log":
+            raise ValueError("Saved evidence contains an unexpected log path")
+        if result["name"] not in {"ci-coverage", "source-stability"}:
+            header = (output / result["log"]).read_text().splitlines()
+            if len(header) < 3 or header[2] != result["detail"]:
+                raise ValueError("Saved status detail disagrees with its command log")
+            if result["status"] == "passed" and not result["detail"].startswith("exit 0"):
+                raise ValueError("Saved success disagrees with its command log")
+    files = ["evidence.json", "summary.md", *[result["log"] for result in evidence["results"]]]
+    actual = {name: hashlib.sha256((output / name).read_bytes()).hexdigest() for name in files}
+    if json.loads((output / "integrity.json").read_text()) != actual:
+        raise ValueError("Saved evidence or logs changed after verification; rerun")
 
 
 def gh_api(endpoint: str, *, payload: dict | None = None, graphql: bool = False) -> dict | list:
@@ -207,7 +312,7 @@ def resolve_destinations(pr: int, source: dict[str, str]) -> list[dict]:
       repository(owner: "IanWorley", name: "SporeSync") {
         nameWithOwner
         pullRequest(number: $number) {
-          number url state headRefOid headRepository { nameWithOwner }
+          number url state headRefOid body headRepository { nameWithOwner }
           closingIssuesReferences(first: $limit) {
             pageInfo { hasNextPage }
             nodes { number url repository { nameWithOwner } }
@@ -223,6 +328,8 @@ def resolve_destinations(pr: int, source: dict[str, str]) -> list[dict]:
             or pull["state"] != "OPEN" or pull["headRefOid"] != source["head"]
             or pull["headRepository"]["nameWithOwner"] != REPOSITORY or source["status"]):
         raise ValueError("PR must be open in IanWorley/SporeSync with the same clean verified head and source repository")
+    if disclosure.validate(pull.get("body") or ""):
+        raise ValueError("Current PR body fails authorship disclosure; correct it before publication")
     issues = pull["closingIssuesReferences"]
     if issues["pageInfo"]["hasNextPage"]:
         raise ValueError("Linked issue list exceeds safety bound; refusing partial destinations")
@@ -243,8 +350,9 @@ def prepare_publication(root: Path, output: Path, evidence: dict, pr: int) -> tu
     if source_state(root) != evidence["source"]:
         raise ValueError("Source changed since verification; rerun before publishing")
     destinations = resolve_destinations(pr, evidence["source"])
-    marker = f"<!-- sporesync-local-ci pr={pr} sha={evidence['source']['head']} -->"
     targets = "\n".join(f"- {destination['kind']}: {destination['url']}" for destination in destinations)
+    report_digest = hashlib.sha256((render_summary(evidence) + targets).encode()).hexdigest()
+    marker = f"<!-- sporesync-local-ci pr={pr} sha={evidence['source']['head']} report={report_digest} -->"
     issue_note = "\nLinked issue comments: not applicable; GitHub reports no linked closing issues.\n" if len(destinations) == 1 else ""
     summary = render_summary(evidence) + "\nComment destinations approved together:\n\n" + targets + "\n" + issue_note + "\n" + marker + "\n"
     (output / "comment.md").write_text(summary)
@@ -271,7 +379,7 @@ def publish(root: Path, output: Path, evidence: dict, pr: int, approval: str) ->
     for destination in destinations:
         outcome = {**destination, "status": "failed"}
         try:
-            if source_state(root) != evidence["source"] or resolve_destinations(pr, evidence["source"]) != destinations:
+            if resolve_destinations(pr, evidence["source"]) != destinations or source_state(root) != evidence["source"]:
                 raise ValueError("Source or linked destinations changed; rerun and preview again")
             endpoint = f"repos/{REPOSITORY}/issues/{destination['number']}/comments"
             matches = []
@@ -288,6 +396,8 @@ def publish(root: Path, output: Path, evidence: dict, pr: int, approval: str) ->
             elif matches:
                 raise ValueError("A different summary already uses this PR/head marker; refusing to edit it")
             else:
+                if resolve_destinations(pr, evidence["source"]) != destinations or source_state(root) != evidence["source"]:
+                    raise ValueError("Source or linked destinations changed immediately before posting")
                 comment = gh_api(endpoint, payload={"body": summary})
                 outcome["status"] = "posted"
             url = comment["html_url"]
@@ -319,6 +429,8 @@ def parser() -> argparse.ArgumentParser:
     cli.add_argument("--effort", help="caller-supplied effort attribution")
     cli.add_argument("--timeout", type=positive_timeout, default=DEFAULT_TIMEOUT, help="seconds per command (default 900)")
     cli.add_argument("--output", type=Path, help="new evidence directory (default .verification/<UTC timestamp>)")
+    cli.add_argument("--pr-body", type=Path, help="draft PR body for disclosure validation before a PR exists")
+    cli.add_argument("--authorship", choices=("agent", "human"), default="agent", help="declared authorship of the generated report (default agent)")
     cli.add_argument("--pr", type=int, help="SporeSync PR number; resolve destinations and save comment preview, no posting")
     cli.add_argument("--publish", type=Path, help="reuse an existing run directory after preview approval; does not rerun checks")
     cli.add_argument("--post-comment", action="store_true", help="explicitly send the approved summary to the PR and its linked issues")
@@ -344,11 +456,18 @@ def main(argv: Sequence[str] | None = None) -> int:
                 cli.error("--publish requires --pr")
             output = args.publish.resolve()
             evidence = json.loads((output / "evidence.json").read_text())
+            validate_evidence(output, evidence)
         else:
             if not all((args.username, args.harness, args.model, args.effort)):
                 cli.error("verification requires --username, --harness, --model, and --effort")
-            if not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?", args.username):
+            if not re.fullmatch(USERNAME_PATTERN, args.username):
                 cli.error("--username must be a GitHub username without @")
+            if args.authorship == "agent":
+                for field, value in (("Harness", args.harness), ("Model", args.model)):
+                    if not disclosure.TEXT_VALUE.fullmatch(value) or value.lower() in disclosure.PLACEHOLDERS:
+                        cli.error(f"malformed field SporeSync-{field}; use a truthful plain-text value")
+                if args.effort not in disclosure.EFFORTS:
+                    cli.error("malformed field SporeSync-Effort; unsupported effort")
             started = datetime.now(timezone.utc)
             output = (args.output or ROOT / ".verification" / started.strftime("%Y%m%dT%H%M%S.%fZ")).resolve()
             output.mkdir(parents=True, exist_ok=False)
@@ -358,12 +477,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             (output / "ci-coverage.log").write_text(error or "Workflow inventory matches the reviewed command map.\n")
             coverage = Result("ci-coverage", "internal workflow fingerprint validation (hashlib.sha256)", ".", "all workflow files / fail closed on drift", "failed" if error else "passed", 0.0, error or "workflow map matches", "ci-coverage.log")
             print(f"{'❌' if error else '✅'} ci-coverage: {coverage.detail}", flush=True)
-            results = [coverage, *run_checks(CHECKS, ROOT, output, args.timeout)]
-            if source_state(ROOT) != source:
+            checks = list(CHECKS)
+            for index, check in enumerate(checks):
+                if check.name == "authorship-disclosure":
+                    extra = ("--pr-body", str(args.pr_body.resolve())) if args.pr_body else (("--pr", str(args.pr)) if args.pr else ())
+                    checks[index] = Check(check.name, (*check.command, *extra), check.directory, check.ci)
+            results = [coverage, *run_checks(checks, ROOT, output, args.timeout, source)]
+            if source_state(ROOT) != source and not any(result.name == "source-stability" for result in results):
                 detail = "HEAD or working tree changed during verification; rerun on stable source"
                 (output / "source-stability.log").write_text(detail + "\n")
                 results.append(Result("source-stability", "git status; git diff HEAD", ".", "evidence integrity", "failed", 0.0, detail, "source-stability.log"))
-            evidence = {"username": args.username, "harness": redact(args.harness), "model": redact(args.model), "effort": redact(args.effort), "source": source, "started": started.isoformat(), "seconds": time.monotonic() - start, "results": [asdict(result) for result in results]}
+            evidence = {"authorship": args.authorship, "username": args.username, "harness": redact(args.harness), "model": redact(args.model), "effort": redact(args.effort), "source": source, "started": started.isoformat(), "seconds": time.monotonic() - start, "results": [asdict(result) for result in results]}
             write_evidence(output, evidence)
         passed = sum(result["status"] == "passed" for result in evidence["results"])
         print(f"{passed}/{len(evidence['results'])} required checks passed. Report: {output / 'report.md'}")

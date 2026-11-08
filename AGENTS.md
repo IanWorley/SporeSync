@@ -85,6 +85,29 @@ Liquibase owns the database schema, and Hibernate only validates it (`ddl-auto: 
 The master file has no `includeAll`, so Liquibase runs only the files it names. If the schema does not match the
 entities, the app fails at startup.
 
+## Disclose GitHub authorship
+
+Any agent-authored GitHub-facing text must explicitly identify itself as written by an agent, not a person.
+This includes PR descriptions, issue posts, review comments, and commit messages.
+Include the harness, effort, model, and human on whose behalf the agent speaks. Use this exact schema with truthful values:
+
+```text
+SporeSync-Authorship: agent (not a person)
+SporeSync-Harness: T3 Code / Codex
+SporeSync-Effort: high
+SporeSync-Model: gpt-6.1-sol
+SporeSync-On-Behalf-Of: @IanWorley
+```
+
+Human-authored text uses `SporeSync-Authorship: human` without agent metadata. Never label agent-authored text as human.
+The checker validates declarations. It cannot infer reliable agent identity from a GitHub account or detect undeclared authorship.
+All newly checked PR bodies and commits must declare human or agent authorship. Every new PR commit is checked, not just HEAD.
+Include the disclosure below the Conventional Commit subject. Do not inject disclosure banners into application or code source files.
+The local verifier and `.github/workflows/disclosure.yml` enforce the declarations. See CONTRIBUTING.md for event coverage and limitations.
+Only commits `9b377cd7b53d115ff97b1974afbdad283c7d5a3f` and `20cafe87ffdbe6c17a01ed76f60579a58bca7d74`
+are exempt because they were pushed in PR #52 before this policy was requested. They are not claimed as compliant or rewritten.
+No later commit is exempt. Do not expand this compatibility baseline to avoid disclosures.
+
 ## Conventions
 
 - Use named constants, not magic values. detekt's `MagicNumber` rule fails the lint for `src/main`, and Oxlint's

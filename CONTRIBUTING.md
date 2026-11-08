@@ -21,7 +21,7 @@ Rerun after every source or HEAD change. Include `.verification/<run>/summary.md
 Never claim readiness while checks fail or evidence is stale. Keep `report.md`, `evidence.json`, and logs for review.
 Reports record the starting HEAD, dirty state, commands, outcomes, and durations. Dirty runs cannot be published as comments.
 Logs redact known secret environment values and common token forms. Review logs before sharing them.
-Published summaries omit command output and local paths. Do not put secrets in metadata or command arguments.
+Published summaries omit command output and evidence-directory paths. Do not put secrets in metadata or command arguments.
 
 ## Map local checks to CI
 
@@ -50,7 +50,7 @@ Frontend format uses Oxfmt. Frontend lint uses all enabled Oxlint rules and type
 Dependencies are installed once per run rather than once per matrix job.
 The count measures command gates, not GitHub job counts. There are no app smoke checks in the current workflows.
 GitHub provisioning, checkout, caches, and toolchain downloads are hosted setup, replaced by local prerequisites.
-Hosted review and security bots cannot run here. They are excluded and never counted as passing.
+CodeRabbit and Cursor Security Agent run as hosted services. They are excluded and never counted as passing.
 
 ## Use the CLI flags
 
@@ -88,7 +88,8 @@ python3 scripts/verify_ci.py --publish .verification/RUN --pr NUMBER
 
 Show Ian the exact `.verification/RUN/comment.md` and `.verification/RUN/destinations.json` before sending any comments.
 The summary includes counts, exact failure names, commands, outcomes, attribution, and the source SHA.
-It is identical on the PR and every linked issue. The CLI prints its approval SHA256.
+It is identical on the PR and every linked issue. The destination list is part of that text and its approval SHA256.
+The CLI prints the digest.
 Only after Ian approves that text and those destinations, publish:
 
 ```bash

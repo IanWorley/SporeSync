@@ -31,7 +31,7 @@ WORKFLOW_HASHES = {"ci.yml": "df0d35855dbfaea293d3190cb5e90730091bb18be49400faeb
 EXCLUSIONS = (
     "GitHub runner provisioning, checkout, caches, and toolchain downloads are hosted setup. "
     "Install Python 3.11+, pinned Elide (.elideversion), and Vite+ with bun locally. "
-    "Dependency installation runs below. GitHub review/security bots require hosted services "
+    "Dependency installation runs below. CodeRabbit and Cursor Security Agent require hosted services "
     "and are excluded, never counted as passing. No app smoke job exists in these workflows."
 )
 
@@ -94,7 +94,7 @@ def git(root: Path, *args: str) -> str:
 def source_state(root: Path) -> dict[str, str]:
     head = git(root, "rev-parse", "HEAD")
     status = git(root, "status", "--porcelain=v1", "--untracked-files=all")
-    digest = hashlib.sha256(git(root, "diff", "HEAD", "--binary").encode())
+    digest = hashlib.sha256(subprocess.check_output(("git", "diff", "HEAD", "--binary"), cwd=root))
     untracked = subprocess.check_output(("git", "ls-files", "--others", "--exclude-standard", "-z"), cwd=root)
     for name in untracked.split(b"\0"):
         if name:
@@ -106,7 +106,10 @@ def source_state(root: Path) -> dict[str, str]:
 
 def workflow_coverage(root: Path) -> str:
     workflows = root / ".github/workflows"
-    actual = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in workflows.iterdir() if p.suffix in {".yml", ".yaml"}}
+    try:
+        actual = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in workflows.glob("*") if p.suffix in {".yml", ".yaml"}}
+    except OSError as error:
+        return f"Cannot inspect required workflows: {redact(str(error))}"
     if actual != WORKFLOW_HASHES:
         return "Workflow inventory changed. Review every job/step, update CHECKS, exclusions, tests, and WORKFLOW_HASHES."
     return ""
@@ -177,6 +180,7 @@ def write_evidence(output: Path, evidence: dict) -> str:
     report += "| Check | Seconds | Log |\n|---|---|---|\n"
     for result in evidence["results"]:
         report += f"| {escaped(result['name'])} | {result['seconds']:.2f} | [{result['log']}]({result['log']}) |\n"
+    for result in evidence["results"]:
         if result["status"] != "passed":
             tail = "\n".join((output / result["log"]).read_text().splitlines()[-FAILURE_TAIL_LINES:])
             report += f"\n<details><summary>{escaped(result['name'])} failure</summary><pre>{escaped(tail)}</pre></details>\n\n"
@@ -240,7 +244,9 @@ def prepare_publication(root: Path, output: Path, evidence: dict, pr: int) -> tu
         raise ValueError("Source changed since verification; rerun before publishing")
     destinations = resolve_destinations(pr, evidence["source"])
     marker = f"<!-- sporesync-local-ci pr={pr} sha={evidence['source']['head']} -->"
-    summary = render_summary(evidence) + "\n" + marker + "\n"
+    targets = "\n".join(f"- {destination['kind']}: {destination['url']}" for destination in destinations)
+    issue_note = "\nLinked issue comments: not applicable; GitHub reports no linked closing issues.\n" if len(destinations) == 1 else ""
+    summary = render_summary(evidence) + "\nComment destinations approved together:\n\n" + targets + "\n" + issue_note + "\n" + marker + "\n"
     (output / "comment.md").write_text(summary)
     (output / "destinations.json").write_text(json.dumps(destinations, indent=2) + "\n")
     digest = hashlib.sha256(summary.encode()).hexdigest()
@@ -350,7 +356,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             start = time.monotonic()
             error = workflow_coverage(ROOT)
             (output / "ci-coverage.log").write_text(error or "Workflow inventory matches the reviewed command map.\n")
-            coverage = Result("ci-coverage", "sha256(.github/workflows/*.{yml,yaml})", ".", "all workflow files / fail closed on drift", "failed" if error else "passed", 0.0, error or "workflow map matches", "ci-coverage.log")
+            coverage = Result("ci-coverage", "internal workflow fingerprint validation (hashlib.sha256)", ".", "all workflow files / fail closed on drift", "failed" if error else "passed", 0.0, error or "workflow map matches", "ci-coverage.log")
             print(f"{'❌' if error else '✅'} ci-coverage: {coverage.detail}", flush=True)
             results = [coverage, *run_checks(CHECKS, ROOT, output, args.timeout)]
             if source_state(ROOT) != source:

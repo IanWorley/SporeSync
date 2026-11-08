@@ -84,6 +84,21 @@ class RunnerTests(unittest.TestCase):
             results = runner.run_checks(checks, self.root, self.output, 0.1)
         self.assertEqual([r.status for r in results], ["timed-out", "unavailable", "passed"])
 
+    def test_cli_timeout_and_unavailable_produce_nonzero_and_saved_failures(self) -> None:
+        checks = (self.check("slow", "import time; time.sleep(30)"),
+                  runner.Check("missing", (str(self.root / "absent"),), ".", "fixture"),
+                  self.check("later", "print('continued')"))
+        output = self.root / "cli-failures"
+        stream = io.StringIO()
+        with patch.object(runner, "ROOT", self.root), patch.object(runner, "CHECKS", checks), patch.object(runner, "git", return_value=f"https://github.com/{runner.REPOSITORY}"), patch.object(runner, "source_state", return_value=self.evidence()["source"]), patch.object(runner, "workflow_coverage", return_value=""), contextlib.redirect_stdout(stream):
+            result = runner.main(["--username", "IanWorley", "--harness", "test", "--model", "test", "--effort", "test", "--timeout", "0.1", "--output", str(output)])
+        self.assertEqual(result, 1)
+        self.assertIn("2/4 required checks passed", stream.getvalue())
+        report = (output / "report.md").read_text()
+        self.assertIn("slow (timed-out;", report)
+        self.assertIn("missing (unavailable;", report)
+        self.assertIn("✅ passed", report)
+
     def test_logs_and_metadata_escape_html_markdown_and_redact_secrets(self) -> None:
         secret = "sensitive-value-for-test"
         with patch.dict(os.environ, {"TEST_API_KEY": secret}):
@@ -183,6 +198,20 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(fake.writes, [])
         with patch.object(runner, "source_state", return_value={}), self.assertRaisesRegex(ValueError, "Source changed"):
             runner.prepare_publication(self.root, self.output, evidence, fake.pr)
+
+    def test_changed_destinations_reject_old_approval_on_every_retry(self) -> None:
+        evidence = self.evidence()
+        fake = FakeGitHub(evidence["source"]["head"])
+        with patch.object(runner, "source_state", return_value=evidence["source"]), patch.object(runner, "gh_api", fake), contextlib.redirect_stdout(io.StringIO()):
+            summary, _ = runner.prepare_publication(self.root, self.output, evidence, fake.pr)
+            approval = hashlib.sha256(summary.encode()).hexdigest()
+            fake.pull["closingIssuesReferences"]["nodes"] = [{"number": 8,
+                "url": f"https://github.com/{runner.REPOSITORY}/issues/8",
+                "repository": {"nameWithOwner": runner.REPOSITORY}}]
+            for _ in range(2):
+                with self.assertRaises(ValueError):
+                    runner.publish(self.root, self.output, evidence, fake.pr, approval)
+            self.assertEqual(fake.writes, [])
 
     def test_forged_existing_comments_are_not_overwritten_or_used_for_deduplication(self) -> None:
         evidence = self.evidence()

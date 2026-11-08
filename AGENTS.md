@@ -16,8 +16,23 @@ on Elide, the code and this file are correct.
 
 ## Run the CI checks
 
-CI runs the commands below as six checks (`.github/workflows/ci.yml`). Run the checks for each side you change
-before you push.
+All contributors, especially agents, must run the local verification entrypoint before opening a PR:
+
+```bash
+python3 scripts/verify_ci.py --username IanWorley --harness "T3 Code / Codex" --model gpt-6.1-sol --effort high
+```
+
+Supply your own username, harness, model, and effort truthfully. These values are attribution, not verified identity.
+Rerun after every source or HEAD change. Include the generated `.verification/<run>/summary.md` in the PR body.
+Never claim readiness when required checks fail, time out, are unavailable, or the report is stale.
+[CONTRIBUTING.md](CONTRIBUTING.md) documents prerequisites, all flags, the CI mapping, and approved comment publication.
+Use `--pr NUMBER` to preview the same summary for the PR and its GitHub-linked closing issues.
+Preview the exact `comment.md` and `destinations.json` to Ian before sending any PR or issue comments.
+Only after approval, use `--publish RUN_DIR --pr NUMBER --post-comment --approve-summary SHA256`.
+Without linked issues, report issue comments as not applicable. Never create an issue to satisfy verification.
+
+The authoritative commands below are mapped from `.github/workflows/ci.yml`. The runner also checks its own tests
+and fails closed when workflow files change until the command map is reviewed.
 
 From the repository root:
 

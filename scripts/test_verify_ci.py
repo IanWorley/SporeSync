@@ -71,6 +71,13 @@ class RunnerTests(unittest.TestCase):
     def check(self, name: str, code: str) -> runner.Check:
         return runner.Check(name, (sys.executable, "-c", code), ".", "test fixture")
 
+    def test_report_replaces_draft_disclosure_without_duplicate_fields(self) -> None:
+        block = "```text\n" + policy.DISCLOSURE + "\n```"
+        draft = "## Why\n\nVerify local CI gates.\n\n" + block
+        report = runner.render_summary(self.evidence())
+        self.assertIn("duplicate field SporeSync-Authorship", policy.validate(draft + "\n" + report))
+        self.assertEqual(policy.validate(draft.replace(block, report)), [])
+
     def test_success_counts_and_failure_continues_with_named_nonzero(self) -> None:
         checks = (self.check("broken", "print('specific failure'); raise SystemExit(9)"),
                   self.check("later", "print('ran after failure')"))

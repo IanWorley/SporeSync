@@ -20,6 +20,19 @@ class DisclosureTests(unittest.TestCase):
     def test_full_agent_disclosure_is_valid(self) -> None:
         self.assertEqual(policy.validate(policy.DISCLOSURE), [])
 
+    def test_generic_type_in_commit_subject_preserves_disclosure(self) -> None:
+        self.assertEqual(policy.validate("feat(types): support List<String>\n\n" + policy.DISCLOSURE), [])
+
+    def test_markdown_autolinks_preserve_disclosure(self) -> None:
+        for link in ("<https://github.com/IanWorley/SporeSync>", "<contributor@example.test>"):
+            with self.subTest(link=link):
+                self.assertEqual(policy.validate(link + "\n\n" + policy.DISCLOSURE), [])
+
+    def test_unknown_html_element_with_attributes_cannot_hide_disclosure(self) -> None:
+        for attributes in ("hidden", 'style="display:none"'):
+            with self.subTest(attributes=attributes):
+                self.assertIn("missing field SporeSync-Authorship", policy.validate(f"<custom-element {attributes}>\n{policy.DISCLOSURE}\n</custom-element>"))
+
     def test_each_required_field_has_an_exact_missing_field_diagnostic(self) -> None:
         for field in policy.FIELDS:
             with self.subTest(field=field):

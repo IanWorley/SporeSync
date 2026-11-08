@@ -38,7 +38,14 @@ SporeSync-On-Behalf-Of: @IanWorley"""
 
 
 class DisclosureText(HTMLParser):
+    AUTOLINK = re.compile(r"<[A-Za-z][A-Za-z0-9+.-]*:[^<>\x00-\x20]*>")
     VOID_TAGS = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"}
+    HTML_TAGS = set("""a abbr address article aside audio b bdi bdo blockquote body button canvas caption
+        cite code colgroup data datalist dd del details dfn dialog div dl dt em fieldset figcaption figure
+        footer form h1 h2 h3 h4 h5 h6 head header hgroup html i iframe ins kbd label legend li main map
+        mark math menu meter nav noscript object ol optgroup option output p picture pre progress q rp rt
+        ruby s samp script search section select slot small span strong style sub summary sup svg table
+        tbody td template textarea tfoot th thead time title tr u ul var video""".split())
 
     def __init__(self) -> None:
         super().__init__(convert_charrefs=False)
@@ -48,7 +55,7 @@ class DisclosureText(HTMLParser):
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if not self.tags:
             self.parts.append("<markup>")
-        if tag not in self.VOID_TAGS:
+        if tag not in self.VOID_TAGS and (tag in self.HTML_TAGS or (attrs and not self.AUTOLINK.fullmatch(self.get_starttag_text()))):
             self.tags.append(tag)
 
     def handle_endtag(self, tag: str) -> None:

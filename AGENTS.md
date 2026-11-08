@@ -24,6 +24,8 @@ python3 scripts/verify_ci.py --username IanWorley --harness "T3 Code / Codex" --
 
 Supply your own username, harness, model, and effort truthfully. These values are attribution, not verified identity.
 Rerun after every source or HEAD change. Include the generated `.verification/<run>/summary.md` in the PR body.
+The summary contains the required disclosure. Replace the draft's standalone disclosure block with the summary;
+keep exactly one declaration in the final PR body. Reruns replace the previous summary.
 Never claim readiness when required checks fail, time out, are unavailable, or the report is stale.
 [CONTRIBUTING.md](CONTRIBUTING.md) documents prerequisites, all flags, the CI mapping, and approved comment publication.
 Use `--pr NUMBER` to preview the same summary for the PR and its GitHub-linked closing issues.

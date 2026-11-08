@@ -154,7 +154,12 @@ python3 scripts/verify_ci.py --username IanWorley --harness "T3 Code / Codex" --
 ```
 
 Without `--pr-body`, existing `gh` authentication reads the current branch's PR body from SporeSync.
-The body hash is recorded in the disclosure log. After adding the generated report to the PR body, rerun
+The body hash is recorded in the disclosure log. The generated `summary.md` includes its own complete disclosure.
+Replace the draft's standalone disclosure block with the summary instead of appending a second declaration.
+Keep the rest of the PR description. On reruns, replace the previous summary. The final body must contain exactly
+one declaration. Use the same truthful authorship for the draft and report, with `--authorship human` for a human-written
+report. Never relabel human-written prose as agent-authored or agent-written prose as human-authored.
+After embedding the generated report in the PR body, rerun
 `python3 scripts/check_disclosure.py local --pr NUMBER` to validate the final body without a self-referential report hash. This command reads GitHub; it does not create posts or comments.
 Commit additional changes with their own full disclosures, then rerun. A compliant head commit does not excuse an earlier undisclosed commit.
 Two exact historical commits in PR #52 are exempt because they were pushed before this requirement arrived:

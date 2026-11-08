@@ -31,3 +31,7 @@ replay_pid*
 # Frontend dependencies and build output
 node_modules/
 dist/
+
+# Local CI verification evidence
+.verification/
+__pycache__/

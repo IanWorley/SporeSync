@@ -87,6 +87,12 @@ class DisclosureTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "repository"):
             policy.check_event({"repository": {"full_name": "other/repo"}}, "issues")
 
+    def test_gh_branch_discovery_supplies_the_selector_required_with_repo(self) -> None:
+        response = subprocess.CompletedProcess([], 0, stdout=json.dumps({"url": f"https://github.com/{policy.REPOSITORY}/pull/{FIXTURE_PR_NUMBER}", "body": policy.DISCLOSURE}), stderr="")
+        with patch.object(policy, "git", return_value="feat/local-ci-verifier"), patch.object(policy.subprocess, "run", return_value=response) as run:
+            self.assertEqual(policy.gh_pr(None)["body"], policy.DISCLOSURE)
+        self.assertEqual(run.call_args.args[0][:4], ["gh", "pr", "view", "feat/local-ci-verifier"])
+
     def test_pr_event_checks_body_and_all_commits_without_shell_interpolation(self) -> None:
         base, head = "a" * SHA_LENGTH, "b" * SHA_LENGTH
         event = {"repository": {"full_name": policy.REPOSITORY}, "pull_request": {

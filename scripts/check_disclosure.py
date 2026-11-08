@@ -92,9 +92,10 @@ def validate_commits(base: str, head: str) -> list[str]:
 
 
 def gh_pr(pr: int | None) -> dict:
-    command = ["gh", "pr", "view"]
-    if pr is not None:
-        command.append(str(pr))
+    selector = str(pr) if pr is not None else git("branch", "--show-current")
+    if not selector:
+        raise ValueError("Detached HEAD requires --pr or --pr-body")
+    command = ["gh", "pr", "view", selector]
     command += ["--repo", REPOSITORY, "--json", "body,url,headRefOid"]
     response = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, timeout=GITHUB_TIMEOUT)
     if response.returncode:

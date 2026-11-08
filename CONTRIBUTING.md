@@ -141,6 +141,8 @@ SporeSync-Authorship: human
 Every newly checked text must declare one of these alternatives. The checker does not infer authorship from account names.
 An agent must never use the human alternative. Declarations are self-attested; the checker cannot prove who wrote text or detect a false human declaration.
 Agent fields cannot be empty, duplicated, placeholders, markup, or control characters.
+Declarations inside HTML comments or HTML containers, including collapsed details, do not count.
+Put the disclosure in plain Markdown or a fenced text block outside HTML containers, preferably before HTML examples.
 Harness and model use ASCII names containing letters, digits, spaces, periods, slashes, plus signs, underscores, parentheses, and hyphens; effort is `low`, `medium`, `high`, `xhigh`, `max`, or `ultra`, and the human field is `@GitHubUsername`.
 Missing fields fail with exact diagnostics such as `missing field SporeSync-Harness`.
 
@@ -179,7 +181,10 @@ The workflow uses ordinary `pull_request`, not `pull_request_target`, with read-
 Checkout does not persist credentials. Event text is read as JSON from `GITHUB_EVENT_PATH`, never interpolated into shell commands.
 Ordinary PR CI runs the checked-out PR code with read-only permissions. Review workflow changes before merging them, as with every CI policy change.
 
-Issue and comment event workflows run from the default branch, so this new policy becomes active for those events after it is merged.
+The `issues` and `issue_comment` workflows require the file on the default branch, so those checks activate after merge.
+The `pull_request`, `pull_request_review`, and `pull_request_review_comment` events use the PR merge ref.
+PR changes can alter those workflow/checker files; review such changes before merging. Merge conflicts can prevent these PR event runs.
+Each posted-text run covers its own event. A later event success does not clear another event's failure; inspect the individual Actions runs, since repeated event check names can visually supersede older results.
 They validate only the event text, not all historical or unrelated repository text. Empty reviews with no authored text are explicitly not applicable.
 External bots are not silently treated as humans; their text also needs a truthful declaration when these events are checked.
 These read-only checks report failures. They cannot edit or prevent an already-posted issue or comment, enforce branch protection, or prove identity.

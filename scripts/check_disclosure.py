@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+from html.parser import HTMLParser
 import json
 import os
 from pathlib import Path
@@ -36,10 +37,45 @@ SporeSync-Model: gpt-6.1-sol
 SporeSync-On-Behalf-Of: @IanWorley"""
 
 
+class DisclosureText(HTMLParser):
+    VOID_TAGS = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"}
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=False)
+        self.tags: list[str] = []
+        self.parts: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if not self.tags:
+            self.parts.append("<markup>")
+        if tag not in self.VOID_TAGS:
+            self.tags.append(tag)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in self.tags:
+            index = len(self.tags) - 1 - self.tags[::-1].index(tag)
+            del self.tags[index:]
+        if not self.tags:
+            self.parts.append("</markup>")
+
+    def handle_data(self, data: str) -> None:
+        if not self.tags:
+            self.parts.append(data)
+
+    def handle_entityref(self, name: str) -> None:
+        self.handle_data(f"&{name};")
+
+    def handle_charref(self, name: str) -> None:
+        self.handle_data(f"&#{name};")
+
+
 def validate(text: str) -> list[str]:
+    visible = DisclosureText()
+    visible.feed(text)
+    visible.close()
     values: dict[str, str] = {}
     errors = []
-    for line in text.splitlines():
+    for line in "".join(visible.parts).splitlines():
         match = re.fullmatch(r"SporeSync-([A-Za-z-]+):[ \t]*(.*)", line)
         if not match:
             continue
@@ -63,7 +99,7 @@ def validate(text: str) -> list[str]:
         value = values.get(field, "")
         if not value:
             errors.append(f"missing field {PREFIX}{field}")
-        elif value.lower() in PLACEHOLDERS or not TEXT_VALUE.fullmatch(value.lstrip("@")):
+        elif value.lower() in PLACEHOLDERS or not TEXT_VALUE.fullmatch(value.removeprefix("@") if field == "On-Behalf-Of" else value):
             errors.append(f"malformed field {PREFIX}{field}; empty, placeholder, or unsafe value")
         elif field == "Effort" and value not in EFFORTS:
             errors.append(f"malformed field {PREFIX}{field}; unsupported effort")

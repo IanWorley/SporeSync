@@ -56,6 +56,17 @@ class DisclosureTests(unittest.TestCase):
         self.assertTrue(policy.validate(policy.DISCLOSURE.replace("T3 Code / Codex", "[T3](https://evil.test)")))
         self.assertEqual(policy.validate("```text\n" + policy.DISCLOSURE + "\n```"), [])
 
+    def test_hidden_html_declarations_do_not_satisfy_disclosure(self) -> None:
+        for declaration in (policy.DISCLOSURE, "SporeSync-Authorship: human"):
+            for opening, closing in (("<!--", "-->"), ("<details>", "</details>"), ("<details><details>", "</details></details>"), ("<span hidden>", "</span>"), ("<details></span>", "</details>")):
+                with self.subTest(opening=opening, declaration=declaration):
+                    self.assertIn("missing field SporeSync-Authorship", policy.validate(f"Visible text.\n{opening}\n{declaration}\n{closing}"))
+
+    def test_harness_and_model_cannot_carry_mentions(self) -> None:
+        for field in ("Harness", "Model"):
+            text = "\n".join(f"SporeSync-{field}: @octocat" if line.startswith(f"SporeSync-{field}:") else line for line in policy.DISCLOSURE.splitlines())
+            self.assertTrue(any(f"malformed field SporeSync-{field}" in error for error in policy.validate(text)))
+
     def test_every_commit_is_checked_and_new_commits_are_not_implicitly_exempt(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

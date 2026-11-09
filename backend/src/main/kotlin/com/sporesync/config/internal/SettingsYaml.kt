@@ -37,9 +37,7 @@ internal object SettingsYaml {
                 val position = mark?.let { " at line ${it.line + 1}, column ${it.column + 1}" }.orEmpty()
                 throw InvalidSettingsException(listOf(SettingsViolation(sourceName, INVALID_YAML_MESSAGE + position)))
             }
-        if (sources.size >
-            1
-        ) {
+        if (sources.size > 1) {
             throw InvalidSettingsException(listOf(SettingsViolation(sourceName, MULTIPLE_DOCUMENTS_MESSAGE)))
         }
         val document = sources.firstOrNull() as? EnumerablePropertySource<*> ?: return null

@@ -1,4 +1,4 @@
-package com.sporesync.web
+package com.sporesync.web.internal
 
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
@@ -16,9 +16,10 @@ private const val FRONTEND_REQUIRED_PROPERTY = "sporesync.frontend.required"
 private const val FRONTEND_DIST_ENV = "SPORESYNC_FRONTEND_DIST"
 private const val FRONTEND_DIST_INDEX = "index.html"
 private const val FRONTEND_DIST_DEFAULT = "../frontend/dist"
+private val BACKEND_ROUTE_PREFIXES = listOf("api", "actuator")
 
 @Configuration
-class FrontendWebMvcConfigurer(
+internal class FrontendWebMvcConfigurer(
     @Value("\${$FRONTEND_DIST_PROPERTY:$FRONTEND_DIST_DEFAULT}") configuredDist: String,
     @Value("\${$FRONTEND_REQUIRED_PROPERTY:false}") frontendRequired: Boolean,
 ) : WebMvcConfigurer {
@@ -60,23 +61,14 @@ private class FrontendSpaFallbackResourceResolver : PathResourceResolver() {
         location: Resource,
     ): Resource? {
         val staticResource = super.getResource(resourcePath, location)
-        val fallbackResource =
-            if (staticResource == null && shouldFallbackToIndex(resourcePath)) {
-                super.getResource(FRONTEND_DIST_INDEX, location)
-            } else {
-                null
-            }
-        return staticResource ?: fallbackResource
+        if (staticResource != null || !shouldFallbackToIndex(resourcePath)) return staticResource
+        return super.getResource(FRONTEND_DIST_INDEX, location)
     }
 
     private fun shouldFallbackToIndex(resourcePath: String): Boolean {
         val normalized = resourcePath.trimStart('/')
-        val excludedPrefix =
-            normalized == "api" ||
-                normalized.startsWith("api/") ||
-                normalized == "actuator" ||
-                normalized.startsWith("actuator/")
+        val isBackendRoute = BACKEND_ROUTE_PREFIXES.any { normalized == it || normalized.startsWith("$it/") }
         val hasExtension = normalized.substringAfterLast('/').contains('.')
-        return normalized.isBlank() || (!excludedPrefix && !hasExtension)
+        return !isBackendRoute && !hasExtension
     }
 }

@@ -23,7 +23,12 @@ export default defineConfig({
       "react/react-in-jsx-scope": "off",
       // Library types such as RouterHistory are mutable, so this rule cannot be satisfied.
       "typescript/prefer-readonly-parameter-types": "off",
+      "no-magic-numbers": ["error", { ignore: [-1, 0, 1, 2], enforceConst: true }],
+      "no-empty": "error",
+      "react/button-has-type": "error",
+      "react/no-array-index-key": "error",
     },
+    overrides: [{ files: ["**/*.test.{ts,tsx}"], rules: { "no-magic-numbers": "off" } }],
     options: { typeAware: true, typeCheck: true },
     env: { browser: true },
     ignorePatterns: ["dist/**"],

@@ -1,6 +1,6 @@
 # Health check
 
-An operator or orchestrator asks SporeSync whether it is up. `GET /actuator/health` answers `200` with `{"groups":["liveness","readiness"],"status":"UP"}`, and the two groups can be probed on their own. Health is the only exposed actuator endpoint. The `/actuator` index also answers `200`; every other route answers `404`.
+An operator or orchestrator asks SporeSync whether it is up. `GET /actuator/health` answers `200` with `{"groups":["liveness","readiness"],"status":"UP"}`, and the two groups can be probed on their own. Health is the only exposed actuator endpoint. The `/actuator` index also answers `200`; every other backend route answers `404`, including `/`, because a verification run serves no frontend bundle.
 
 ## Sub-features
 
@@ -8,7 +8,7 @@ An operator or orchestrator asks SporeSync whether it is up. `GET /actuator/heal
 - `health-liveness` reports the liveness group alone.
 - `health-readiness` reports the readiness group alone.
 - `actuator-index` lists links to the exposed endpoints, which today are only the health endpoints.
-- `not-found` answers `404` for unexposed actuator endpoints and for routes that have not shipped.
+- `not-found` answers `404` for unexposed actuator endpoints, for routes that have not shipped, and for `/`.
 
 ## How to get to it (user POV)
 
@@ -23,16 +23,16 @@ Preconditions:
 - `(set -o pipefail; .agents/skills/verify-sporesync/scripts/verify-sporesync.sh doctor "$RUN_DIR" | tee "$RUN_DIR/evidence/doctor.txt")` exits `0`.
 - `PORT` is set and `probe` is defined, per [Driving conventions](./README.md#driving-conventions).
 
-- **Aggregate health.** Run `probe health /actuator/health`. It prints `200`. `health.headers.txt` has `Content-Type: application/vnd.spring-boot.actuator.v3+json`, and `health.json` is `{"groups":["liveness","readiness"],"status":"UP"}`.
-- **Liveness.** Run `probe health-liveness /actuator/health/liveness`. It prints `200`, and `health-liveness.json` is `{"status":"UP"}`.
-- **Readiness.** Run `probe health-readiness /actuator/health/readiness`. It prints `200`, and `health-readiness.json` is `{"status":"UP"}`.
-- **Actuator index.** Run `probe actuator-index /actuator`. It prints `200`, and the `_links` keys in `actuator-index.json` are exactly `self`, `health`, and `health-path`.
+- **Aggregate health.** Run `probe health /actuator/health`. It prints `200`. `health.headers.txt` has `Content-Type: application/vnd.spring-boot.actuator.v3+json`, and `health.body` is `{"groups":["liveness","readiness"],"status":"UP"}`.
+- **Liveness.** Run `probe health-liveness /actuator/health/liveness`. It prints `200`, and `health-liveness.body` is `{"status":"UP"}`.
+- **Readiness.** Run `probe health-readiness /actuator/health/readiness`. It prints `200`, and `health-readiness.body` is `{"status":"UP"}`.
+- **Actuator index.** Run `probe actuator-index /actuator`. It prints `200`, and the `_links` keys in `actuator-index.body` are exactly `self`, `health`, and `health-path`.
 - **Not found.** Run `probe not-found-actuator-info /actuator/info`, `probe not-found-root /`, and `probe not-found-api-status /api/status`. Each prints `404`, with a JSON body whose `status` is `404` and whose `path` is the requested path.
-- **Browser view.** This requires an instance started with `SPORESYNC_VERIFY_BIND=0.0.0.0`. In T3, call `preview_status`, call `preview_open` if no automation-capable tab is attached, call `preview_navigate` with `target` `{"kind":"environment-port","port":$PORT,"path":"/actuator/health"}`, then call `preview_snapshot` with `save=true`. Copy `screenshotPath` to `$RUN_DIR/evidence/health.png`. The page shows the JSON body with `"status":"UP"`.
+- **Browser view.** In T3, call `preview_status`, call `preview_open` with `open=false` if no automation-capable tab is attached, call `preview_navigate` with `target` `{"kind":"environment-port","port":$PORT,"path":"/actuator/health"}`, then call `preview_snapshot` with `save=true`. Copy `screenshotPath` to `$RUN_DIR/evidence/health.png`. The page shows the JSON body with `"status":"UP"`.
 
 ## Gotchas
 
 - During startup the port first refuses connections, and health can briefly answer `503` before `UP`. `start` waits through both. Do not treat either as a failure.
 - A `200` on port `8080` may come from a different SporeSync, such as the user's own `elide run`. Only `$PORT` from `instance.env` counts.
-- The instance binds `127.0.0.1` by default. In that mode, Preview navigation fails because Preview reaches the host by network name. Relaunch with `SPORESYNC_VERIFY_BIND=0.0.0.0` for the browser view.
-- `/`, `/api/*`, and the planned UI routes return `404` today. That is expected, not a regression.
+- The app serves the `frontend/dist/` bundle at `/`, with an SPA fallback for UI routes, when `frontend/dist/index.html` exists. A verification run turns that off. `start` points `SPORESYNC_FRONTEND_DIST` at `RUN_DIR/no-frontend-bundle`, a path it never creates, because `frontend/dist/` is ignored build output that the tree fingerprint does not cover. So `/`, `/api/*`, and the planned UI routes such as `/settings` answer `404` on the backend port even after `vp build`, and `app.log` logs `Frontend bundle is missing (index.html at RUN_DIR/no-frontend-bundle)`. That is expected, not a regression. The frontend dev server serves `/` on its own port; see [Frontend home page](./frontend-home.md).
+- A run keeps its settings file and H2 database in the owner-only `RUN_DIR/config/`, not the app default `/config`, which macOS cannot create on its read-only system volume. `start` sets `SPORESYNC_SETTINGSFILE` and `SPORESYNC_PERSISTENCE_DIRECTORY` to point there. The run starts from default settings, and `app.log` logs `No settings file at RUN_DIR/config/settings.yaml; using defaults`. A new database also gets `sporesync.trace.db`, where H2 records Liquibase looking for a `DATABASECHANGELOGLOCK` table that does not exist yet. It is not an error.

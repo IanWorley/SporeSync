@@ -1,6 +1,18 @@
+sporesync:
+  persistence:
+    directory: /config
+    database-name: sporesync
+
 spring:
   application:
     name: sporesync
+  datasource:
+    # Spring closes the database on shutdown, not H2's JVM hook.
+    url: jdbc:h2:file:${sporesync.persistence.directory}/${sporesync.persistence.database-name};DB_CLOSE_ON_EXIT=FALSE
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
 
 logging:
   structured:
@@ -8,8 +20,6 @@ logging:
     format:
       console: ecs
   level:
-    # Debug toggle. The config module (#7) maps the General > debug setting onto this level;
-    # until then it can be overridden with LOGGING_LEVEL_COM_SPORESYNC=DEBUG.
     com.sporesync: INFO
 
 management:

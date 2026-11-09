@@ -1,14 +1,18 @@
 #!/usr/bin/env bash
-# Elide runs the app as `elide run` -> `elide java` -> JVM, and signalling only `elide run` orphans
-# the JVM on the port, so the whole chain is tracked and stopped.
+# Each launcher runs the server as a grandchild (`elide run` -> `elide java` -> JVM, `vp dev` -> node -> node),
+# and signalling only the launcher orphans the server on the port, so the whole chain is tracked and stopped.
 set -euo pipefail
 
-readonly DEFAULT_PORT=18080
+readonly DEFAULT_COMPONENT="backend"
+readonly BACKEND_DEFAULT_PORT=18080
+readonly BACKEND_READY_PATH="/actuator/health"
+readonly BACKEND_READY_MARKER='"status":"UP"'
+readonly FRONTEND_DEFAULT_PORT=15173
+readonly FRONTEND_READY_PATH="/"
+readonly FRONTEND_READY_MARKER='<div id="root"></div>'
 readonly DEFAULT_ROOT="/tmp/verify-sporesync"
 readonly DEFAULT_BIND_ADDRESS="127.0.0.1"
 readonly CLIENT_ADDRESS="127.0.0.1"
-readonly HEALTH_PATH="/actuator/health"
-readonly STATUS_UP='"status":"UP"'
 readonly HTTP_OK="200"
 readonly READY_TIMEOUT_SECONDS=120
 readonly STOP_TIMEOUT_SECONDS=20
@@ -20,12 +24,15 @@ readonly EXIT_SIGTERM=143
 readonly OWNER_ONLY_MODE=700
 REQUIRED_COMMANDS=(curl git lsof mktemp pgrep ps shasum)
 readonly REQUIRED_COMMANDS
-# Spring binds almost any environment variable to configuration, so the app gets only these.
+# Spring binds almost any environment variable to configuration, as Vite does with VITE_*, so the app gets only these.
 LAUNCH_ENV_ALLOWLIST=(HOME PATH USER LOGNAME TMPDIR LANG LC_ALL LC_CTYPE)
 readonly LAUNCH_ENV_ALLOWLIST
 readonly INSTANCE_FILE="instance.env"
 readonly LOG_FILE="app.log"
 readonly EVIDENCE_DIR="evidence"
+readonly BACKEND_CONFIG_DIR="config"
+readonly BACKEND_SETTINGS_FILE="settings.yaml"
+readonly BACKEND_NO_FRONTEND_BUNDLE="no-frontend-bundle"
 readonly PORT_PATTERN='^[1-9][0-9]{0,4}$'
 readonly MAX_PORT=65535
 readonly BIND_PATTERN='^(127\.0\.0\.1|0\.0\.0\.0)$'
@@ -36,8 +43,6 @@ readonly DIRTY_PATTERN='^(clean|dirty)$'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)"
-BACKEND_DIR="$REPO_ROOT/backend"
-PORT="${SPORESYNC_VERIFY_PORT:-$DEFAULT_PORT}"
 ROOT="${SPORESYNC_VERIFY_ROOT:-$DEFAULT_ROOT}"
 BIND_ADDRESS="${SPORESYNC_VERIFY_BIND:-$DEFAULT_BIND_ADDRESS}"
 
@@ -68,7 +73,7 @@ running() {
 
 owned() {
   running "$1" || return 1
-  [ "$(lsof -a -p "$(handle_pid "$1")" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p')" = "$BACKEND_DIR" ]
+  [ "$(lsof -a -p "$(handle_pid "$1")" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p')" = "$COMPONENT_DIR" ]
 }
 
 descendants() {
@@ -79,7 +84,25 @@ descendants() {
   done
 }
 
-health_url() { echo "http://$CLIENT_ADDRESS:$1$HEALTH_PATH"; }
+use_component() {
+  case "$1" in
+    backend)
+      DEFAULT_PORT="$BACKEND_DEFAULT_PORT"
+      READY_PATH="$BACKEND_READY_PATH"
+      READY_MARKER="$BACKEND_READY_MARKER"
+      ;;
+    frontend)
+      DEFAULT_PORT="$FRONTEND_DEFAULT_PORT"
+      READY_PATH="$FRONTEND_READY_PATH"
+      READY_MARKER="$FRONTEND_READY_MARKER"
+      ;;
+    *) die "unknown component '$1'; expected backend or frontend" ;;
+  esac
+  COMPONENT="$1"
+  COMPONENT_DIR="$REPO_ROOT/$1"
+}
+
+ready_url() { echo "http://$CLIENT_ADDRESS:$1$READY_PATH"; }
 
 tree_fingerprint() {
   {
@@ -171,12 +194,15 @@ read_field() {
 }
 
 load_instance() {
-  local run_dir="${1:-}" file process
+  local run_dir="${1:-}" file process component
   [ -n "$run_dir" ] || die "usage: $0 $2 RUN_DIR"
   file="$run_dir/$INSTANCE_FILE"
   [ -e "$file" ] || die "no live instance recorded in $file"
   require_private "$run_dir"
   require_private "$file"
+  # Handles written before the frontend component have no COMPONENT line and are all backends.
+  component="$(sed -n 's/^COMPONENT=//p' "$file" | head -n 1)"
+  use_component "${component:-$DEFAULT_COMPONENT}"
   PORT="$(read_field "$file" PORT "$PORT_PATTERN")"
   valid_port "$PORT" || die "$file has an invalid PORT"
   BIND_ADDRESS="$(read_field "$file" BIND_ADDRESS "$BIND_PATTERN")"
@@ -209,38 +235,57 @@ track_launch() {
 }
 
 cmd_start() {
-  require_commands elide
-  local want have run_dir launcher deadline pid found head tree state name chain=() launch_env=()
+  local want have run_dir launcher deadline pid found head tree state name launch=() chain=() launch_env=()
+  use_component "${1:-$DEFAULT_COMPONENT}"
+  PORT="${SPORESYNC_VERIFY_PORT:-$DEFAULT_PORT}"
   valid_port "$PORT" || die "SPORESYNC_VERIFY_PORT must be a port from 1 to $MAX_PORT, got '$PORT'"
-  [[ "$BIND_ADDRESS" =~ $BIND_PATTERN ]] || die "SPORESYNC_VERIFY_BIND must be 127.0.0.1 or 0.0.0.0, the binds the loopback health probe can reach, got '$BIND_ADDRESS'"
-  want="$(cat "$REPO_ROOT/.elideversion")"
-  have="$(elide --version)"
-  case "$have" in "$want"*) ;; *) die "elide $have does not match .elideversion $want" ;; esac
+  [[ "$BIND_ADDRESS" =~ $BIND_PATTERN ]] || die "SPORESYNC_VERIFY_BIND must be 127.0.0.1 or 0.0.0.0, the binds the loopback readiness probe can reach, got '$BIND_ADDRESS'"
+  case "$COMPONENT" in
+    backend)
+      require_commands elide
+      want="$(cat "$REPO_ROOT/.elideversion")"
+      have="$(elide --version)"
+      case "$have" in "$want"*) ;; *) die "elide $have does not match .elideversion $want" ;; esac
+      launch=(SERVER_PORT="$PORT" SERVER_ADDRESS="$BIND_ADDRESS" nohup elide run)
+      ;;
+    frontend)
+      require_commands vp
+      launch=(nohup vp dev --host "$BIND_ADDRESS" --port "$PORT" --strictPort)
+      ;;
+  esac
   [ -z "$(listener_pid "$PORT")" ] || die "port $PORT is already in use; pick another SPORESYNC_VERIFY_PORT"
   ok "port $PORT is free"
 
   prepare_root
   run_dir="$(mktemp -d "$ROOT/$(date +%Y%m%dT%H%M%S)-$PORT.XXXXXX")"
   mkdir "$run_dir/$EVIDENCE_DIR"
+  if [ "$COMPONENT" = "backend" ]; then
+    mkdir -m "$OWNER_ONLY_MODE" "$run_dir/$BACKEND_CONFIG_DIR"
+    launch=(
+      SPORESYNC_PERSISTENCE_DIRECTORY="$run_dir/$BACKEND_CONFIG_DIR"
+      SPORESYNC_SETTINGSFILE="$run_dir/$BACKEND_CONFIG_DIR/$BACKEND_SETTINGS_FILE"
+      SPORESYNC_FRONTEND_DIST="$run_dir/$BACKEND_NO_FRONTEND_BUNDLE"
+      "${launch[@]}"
+    )
+  fi
 
   head="$(git -C "$REPO_ROOT" rev-parse HEAD)"
   tree="$(tree_fingerprint)"
   state="$(tree_state)"
 
-  cd "$BACKEND_DIR"
+  cd "$COMPONENT_DIR"
   trap abort_start EXIT
   trap 'exit $EXIT_SIGINT' INT
   trap 'exit $EXIT_SIGTERM' TERM
   for name in "${LAUNCH_ENV_ALLOWLIST[@]}"; do
     if [ -n "${!name+set}" ]; then launch_env+=("$name=${!name}"); fi
   done
-  env -i "${launch_env[@]}" SERVER_PORT="$PORT" SERVER_ADDRESS="$BIND_ADDRESS" \
-    nohup elide run </dev/null >"$run_dir/$LOG_FILE" 2>&1 &
+  env -i "${launch_env[@]}" "${launch[@]}" </dev/null >"$run_dir/$LOG_FILE" 2>&1 &
   launcher=$!
   STARTING_PIDS=("$launcher")
 
   deadline=$((SECONDS + READY_TIMEOUT_SECONDS))
-  until curl --noproxy "*" -fsS --max-time "$CURL_TIMEOUT_SECONDS" "$(health_url "$PORT")" 2>/dev/null | grep -q "$STATUS_UP"; do
+  until curl --noproxy "*" -fsS --max-time "$CURL_TIMEOUT_SECONDS" "$(ready_url "$PORT")" 2>/dev/null | grep -qF "$READY_MARKER"; do
     track_launch "$launcher"
     kill -0 "$launcher" 2>/dev/null || die "launcher exited before ready; see $run_dir/$LOG_FILE"
     [ "$SECONDS" -lt "$deadline" ] || die "not ready within ${READY_TIMEOUT_SECONDS}s; see $run_dir/$LOG_FILE"
@@ -253,6 +298,7 @@ cmd_start() {
   for found in "${STARTING_PIDS[@]}"; do chain+=("$(handle "$found")"); done
 
   cat >"$run_dir/$INSTANCE_FILE" <<EOF
+COMPONENT=$COMPONENT
 PORT=$PORT
 BIND_ADDRESS=$BIND_ADDRESS
 APP=$(handle "$pid")
@@ -263,7 +309,7 @@ STARTED_STATE=$state
 EOF
   trap - EXIT INT TERM
 
-  ok "SporeSync UP at $(health_url "$PORT"), bound to $BIND_ADDRESS (JVM pid $pid, launcher pid $launcher)"
+  ok "SporeSync $COMPONENT ready at $(ready_url "$PORT"), bound to $BIND_ADDRESS (server pid $pid, launcher pid $launcher)"
   ok "built from HEAD $head, $state working tree (tree sha256 $tree)"
   echo "RUN_DIR=$run_dir"
 }
@@ -273,14 +319,14 @@ cmd_doctor() {
   local process failed=0 code body listener tree
   for process in "${CHAIN[@]}"; do
     if owned "$process"; then
-      ok "pid $(handle_pid "$process") alive since $(handle_started "$process"), cwd $BACKEND_DIR"
+      ok "pid $(handle_pid "$process") alive since $(handle_started "$process"), cwd $COMPONENT_DIR"
     else
       echo "FAIL: pid $(handle_pid "$process") (started $(handle_started "$process")) is gone or not ours"; failed=1
     fi
   done
   listener="$(listener_pid "$PORT")"
   if [ "$listener" = "$(handle_pid "$APP")" ]; then
-    ok "port $PORT is owned by JVM pid $listener"
+    ok "port $PORT is owned by server pid $listener"
   else
     echo "FAIL: port $PORT listener is '$listener', expected $(handle_pid "$APP")"; failed=1
   fi
@@ -291,13 +337,13 @@ cmd_doctor() {
     echo "FAIL: working tree changed since launch (HEAD $STARTED_HEAD -> $(git -C "$REPO_ROOT" rev-parse HEAD)); stop and relaunch"
     failed=1
   fi
-  body="$(curl --noproxy "*" -sS --max-time "$CURL_TIMEOUT_SECONDS" -w '\n%{http_code}' "$(health_url "$PORT")" 2>&1 || true)"
+  body="$(curl --noproxy "*" -sS --max-time "$CURL_TIMEOUT_SECONDS" -w '\n%{http_code}' "$(ready_url "$PORT")" 2>&1 || true)"
   code="$(echo "$body" | tail -n 1)"
   body="$(echo "$body" | sed '$d')"
-  if [ "$code" = "$HTTP_OK" ] && echo "$body" | grep -q "$STATUS_UP"; then
-    ok "GET $HEALTH_PATH -> $code $body"
+  if [ "$code" = "$HTTP_OK" ] && echo "$body" | grep -qF "$READY_MARKER"; then
+    ok "GET $READY_PATH -> $code, body contains $READY_MARKER"
   else
-    echo "FAIL: GET $HEALTH_PATH -> $code $body"; failed=1
+    echo "FAIL: GET $READY_PATH -> $code $body"; failed=1
   fi
   return "$failed"
 }
@@ -317,8 +363,8 @@ cmd_stop() {
 
 require_commands "${REQUIRED_COMMANDS[@]}"
 case "${1:-}" in
-  start) cmd_start ;;
+  start) cmd_start "${2:-}" ;;
   doctor) cmd_doctor "${2:-}" ;;
   stop) cmd_stop "${2:-}" ;;
-  *) die "usage: $0 start | doctor RUN_DIR | stop RUN_DIR" ;;
+  *) die "usage: $0 start [backend|frontend] | doctor RUN_DIR | stop RUN_DIR" ;;
 esac

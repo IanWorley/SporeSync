@@ -99,7 +99,7 @@ flowchart TB
 ### Module responsibilities
 
 **config**
-Reads and writes `settings.toml` (or `.yaml`; one format, decided in implementation). Validates on load and on save. Publishes `ConfigChanged`. Settings groups mirror seedsync: General (debug, verbose), Connection (host, port, username, auth method, key path or password), Paths (remote dir, local dir, remote scanner path), Transfer (concurrent file limit, per-file connection limit, bandwidth limit), Scan (remote interval, local interval), Extraction (enabled, delete archive after extract), AutoQueue (enabled, patterns-only mode).
+Reads and writes `settings.yaml`. Validates on load and on save. Publishes `ConfigChanged`. Settings groups mirror seedsync: General (debug, verbose), Connection (host, port, username, auth method, key path or password), Paths (remote dir, local dir, remote scanner path), Transfer (concurrent file limit, per-file connection limit, bandwidth limit), Scan (remote interval, local interval), Extraction (enabled, delete archive after extract), AutoQueue (enabled, patterns-only mode).
 
 **remotescan**
 On a configurable interval, ensures the Python scanner script is present on the remote host (copy over SFTP if missing or out of date), runs it over SSH, parses its JSON output into a tree of remote files with sizes and modification times, and publishes `RemoteScanned`. Reports connection failures as a typed status the UI can show.
@@ -197,5 +197,5 @@ A single Python 3 file with no third-party dependencies. Invoked as `python3 sca
 
 ## Open questions
 
-- Settings file format: TOML vs YAML. Lean TOML for readability.
+- Settings file format: YAML (`settings.yaml`).
 - Whether per-file segmented downloads land in milestone 2 or 3. Parallel files land in 2 regardless.

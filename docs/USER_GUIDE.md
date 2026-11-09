@@ -7,7 +7,7 @@ This guide is based on the [SporeSync specification](SPEC.md). SporeSync is stil
 ## How to read this guide
 
 - **Specified** means the behavior is decided in the spec.
-- **Not yet established** means the spec leaves the detail to the implementation, such as the image name, web port, settings file format, or exact environment variable names. These are shown as `<placeholders>`. This guide will be updated when the implementation decides them.
+- **Not yet established** means the spec leaves the detail to the implementation, such as the image name, web port, or exact environment variable names. These are shown as `<placeholders>`. This guide will be updated when the implementation decides them.
 
 ## Before you start
 
@@ -82,7 +82,7 @@ The container exposes a health endpoint at `/actuator/health`. You can point a D
 You can change settings in three ways:
 
 1. The **Settings** page in the web UI (`/settings`). Each field saves on its own and shows validation errors inline. Some changes show a "restart required" notice.
-2. The **settings file** in `/config`. It is named `settings.toml` or `settings.yaml`; the format is **not yet established** (the spec leans toward TOML).
+2. The **settings file** in `/config`, named `settings.yaml`.
 3. **Environment variables**, which override values from the settings file. See [Environment overrides](#environment-overrides).
 
 SporeSync validates settings when it loads them and when you save them.

@@ -1,6 +1,6 @@
 # Health check
 
-An operator or orchestrator asks SporeSync whether it is up. `GET /actuator/health` answers `200` with `{"groups":["liveness","readiness"],"status":"UP"}`, and the two groups can be probed on their own. Health is the only exposed actuator endpoint. The `/actuator` index also answers `200`; every other backend route answers `404`, including `/`, because the backend does not serve the frontend.
+An operator or orchestrator asks SporeSync whether it is up. `GET /actuator/health` answers `200` with `{"groups":["liveness","readiness"],"status":"UP"}`, and the two groups can be probed on their own. Health is the only exposed actuator endpoint. The `/actuator` index also answers `200`; every other backend route answers `404`, including `/`, because a verification run serves no frontend bundle.
 
 ## Sub-features
 
@@ -8,7 +8,7 @@ An operator or orchestrator asks SporeSync whether it is up. `GET /actuator/heal
 - `health-liveness` reports the liveness group alone.
 - `health-readiness` reports the readiness group alone.
 - `actuator-index` lists links to the exposed endpoints, which today are only the health endpoints.
-- `not-found` answers `404` for unexposed actuator endpoints and for routes that have not shipped.
+- `not-found` answers `404` for unexposed actuator endpoints, for routes that have not shipped, and for `/`.
 
 ## How to get to it (user POV)
 
@@ -34,4 +34,5 @@ Preconditions:
 
 - During startup the port first refuses connections, and health can briefly answer `503` before `UP`. `start` waits through both. Do not treat either as a failure.
 - A `200` on port `8080` may come from a different SporeSync, such as the user's own `elide run`. Only `$PORT` from `instance.env` counts.
-- On the backend port, `/`, `/api/*`, and the planned UI routes return `404` today. That is expected, not a regression. The frontend dev server serves `/` on its own port; see [Frontend home page](./frontend-home.md).
+- The app serves the `frontend/dist/` bundle at `/`, with an SPA fallback for UI routes, when `frontend/dist/index.html` exists. A verification run turns that off. `start` points `SPORESYNC_FRONTEND_DIST` at `RUN_DIR/no-frontend-bundle`, a path it never creates, because `frontend/dist/` is ignored build output that the tree fingerprint does not cover. So `/`, `/api/*`, and the planned UI routes such as `/settings` answer `404` on the backend port even after `vp build`, and `app.log` logs `Frontend bundle is missing (index.html at RUN_DIR/no-frontend-bundle)`. That is expected, not a regression. The frontend dev server serves `/` on its own port; see [Frontend home page](./frontend-home.md).
+- A run keeps its settings file and H2 database in the owner-only `RUN_DIR/config/`, not the app default `/config`, which macOS cannot create on its read-only system volume. `start` sets `SPORESYNC_SETTINGSFILE` and `SPORESYNC_PERSISTENCE_DIRECTORY` to point there. The run starts from default settings, and `app.log` logs `No settings file at RUN_DIR/config/settings.yaml; using defaults`. A new database also gets `sporesync.trace.db`, where H2 records Liquibase looking for a `DATABASECHANGELOGLOCK` table that does not exist yet. It is not an error.

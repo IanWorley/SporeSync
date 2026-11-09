@@ -2,6 +2,7 @@ name: CI
 
 on:
   pull_request:
+    types: [opened, reopened, edited, synchronize, ready_for_review]
   push:
     branches: [main]
 
@@ -29,6 +30,14 @@ jobs:
             run: elide run lint
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - if: matrix.name == 'backend-test'
+        uses: voidzero-dev/setup-vp@68f39c78aaf39be468cabd2afb09c162574c84af # v1.21.2
+        with:
+          working-directory: frontend
+          cache: true
+      - if: matrix.name == 'backend-test'
+        run: vp build
+        working-directory: frontend
       - id: elide-version
         run: printf 'version=%s\n' "$(cat .elideversion)" >> "$GITHUB_OUTPUT"
       - uses: elide-dev/setup-elide@10fbf30cebffd3538c428369950dc2094137f02b # v4.2.0
@@ -65,3 +74,10 @@ jobs:
           working-directory: frontend
           cache: true
       - run: ${{ matrix.run }}
+
+  verifier:
+    name: runner-tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: python3 -m unittest discover -s scripts -p 'test_*.py' -v

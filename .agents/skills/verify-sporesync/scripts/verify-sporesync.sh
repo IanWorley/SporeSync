@@ -30,6 +30,9 @@ readonly LAUNCH_ENV_ALLOWLIST
 readonly INSTANCE_FILE="instance.env"
 readonly LOG_FILE="app.log"
 readonly EVIDENCE_DIR="evidence"
+readonly BACKEND_CONFIG_DIR="config"
+readonly BACKEND_SETTINGS_FILE="settings.yaml"
+readonly BACKEND_NO_FRONTEND_BUNDLE="no-frontend-bundle"
 readonly PORT_PATTERN='^[1-9][0-9]{0,4}$'
 readonly MAX_PORT=65535
 readonly BIND_PATTERN='^(127\.0\.0\.1|0\.0\.0\.0)$'
@@ -256,6 +259,15 @@ cmd_start() {
   prepare_root
   run_dir="$(mktemp -d "$ROOT/$(date +%Y%m%dT%H%M%S)-$PORT.XXXXXX")"
   mkdir "$run_dir/$EVIDENCE_DIR"
+  if [ "$COMPONENT" = "backend" ]; then
+    mkdir -m "$OWNER_ONLY_MODE" "$run_dir/$BACKEND_CONFIG_DIR"
+    launch=(
+      SPORESYNC_PERSISTENCE_DIRECTORY="$run_dir/$BACKEND_CONFIG_DIR"
+      SPORESYNC_SETTINGSFILE="$run_dir/$BACKEND_CONFIG_DIR/$BACKEND_SETTINGS_FILE"
+      SPORESYNC_FRONTEND_DIST="$run_dir/$BACKEND_NO_FRONTEND_BUNDLE"
+      "${launch[@]}"
+    )
+  fi
 
   head="$(git -C "$REPO_ROOT" rev-parse HEAD)"
   tree="$(tree_fingerprint)"

@@ -7,7 +7,7 @@ This guide is based on the [SporeSync specification](SPEC.md). SporeSync is stil
 ## How to read this guide
 
 - **Specified** means the behavior is decided in the spec.
-- **Not yet established** means the spec leaves the detail to the implementation, such as the image name, web port, or exact environment variable names. These are shown as `<placeholders>`. This guide will be updated when the implementation decides them.
+- **Not yet established** means the spec leaves the detail to the implementation and the implementation has not decided it yet, such as where the image is published. These are shown as `<placeholders>`. This guide will be updated when the implementation decides them.
 
 ## Before you start
 
@@ -18,7 +18,17 @@ This guide is based on the [SporeSync specification](SPEC.md). SporeSync is stil
 
 ## Docker setup
 
-SporeSync ships as a single Docker image. The image runs on Elide, the only runtime it uses. You do not need Java, Node.js, or anything else installed locally.
+SporeSync ships as a single Docker image. The image runs on Elide, the only runtime it uses. You need only Docker to build and run it. You do not need Java, Node.js, or anything else installed locally.
+
+### Build the image
+
+The image is not published to a registry yet. Build it from a checkout of this repository:
+
+```sh
+docker build -t sporesync .
+```
+
+The image builds on `amd64` and `arm64` hosts.
 
 ### Volumes
 
@@ -29,34 +39,47 @@ SporeSync ships as a single Docker image. The image runs on Elide, the only runt
 
 Mount both volumes to folders on the host so your data survives container upgrades.
 
+### File ownership
+
+SporeSync runs in the container as UID 1000 and GID 1000. It must be able to write to both volumes.
+
+- Create the host folders before the first start. If a folder is missing, Docker creates it owned by root, and SporeSync cannot write to it.
+- To have your own account own the settings and downloads, pass `--user "$(id -u):$(id -g)"`. In Compose, set `user` to the numbers that `id -u` and `id -g` print.
+- A named volume needs no setup when you keep the default user. Docker gives a new named volume the ownership of the folder in the image.
+
 ### Example
 
-The image name and the port the image publishes are **not yet established**. Replace the placeholders once they are published. When you run the backend from source, it listens on port `8080` (see the [README](../README.md)).
+The web UI listens on port `8080` in the container.
 
 ```sh
+mkdir -p /path/on/host/sporesync-config /path/on/host/downloads
 docker run -d \
   --name sporesync \
-  -p <host-port>:<container-port> \
+  --user "$(id -u):$(id -g)" \
+  -p 8080:8080 \
   -v /path/on/host/sporesync-config:/config \
   -v /path/on/host/downloads:/downloads \
-  <image>
+  sporesync
 ```
+
+To use another host port, change the number before the colon, as in `-p 9090:8080`.
 
 The same setup with Docker Compose:
 
 ```yaml
 services:
   sporesync:
-    image: <image>
+    image: sporesync
+    user: "1000:1000"
     ports:
-      - "<host-port>:<container-port>"
+      - "8080:8080"
     volumes:
       - /path/on/host/sporesync-config:/config
       - /path/on/host/downloads:/downloads
     restart: unless-stopped
 ```
 
-Then open the web UI in a browser and fill in the Settings page.
+Then open <http://localhost:8080> in a browser and fill in the Settings page.
 
 ### SSH keys in Docker
 
@@ -67,6 +90,8 @@ The spec does not define a key location. The simplest option is to keep the key 
 1. Copy the private key to `/path/on/host/sporesync-config/ssh/id_ed25519`.
 2. Set the key path to `/config/ssh/id_ed25519`.
 
+The user SporeSync runs as must be able to read the key. See [File ownership](#file-ownership).
+
 Or mount the key read-only on its own and use that container path:
 
 ```sh
@@ -75,7 +100,11 @@ Or mount the key read-only on its own and use that container path:
 
 ### Health check
 
-The container exposes a health endpoint at `/actuator/health`. You can point a Docker or Compose health check at it.
+The container exposes a health endpoint at `/actuator/health`. It returns `"status":"UP"` once SporeSync is ready. The image has no `curl` or `wget`, so probe the endpoint from the host or from a monitoring tool:
+
+```sh
+curl http://localhost:8080/actuator/health
+```
 
 ## Settings
 
@@ -85,49 +114,59 @@ You can change settings in three ways:
 2. The **settings file** in `/config`, named `settings.yaml`.
 3. **Environment variables**, which override values from the settings file. See [Environment overrides](#environment-overrides).
 
-SporeSync validates settings when it loads them and when you save them.
+SporeSync validates settings when it loads them and when you save them. Invalid settings stop startup, and the log names each invalid field, such as `scan.remote-interval must be greater than zero`. In Docker, the container exits.
 
 ### Settings reference
 
-The groups and settings below are specified. Their exact key names, types, and defaults are **not yet established**.
+The groups and settings below are specified. Each setting has a key, written as `<group>.<setting>`. In `settings.yaml`, the group is a section and the setting is a field inside it:
 
-| Group | Setting | What it does |
-|-------|---------|--------------|
-| General | Debug | Turns on debug logging. Logs are structured JSON. |
-| General | Verbose | Turns on verbose output. |
-| Connection | Host | Seedbox hostname or IP address. |
-| Connection | Port | SSH port on the seedbox. |
-| Connection | Username | SSH username. |
-| Connection | Auth method | Whether to log in with an SSH key or a password. |
-| Connection | Key path or password | Path to the private key (for key auth) or the password. In Docker, use a container path; see [SSH keys in Docker](#ssh-keys-in-docker). |
-| Paths | Remote dir | Directory on the seedbox to mirror. |
-| Paths | Local dir | Local download directory. In Docker, this is `/downloads`. |
-| Paths | Remote scanner path | Where SporeSync places its scanner script on the seedbox. |
-| Transfer | Concurrent file limit | How many files download at the same time. |
-| Transfer | Per-file connection limit | How many SFTP connections one file may use. Each file can be split into byte ranges that download in parallel. |
-| Transfer | Bandwidth limit | Overall download speed cap. |
-| Scan | Remote interval | How often SporeSync scans the seedbox. |
-| Scan | Local interval | How often SporeSync scans the local download directory. |
-| Extraction | Enabled | Extract archives automatically after download. |
-| Extraction | Delete archive after extract | Remove the archive once extraction succeeds. |
-| AutoQueue | Enabled | Queue new remote files automatically. |
-| AutoQueue | Patterns-only mode | When on, only files matching a pattern are queued. When off, every new file is queued. |
+```yaml
+general:
+  debug: true
+connection:
+  port: 2222
+```
+
+This guide does not list types and defaults yet.
+
+| Group | Setting | Key | What it does |
+|-------|---------|-----|--------------|
+| General | Debug | `general.debug` | Turns on debug logging. Logs are structured JSON. |
+| General | Verbose | `general.verbose` | Turns on verbose output. |
+| Connection | Host | `connection.host` | Seedbox hostname or IP address. |
+| Connection | Port | `connection.port` | SSH port on the seedbox. |
+| Connection | Username | `connection.username` | SSH username. |
+| Connection | Auth method | `connection.auth-method` | Whether to log in with an SSH key (`KEY`) or a password (`PASSWORD`). |
+| Connection | Key path | `connection.key-path` | Path to the private key, used with key auth. In Docker, use a container path. See [SSH keys in Docker](#ssh-keys-in-docker). |
+| Connection | Password | `connection.password` | Password, used with password auth. |
+| Paths | Remote dir | `paths.remote-dir` | Directory on the seedbox to mirror. |
+| Paths | Local dir | `paths.local-dir` | Local download directory. The Docker image fixes it to `/downloads`. See [Variables the image sets](#variables-the-image-sets). |
+| Paths | Remote scanner path | `paths.remote-scanner-path` | Where SporeSync places its scanner script on the seedbox. |
+| Transfer | Concurrent file limit | `transfer.concurrent-file-limit` | How many files download at the same time. |
+| Transfer | Per-file connection limit | `transfer.per-file-connection-limit` | How many SFTP connections one file may use. Each file can be split into byte ranges that download in parallel. |
+| Transfer | Bandwidth limit | `transfer.bandwidth-limit` | Overall download speed cap. |
+| Scan | Remote interval | `scan.remote-interval` | How often SporeSync scans the seedbox. |
+| Scan | Local interval | `scan.local-interval` | How often SporeSync scans the local download directory. |
+| Extraction | Enabled | `extraction.enabled` | Extract archives automatically after download. |
+| Extraction | Delete archive after extract | `extraction.delete-archive-after-extract` | Remove the archive once extraction succeeds. |
+| AutoQueue | Enabled | `autoqueue.enabled` | Queue new remote files automatically. |
+| AutoQueue | Patterns-only mode | `autoqueue.patterns-only` | When on, only files matching a pattern are queued. When off, every new file is queued. |
 
 Auto-queue patterns are not part of the settings file. You manage them on the AutoQueue page (`/autoqueue`), and they are stored in the H2 database in `/config`.
 
 ### Environment overrides
 
-Environment variables override settings file values using Spring Boot's [relaxed binding](https://docs.spring.io/spring-boot/reference/features/external-config.html#features.external-config.typesafe-configuration-properties.relaxed-binding.environment-variables).
+Environment variables override settings file values using Spring Boot's [relaxed binding](https://docs.spring.io/spring-boot/reference/features/external-config.html#features.external-config.typesafe-configuration-properties.relaxed-binding.environment-variables). SporeSync reads them at startup. It never writes an override to `settings.yaml`, and an override wins over a value saved on the Settings page.
 
-The exact variable names are **not yet established**. They will be generated from the settings property names using Spring's rules, which are:
+To name the variable for a setting, put `sporesync.` in front of its key from the [settings reference](#settings-reference). Then apply Spring's rules:
 
 1. Replace dots (`.`) with underscores (`_`).
 2. Remove dashes (`-`).
 3. Convert to uppercase.
 
-So a property written as `<prefix>.<group>.<setting-name>` becomes `<PREFIX>_<GROUP>_<SETTINGNAME>`. Do not guess names until the implementation publishes the property list.
+So `connection.port` becomes `SPORESYNC_CONNECTION_PORT`, and `scan.remote-interval` becomes `SPORESYNC_SCAN_REMOTEINTERVAL`.
 
-One variable works today. `LOGGING_LEVEL_COM_SPORESYNC=DEBUG` turns on debug logs for SporeSync's own code. It sets the Spring property `logging.level.com.sporesync` and follows the same rules.
+`LOGGING_LEVEL_COM_SPORESYNC=DEBUG` also works. It turns on debug logs for SporeSync's own code. It sets the Spring property `logging.level.com.sporesync` and follows the same rules.
 
 In Compose, pass overrides under `environment:`:
 
@@ -135,8 +174,21 @@ In Compose, pass overrides under `environment:`:
 services:
   sporesync:
     environment:
-      <GENERATED_VARIABLE_NAME>: "<value>"
+      SPORESYNC_CONNECTION_PORT: "2222"
 ```
+
+### Variables the image sets
+
+The Docker image sets these variables so that SporeSync keeps its data in the volumes. If you point a path somewhere else, that data no longer survives a new container.
+
+| Variable | Value in the image | What it does |
+|----------|--------------------|--------------|
+| `SERVER_PORT` | `8080` | Port the web UI listens on inside the container. |
+| `SPORESYNC_SETTINGSFILE` | `/config/settings.yaml` | Location of the settings file. |
+| `SPORESYNC_PERSISTENCE_DIRECTORY` | `/config` | Folder for the H2 database file, `sporesync.mv.db`. |
+| `SPORESYNC_PATHS_LOCALDIR` | `/downloads` | The Local dir setting. Downloads land in the `/downloads` volume whatever `settings.yaml` or the Settings page says. |
+| `SPORESYNC_FRONTEND_DIST` | `/opt/sporesync/frontend` | Folder that holds the built web UI. |
+| `SPORESYNC_FRONTEND_REQUIRED` | `true` | Stops startup if the web UI files are missing. |
 
 ## Remote host requirements
 

@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
+private const val REMOTE_SCANNER_DIR = "/tmp/.sporesync"
 private const val REMOTE_SCANNER_PATH = "/tmp/.sporesync/scanner.py"
 
 class ScannerScriptSyncTest {
@@ -16,7 +17,7 @@ class ScannerScriptSyncTest {
     fun `uploads script when remote file is missing`() {
         val connection = FakeSshSftpConnection()
 
-        val result = ScannerScriptSync(embeddedScript).ensureCurrent(connection, REMOTE_SCANNER_PATH)
+        val result = ScannerScriptSync(embeddedScript).ensureCurrent(connection, REMOTE_SCANNER_DIR)
 
         assertTrue(result.uploaded)
         assertNull(result.remoteHashBeforeUpload)
@@ -32,7 +33,7 @@ class ScannerScriptSyncTest {
                 files = mutableMapOf(REMOTE_SCANNER_PATH to embeddedScript.bytes.copyOf()),
             )
 
-        val result = ScannerScriptSync(embeddedScript).ensureCurrent(connection, REMOTE_SCANNER_PATH)
+        val result = ScannerScriptSync(embeddedScript).ensureCurrent(connection, REMOTE_SCANNER_DIR)
 
         assertFalse(result.uploaded)
         assertEquals(embeddedScript.sha256, result.localHash)
@@ -45,11 +46,32 @@ class ScannerScriptSyncTest {
         val stale = "print('stale')\n".toByteArray()
         val connection = FakeSshSftpConnection(files = mutableMapOf(REMOTE_SCANNER_PATH to stale))
 
-        val result = ScannerScriptSync(embeddedScript).ensureCurrent(connection, REMOTE_SCANNER_PATH)
+        val result = ScannerScriptSync(embeddedScript).ensureCurrent(connection, REMOTE_SCANNER_DIR)
 
         assertTrue(result.uploaded)
         assertEquals(stale.sha256Hex(), result.remoteHashBeforeUpload)
         assertArrayEquals(embeddedScript.bytes, connection.files[REMOTE_SCANNER_PATH])
+    }
+
+    @Test
+    fun `appends the script name to a directory and keeps a full script path`() {
+        val sync = ScannerScriptSync(embeddedScript)
+
+        assertEquals(
+            REMOTE_SCANNER_PATH,
+            sync.ensureCurrent(FakeSshSftpConnection(), "$REMOTE_SCANNER_DIR/").remotePath,
+        )
+        assertEquals(REMOTE_SCANNER_PATH, sync.ensureCurrent(FakeSshSftpConnection(), REMOTE_SCANNER_PATH).remotePath)
+    }
+
+    @Test
+    fun `resolves a home-relative directory against the remote home`() {
+        val connection = FakeSshSftpConnection()
+
+        val result = ScannerScriptSync(embeddedScript).ensureCurrent(connection, "~/.sporesync")
+
+        assertEquals(".sporesync/scanner.py", result.remotePath)
+        assertEquals(listOf("mkdir -p '.sporesync'"), connection.commands)
     }
 }
 

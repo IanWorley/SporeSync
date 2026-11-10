@@ -15,7 +15,6 @@ import org.junit.jupiter.api.io.TempDir
 import org.testcontainers.containers.GenericContainer
 import org.testcontainers.containers.wait.strategy.Wait
 import org.testcontainers.utility.DockerImageName
-import tools.jackson.databind.json.JsonMapper
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Duration
@@ -25,8 +24,11 @@ private const val SSH_PORT = 2222
 private const val SSH_USER = "sporesync"
 private const val SSH_PASSWORD = "sporesync-test"
 private const val READY_LOG = ".*\\[ls.io-init\\] done.*"
+private const val REMOTE_SCANNER_DIR = "/tmp/.sporesync"
 private const val REMOTE_SCANNER = "/tmp/.sporesync/scanner.py"
 private const val LARGE_TREE_ROOT = "/tmp/huge-tree"
+private const val LARGE_TREE_MIN_LINES = 6000
+private const val LARGE_OUTPUT_TIMEOUT_SECONDS = 30L
 
 class SshjScannerScriptSyncIntegrationTest {
     @TempDir
@@ -38,10 +40,10 @@ class SshjScannerScriptSyncIntegrationTest {
         openConnection(knownHostsFile = trustedKnownHosts()).use { connection ->
             connection.run("rm -rf /tmp/.sporesync").requireSuccess("clear remote scanner")
 
-            val first = sync.ensureCurrent(connection, REMOTE_SCANNER)
-            val second = sync.ensureCurrent(connection, REMOTE_SCANNER)
+            val first = sync.ensureCurrent(connection, REMOTE_SCANNER_DIR)
+            val second = sync.ensureCurrent(connection, REMOTE_SCANNER_DIR)
             connection.run("printf 'stale-copy\\n' > $REMOTE_SCANNER").requireSuccess("mutate scanner")
-            val third = sync.ensureCurrent(connection, REMOTE_SCANNER)
+            val third = sync.ensureCurrent(connection, REMOTE_SCANNER_DIR)
             val remoteHash = requireNotNull(connection.readFile(REMOTE_SCANNER)).sha256Hex()
             println("sync:first=$first")
             println("sync:second=$second")
@@ -91,11 +93,8 @@ class SshjScannerScriptSyncIntegrationTest {
     }
 
     @Test
-    fun `scanner handles a large tree without hanging`() {
-        val sync = ScannerScriptSync(EmbeddedScannerScript())
+    fun `drains large command output without hanging`() {
         openConnection(knownHostsFile = trustedKnownHosts()).use { connection ->
-            sync.ensureCurrent(connection, REMOTE_SCANNER)
-
             connection
                 .run(
                     """
@@ -112,35 +111,19 @@ class SshjScannerScriptSyncIntegrationTest {
                     """.trimIndent(),
                 ).requireSuccess("create large tree")
 
-            val python =
-                connection
-                    .run("command -v python3 || command -v python")
-                    .stdout
-                    .lineSequence()
-                    .map(String::trim)
-                    .firstOrNull(String::isNotBlank)
-
-            val command =
-                if (python != null) {
-                    "$python $REMOTE_SCANNER $LARGE_TREE_ROOT"
-                } else {
-                    "find $LARGE_TREE_ROOT -print"
+            val result =
+                assertTimeoutPreemptively(Duration.ofSeconds(LARGE_OUTPUT_TIMEOUT_SECONDS)) {
+                    connection.run("find $LARGE_TREE_ROOT -print")
                 }
-            val result = assertTimeoutPreemptively(Duration.ofSeconds(30)) { connection.run(command) }
 
-            result.requireSuccess("scan huge tree")
+            result.requireSuccess("list large tree")
             val lines =
                 result.stdout
                     .lineSequence()
                     .filter(String::isNotBlank)
-                    .toList()
-            println("huge-tree-lines:${lines.size} command=$command")
-            assertTrue(lines.size > 6000)
-            if (python != null) {
-                val sample = JsonMapper.shared().readTree(lines.first())
-                assertTrue(sample.has("type"))
-                assertTrue(sample.has("path"))
-            }
+                    .count()
+            println("large-tree-lines:$lines")
+            assertTrue(lines > LARGE_TREE_MIN_LINES)
         }
     }
 

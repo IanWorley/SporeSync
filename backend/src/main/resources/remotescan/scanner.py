@@ -1,65 +1,69 @@
 #!/usr/bin/env python3
 import json
 import os
+import re
 import sys
-from collections import deque
-from pathlib import Path
+
+LFTP_STATUS_SUFFIX = ".lftp-pget-status"
 
 
-def warn(path: Path, operation: str, error: OSError) -> None:
-    print(f"skip {path.as_posix()}: {operation}: {error}", file=sys.stderr)
+def lftp_status_size(status):
+    lines = [line.strip() for line in status.splitlines() if line.strip()]
+    total = re.match(r"^size=(\d+)$", lines[0]) if lines else None
+    segments = lines[1:]
+    if not total or len(segments) % 2:
+        return 0
+    empty = 0
+    for pos_line, limit_line in zip(segments[::2], segments[1::2]):
+        pos = re.match(r"^\d+\.pos=(\d+)$", pos_line)
+        limit = re.match(r"^\d+\.limit=(\d+)$", limit_line)
+        if not pos or not limit:
+            return 0
+        empty += int(limit.group(1)) - int(pos.group(1))
+    return int(total.group(1)) - empty
 
 
-def entry_type(entry: os.DirEntry) -> str:
-    if entry.is_symlink():
-        return "symlink"
-    if entry.is_dir(follow_symlinks=False):
-        return "dir"
-    return "file"
-
-
-def scan(root: Path) -> None:
-    pending = deque([Path(".")])
-    while pending:
-        relative_dir = pending.popleft()
-        directory = root / relative_dir
-        try:
-            with os.scandir(directory) as iterator:
-                children = sorted(iterator, key=lambda entry: entry.name)
-        except OSError as error:
-            warn(relative_dir, "scandir", error)
+def scan_dir(path, prefix):
+    subtrees = []
+    for entry in os.scandir(path):
+        if entry.name.endswith(LFTP_STATUS_SUFFIX):
             continue
-        for child in children:
-            relative_path = relative_dir / child.name if relative_dir != Path(".") else Path(child.name)
-            try:
-                stat = child.stat(follow_symlinks=False)
-                kind = entry_type(child)
-            except OSError as error:
-                warn(relative_path, "stat", error)
-                continue
-            json.dump(
-                {
-                    "path": relative_path.as_posix(),
-                    "size": stat.st_size,
-                    "mtime": int(stat.st_mtime),
-                    "is_dir": kind == "dir",
-                    "type": kind,
-                },
-                sys.stdout,
-                separators=(",", ":"),
-            )
-            sys.stdout.write("\n")
-            if kind == "dir":
-                pending.append(relative_path)
+        try:
+            subtrees.append(scan_entry(entry, prefix))
+        except FileNotFoundError:
+            continue
+    return sorted(subtrees, key=lambda subtree: subtree[0]["path"])
+
+
+def scan_entry(entry, prefix):
+    path = prefix + entry.name.encode("utf-8", "surrogateescape").decode("utf-8", "replace")
+    stat = entry.stat()
+    if entry.is_dir():
+        subtrees = scan_dir(entry.path, path + "/")
+        size = sum(subtree[0]["size"] for subtree in subtrees)
+        return [describe(path, size, stat, True)] + [item for subtree in subtrees for item in subtree]
+    size = stat.st_size
+    status_path = entry.path + LFTP_STATUS_SUFFIX
+    if os.path.isfile(status_path):
+        with open(status_path) as status:
+            size = lftp_status_size(status.read())
+    return [describe(path, size, stat, False)]
+
+
+def describe(path, size, stat, is_dir):
+    return {"path": path, "size": size, "mtime": stat.st_mtime, "is_dir": is_dir}
 
 
 def main():
     if len(sys.argv) != 2:
-        raise SystemExit("usage: scanner.py <dir>")
-    root = Path(sys.argv[1])
-    if not root.is_dir():
-        raise SystemExit(f"not a directory: {root}")
-    scan(root)
+        sys.exit("usage: scanner.py <dir>")
+    root = sys.argv[1]
+    if not os.path.exists(root):
+        sys.exit("SystemScannerError: Path does not exist: {}".format(root))
+    if not os.path.isdir(root):
+        sys.exit("SystemScannerError: Path is not a directory: {}".format(root))
+    entries = [item for subtree in scan_dir(root, "") for item in subtree]
+    json.dump(entries, sys.stdout, separators=(",", ":"))
 
 
 if __name__ == "__main__":

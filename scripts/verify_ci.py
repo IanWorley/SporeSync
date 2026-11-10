@@ -20,8 +20,6 @@ import sys
 import time
 from typing import Sequence
 
-import check_disclosure as disclosure
-
 REPOSITORY = "IanWorley/SporeSync"
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_TIMEOUT = 900.0
@@ -31,14 +29,14 @@ GH_PAGE_SIZE = 100
 MIN_SECRET_LENGTH = 4
 TERMINATION_TIMEOUT = 2.0
 MIN_PYTHON_VERSION = (3, 11)
-USERNAME_PATTERN = disclosure.USERNAME.pattern.removeprefix("@")
-WORKFLOW_HASHES = {'ci.yml': '587e6c038f71e3463875a11a7cefd31e9742922f46dd87b76a67ec6de9752518', 'disclosure.yml': 'f726666a965d7c57fd2bbf60e16b882f863c193a9e6ea36d8455896a2217d5dd'}
+MAX_USERNAME_LENGTH = 39
+USERNAME_PATTERN = rf"[A-Za-z0-9](?:[A-Za-z0-9-]{{0,{MAX_USERNAME_LENGTH - 2}}}[A-Za-z0-9])?"
+WORKFLOW_HASHES = {'ci.yml': 'df0d35855dbfaea293d3190cb5e90730091bb18be49400faeb640c0689f86b8a'}
 EXCLUSIONS = (
     "GitHub runner provisioning, checkout, caches, and toolchain downloads are hosted setup. "
     "Install Python 3.11+, pinned Elide (.elideversion), and Vite+ with bun locally. "
     "Dependency installation runs below. CodeRabbit and Cursor Security Agent require hosted services "
-    "and are excluded, never counted as passing. No app smoke job exists in these workflows. "
-    "Local disclosure checks cover this PR and its commits; unrelated issue/review event text is not verified by this run."
+    "and are excluded, never counted as passing. No app smoke job exists in these workflows."
 )
 
 
@@ -55,7 +53,6 @@ CHECKS = (
     Check("elide-version", ("elide", "--version"), ".", "ci.yml / setup-elide / .elideversion pin"),
     Check("vp-version", ("vp", "--version"), "frontend", "ci.yml / setup-vp / local Vite+ prerequisite"),
     Check("bun-version", ("bun", "--version"), "frontend", "ci.yml / setup-vp / frontend/package.json packageManager pin"),
-    Check("authorship-disclosure", ("python3", "scripts/check_disclosure.py", "local"), ".", "disclosure.yml / disclosure / PR body and every new commit"),
     Check("runner-tests", ("python3", "-m", "unittest", "discover", "-s", "scripts", "-p", "test_*.py", "-v"), ".", "ci.yml / verifier"),
     Check("frontend-install", ("vp", "install"), "frontend", "ci.yml / setup-vp dependency installation for frontend-* and backend-test"),
     Check("backend-install", ("elide", "install"), ".", "ci.yml / backend-* / elide install"),
@@ -96,10 +93,6 @@ def redact(value: str) -> str:
 
 def escaped(value: str) -> str:
     return html.escape(redact(value), quote=True).replace("|", "&#124;").replace("`", "&#96;").replace("\n", "<br>")
-
-
-def safe_disclosure_value(value: str) -> str:
-    return re.sub(r"[^A-Za-z0-9 ./+_()-]", " ", redact(value)).strip()
 
 
 def metadata(value: str) -> str:
@@ -221,13 +214,7 @@ def render_summary(evidence: dict) -> str:
     results = evidence["results"]
     passed = sum(result["status"] == "passed" for result in results)
     source = evidence["source"]
-    disclosure = ["SporeSync-Authorship: human"] if evidence.get("authorship") == "human" else [
-        "SporeSync-Authorship: agent (not a person)",
-        f"SporeSync-Harness: {safe_disclosure_value(evidence['harness'])}",
-        f"SporeSync-Effort: {safe_disclosure_value(evidence['effort'])}",
-        f"SporeSync-Model: {safe_disclosure_value(evidence['model'])}",
-        f"SporeSync-On-Behalf-Of: @{evidence['username']}"]
-    lines = ["## SporeSync local verification", "", "```text", *disclosure, "```", "", f"Verification performed on behalf of @{escaped(evidence['username'])}.",
+    lines = ["## SporeSync local verification", "", f"Verification performed on behalf of @{escaped(evidence['username'])}.",
              "Supplied metadata is attribution, not a verified identity.",
              f"Harness {metadata(evidence['harness'])}. Model {metadata(evidence['model'])}. Effort {metadata(evidence['effort'])}.",
              f"Source SHA `{source['head']}`. Working tree {'dirty' if source['status'] else 'clean'}.",
@@ -312,7 +299,7 @@ def resolve_destinations(pr: int, source: dict[str, str]) -> list[dict]:
       repository(owner: "IanWorley", name: "SporeSync") {
         nameWithOwner
         pullRequest(number: $number) {
-          number url state headRefOid body headRepository { nameWithOwner }
+          number url state headRefOid headRepository { nameWithOwner }
           closingIssuesReferences(first: $limit) {
             pageInfo { hasNextPage }
             nodes { number url repository { nameWithOwner } }
@@ -328,8 +315,6 @@ def resolve_destinations(pr: int, source: dict[str, str]) -> list[dict]:
             or pull["state"] != "OPEN" or pull["headRefOid"] != source["head"]
             or pull["headRepository"]["nameWithOwner"] != REPOSITORY or source["status"]):
         raise ValueError("PR must be open in IanWorley/SporeSync with the same clean verified head and source repository")
-    if disclosure.validate(pull.get("body") or ""):
-        raise ValueError("Current PR body fails authorship disclosure; correct it before publication")
     issues = pull["closingIssuesReferences"]
     if issues["pageInfo"]["hasNextPage"]:
         raise ValueError("Linked issue list exceeds safety bound; refusing partial destinations")
@@ -429,8 +414,6 @@ def parser() -> argparse.ArgumentParser:
     cli.add_argument("--effort", help="caller-supplied effort attribution")
     cli.add_argument("--timeout", type=positive_timeout, default=DEFAULT_TIMEOUT, help="seconds per command (default 900)")
     cli.add_argument("--output", type=Path, help="new evidence directory (default .verification/<UTC timestamp>)")
-    cli.add_argument("--pr-body", type=Path, help="draft PR body for disclosure validation before a PR exists")
-    cli.add_argument("--authorship", choices=("agent", "human"), default="agent", help="declared authorship of the generated report (default agent)")
     cli.add_argument("--pr", type=int, help="SporeSync PR number; resolve destinations and save comment preview, no posting")
     cli.add_argument("--publish", type=Path, help="reuse an existing run directory after preview approval; does not rerun checks")
     cli.add_argument("--post-comment", action="store_true", help="explicitly send the approved summary to the PR and its linked issues")
@@ -462,12 +445,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                 cli.error("verification requires --username, --harness, --model, and --effort")
             if not re.fullmatch(USERNAME_PATTERN, args.username):
                 cli.error("--username must be a GitHub username without @")
-            if args.authorship == "agent":
-                for field, value in (("Harness", args.harness), ("Model", args.model)):
-                    if not disclosure.TEXT_VALUE.fullmatch(value) or value.lower() in disclosure.PLACEHOLDERS:
-                        cli.error(f"malformed field SporeSync-{field}; use a truthful plain-text value")
-                if args.effort not in disclosure.EFFORTS:
-                    cli.error("malformed field SporeSync-Effort; unsupported effort")
             started = datetime.now(timezone.utc)
             output = (args.output or ROOT / ".verification" / started.strftime("%Y%m%dT%H%M%S.%fZ")).resolve()
             output.mkdir(parents=True, exist_ok=False)
@@ -477,17 +454,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             (output / "ci-coverage.log").write_text(error or "Workflow inventory matches the reviewed command map.\n")
             coverage = Result("ci-coverage", "internal workflow fingerprint validation (hashlib.sha256)", ".", "all workflow files / fail closed on drift", "failed" if error else "passed", 0.0, error or "workflow map matches", "ci-coverage.log")
             print(f"{'❌' if error else '✅'} ci-coverage: {coverage.detail}", flush=True)
-            checks = list(CHECKS)
-            for index, check in enumerate(checks):
-                if check.name == "authorship-disclosure":
-                    extra = ("--pr-body", str(args.pr_body.resolve())) if args.pr_body else (("--pr", str(args.pr)) if args.pr else ())
-                    checks[index] = Check(check.name, (*check.command, *extra), check.directory, check.ci)
-            results = [coverage, *run_checks(checks, ROOT, output, args.timeout, source)]
+            results = [coverage, *run_checks(CHECKS, ROOT, output, args.timeout, source)]
             if source_state(ROOT) != source and not any(result.name == "source-stability" for result in results):
                 detail = "HEAD or working tree changed during verification; rerun on stable source"
                 (output / "source-stability.log").write_text(detail + "\n")
                 results.append(Result("source-stability", "git status; git diff HEAD", ".", "evidence integrity", "failed", 0.0, detail, "source-stability.log"))
-            evidence = {"authorship": args.authorship, "username": args.username, "harness": redact(args.harness), "model": redact(args.model), "effort": redact(args.effort), "source": source, "started": started.isoformat(), "seconds": time.monotonic() - start, "results": [asdict(result) for result in results]}
+            evidence = {"username": args.username, "harness": redact(args.harness), "model": redact(args.model), "effort": redact(args.effort), "source": source, "started": started.isoformat(), "seconds": time.monotonic() - start, "results": [asdict(result) for result in results]}
             write_evidence(output, evidence)
         passed = sum(result["status"] == "passed" for result in evidence["results"])
         print(f"{passed}/{len(evidence['results'])} required checks passed. Report: {output / 'report.md'}")

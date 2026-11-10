@@ -14,7 +14,6 @@ import unittest
 from unittest.mock import patch
 
 import verify_ci as runner
-import check_disclosure as policy
 
 
 FAKE_PR_NUMBER = 80
@@ -30,7 +29,7 @@ class FakeGitHub:
         self.pr = FAKE_PR_NUMBER
         self.pull = {
             "number": self.pr, "url": f"https://github.com/{runner.REPOSITORY}/pull/{self.pr}",
-            "state": "OPEN", "headRefOid": head, "body": policy.DISCLOSURE,
+            "state": "OPEN", "headRefOid": head,
             "headRepository": {"nameWithOwner": runner.REPOSITORY},
             "closingIssuesReferences": {"pageInfo": {"hasNextPage": False}, "nodes": [
                 {"number": number, "url": f"https://github.com/{runner.REPOSITORY}/issues/{number}",
@@ -70,13 +69,6 @@ class RunnerTests(unittest.TestCase):
 
     def check(self, name: str, code: str) -> runner.Check:
         return runner.Check(name, (sys.executable, "-c", code), ".", "test fixture")
-
-    def test_report_replaces_draft_disclosure_without_duplicate_fields(self) -> None:
-        block = "```text\n" + policy.DISCLOSURE + "\n```"
-        draft = "## Why\n\nVerify local CI gates.\n\n" + block
-        report = runner.render_summary(self.evidence())
-        self.assertIn("duplicate field SporeSync-Authorship", policy.validate(draft + "\n" + report))
-        self.assertEqual(policy.validate(draft.replace(block, report)), [])
 
     def test_success_counts_and_failure_continues_with_named_nonzero(self) -> None:
         checks = (self.check("broken", "print('specific failure'); raise SystemExit(9)"),
@@ -307,14 +299,6 @@ class RunnerTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             runner.validate_evidence(self.output, evidence)
 
-    def test_human_report_does_not_claim_agent_authorship(self) -> None:
-        evidence = self.evidence()
-        evidence["authorship"] = "human"
-        summary = runner.render_summary(evidence)
-        self.assertIn("SporeSync-Authorship: human", summary)
-        self.assertNotIn("SporeSync-Harness:", summary)
-        self.assertEqual(policy.validate(summary), [])
-
     def test_second_approved_run_on_same_head_can_publish(self) -> None:
         evidence = self.evidence()
         fake = FakeGitHub(evidence["source"]["head"])
@@ -397,21 +381,16 @@ class RunnerTests(unittest.TestCase):
         (repo / "scripts/test_fixture.py").write_text("import unittest\nclass Fixture(unittest.TestCase):\n def test_behavior(self): self.assertEqual(1 + 1, 2)\n")
         for name in runner.WORKFLOW_HASHES:
             (repo / ".github/workflows" / name).write_bytes((runner.ROOT / ".github/workflows" / name).read_bytes())
-        (repo / "scripts/check_disclosure.py").write_bytes((runner.ROOT / "scripts/check_disclosure.py").read_bytes())
         (repo / ".elideversion").write_text((runner.ROOT / ".elideversion").read_text())
         (repo / "frontend/package.json").write_text((runner.ROOT / "frontend/package.json").read_text())
         for args in (("init", "-q"), ("config", "user.name", "Fixture"), ("config", "user.email", "fixture@example.test"),
                      ("remote", "add", "origin", f"https://github.com/{runner.REPOSITORY}"), ("add", "."), ("commit", "-qm", "fixture")):
             subprocess.run(("git", *args), cwd=repo, check=True, capture_output=True)
-        subprocess.run(("git", "update-ref", "refs/remotes/origin/main", "HEAD"), cwd=repo, check=True)
         for name in ("vp", "elide", "bun"):
             binary = self.root / name
             binary.write_text(f"#!{sys.executable}\nimport os,sys\nfrom pathlib import Path\nversions = {{'elide': '1.6.0', 'bun': '1.3.14', 'vp': 'vp v0.3.0'}}\nprint(versions[Path(sys.argv[0]).name] if sys.argv[1:] == ['--version'] else 'fake toolchain')\nraise SystemExit(9 if os.environ.get('FAIL_FIXTURE') and sys.argv[1:] in [['build'], ['lint']] else 0)\n")
             binary.chmod(0o755)
         args = (sys.executable, str(repo / "scripts/verify_ci.py"), "--username", "IanWorley", "--harness", "T3 Code / Codex", "--model", "gpt-6.1-sol", "--effort", "high")
-        draft = self.root / "pr-body.md"
-        draft.write_text(policy.DISCLOSURE)
-        args = (*args, "--pr-body", str(draft))
         required_count = 1 + len(runner.CHECKS)
         environment = {**os.environ, "PATH": str(self.root) + os.pathsep + os.environ["PATH"], "PYTHONDONTWRITEBYTECODE": "1"}
         success = self.root / "success"

@@ -2,7 +2,7 @@
 
 This directory is the maintained source for verifying SporeSync's user-facing behavior. Read the index before driving the app, then use the matching feature file as the recipe.
 
-Two user-facing features have shipped: the backend's health endpoint and the frontend's home page. Add a file here when another route from `docs/SPEC.md` (the `/api` endpoints, or the `/settings`, `/autoqueue`, and `/about` UI routes) actually ships, not before.
+Three user-facing features have shipped: the backend's health endpoint, the UI the backend serves, and the dev server's home page. Add a file here when another route from `docs/SPEC.md` (the `/api` endpoints, the `/api/stream` SSE endpoint, or the `/settings`, `/autoqueue`, and `/about` UI routes) actually ships, not before.
 
 ## Baseline preconditions
 
@@ -43,4 +43,5 @@ Each feature file starts with an H1 title and one paragraph describing the user-
 ## Features
 
 - [Health check](./health.md) covers the backend's aggregate health response, the liveness and readiness groups, the actuator index, and `404` routes.
+- [Web UI](./web-ui.md) covers the built frontend bundle the backend serves at `/`, its assets, the client-route fallback, and the heading a browser renders.
 - [Frontend home page](./frontend-home.md) covers the dev server's HTML shell at `/` and the "SporeSync" heading a browser renders from it.

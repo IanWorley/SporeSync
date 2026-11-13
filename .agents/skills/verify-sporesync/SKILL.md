@@ -5,18 +5,21 @@ description: Launch, health-check, drive, capture evidence from, and clean up a 
 
 # Verify SporeSync
 
-SporeSync today has two parts that launch separately. The backend is a Spring Boot app run by Elide 1.6.0. Its only user-facing route is the operator health check: `GET /actuator/health`, its `liveness` and `readiness` groups, and the `/actuator` index. The frontend is a React app served by the Vite+ dev server (`vp dev`, on Node.js). Its only route is `/`, a page with a "SporeSync" heading. The backend does not serve the frontend, and the backend has no `/api` routes. Every other feature in `docs/SPEC.md` is planned, not shipped. Mapped features live in [features/README.md](features/README.md); drive only what is mapped there.
+SporeSync's backend is a Spring Boot app run by Elide 1.6.0. It serves the built React UI at `/`, falls back to that UI's `index.html` for client routes, and answers the operator health check at `GET /actuator/health`, its `liveness` and `readiness` groups, and the `/actuator` index. The actuator is the only REST surface. The `/api` routes and the `/api/stream` SSE endpoint in `docs/SPEC.md` are planned, not shipped, and answer `404`. The frontend can also run alone on the Vite+ dev server (`vp dev`, on Node.js). Mapped features live in [features/README.md](features/README.md); drive only what is mapped there.
 
 All commands run from the repository root. `scripts/verify-sporesync.sh` is relative to this skill directory: `.agents/skills/verify-sporesync/scripts/verify-sporesync.sh`.
 
+## End to end
+
+1. Build and test both halves with the CI runner, per `AGENTS.md`. It installs dependencies, builds the frontend and the backend, and runs `vp test run`, `elide test`, the formatters, and the linters. It exits `0` only if every check passes: `python3 scripts/verify_ci.py --username <you> --harness <harness> --model <model> --effort <effort>`.
+2. `start` the backend, which builds and serves the frontend bundle from the same tree.
+3. Run [Doctor](#doctor).
+4. Drive [Health check](features/health.md) and [Web UI](features/web-ui.md) on the backend port.
+5. Run [Cleanup](#cleanup).
+
 ## Launch
 
-Prepare the checkout once. The commands resolve Maven dependencies into the ignored `.dev/` directories and npm packages into the ignored `frontend/node_modules/`:
-
-```bash
-elide install && elide build
-vp -C frontend install
-```
+Install dependencies once per checkout with `elide install` and `vp -C frontend install`. Step 1 above does both.
 
 Start an isolated instance of one component. `start` with no component starts the backend:
 
@@ -25,10 +28,10 @@ Start an isolated instance of one component. `start` with no component starts th
 .agents/skills/verify-sporesync/scripts/verify-sporesync.sh start frontend
 ```
 
-- The backend runs `elide run` in `backend/` with `SERVER_PORT=$SPORESYNC_VERIFY_PORT` (default `18080`, never the app default `8080`) and `SERVER_ADDRESS=$SPORESYNC_VERIFY_BIND` (default `127.0.0.1`).
+- The backend first runs `vp build --outDir RUN_DIR/frontend` in `frontend/`, then `elide run` in `backend/` with `SERVER_PORT=$SPORESYNC_VERIFY_PORT` (default `18080`, never the app default `8080`), `SERVER_ADDRESS=$SPORESYNC_VERIFY_BIND` (default `127.0.0.1`), and `SPORESYNC_FRONTEND_DIST=RUN_DIR/frontend` with `SPORESYNC_FRONTEND_REQUIRED=true`, so a missing bundle fails startup. It never serves the ignored `frontend/dist/`, which the tree fingerprint does not cover.
 - The frontend runs `vp dev --host $SPORESYNC_VERIFY_BIND --port $SPORESYNC_VERIFY_PORT --strictPort` in `frontend/` (default port `15173`, never the Vite default `5173`).
 - The bind must be `127.0.0.1` or `0.0.0.0`, because readiness and doctor probe `127.0.0.1`. `start` rejects any other value, and any port outside `1`-`65535`, before launching.
-- The app gets a minimal environment: `HOME`, `PATH`, `USER`, `LOGNAME`, `TMPDIR`, `LANG`, `LC_ALL`, and `LC_CTYPE` when set. The backend also gets `SERVER_PORT` and `SERVER_ADDRESS`. Ambient settings such as `MANAGEMENT_*`, `SPRING_APPLICATION_JSON`, the README's `LOGGING_LEVEL_COM_SPORESYNC` debug toggle, `VITE_*`, or `NODE_OPTIONS` never reach it, so the run reflects the checkout's own configuration.
+- The app and the bundle build get a minimal environment: `HOME`, `PATH`, `USER`, `LOGNAME`, `TMPDIR`, `LANG`, `LC_ALL`, and `LC_CTYPE` when set. The backend also gets the `SERVER_*` and `SPORESYNC_*` settings above. Ambient settings such as `MANAGEMENT_*`, `SPRING_APPLICATION_JSON`, the README's `LOGGING_LEVEL_COM_SPORESYNC` debug toggle, `VITE_*`, or `NODE_OPTIONS` never reach it, so the run reflects the checkout's own configuration.
 - T3 Preview's `environment-port` target opens `http://localhost:$PORT` in a headless tab on this host, so the default `127.0.0.1` bind is enough. `SPORESYNC_VERIFY_BIND=0.0.0.0` exposes the instance on the host's networks for the length of the run. Use it only for a browser on another machine.
 - Refuses to start if the port is already listening. Use another port for a second instance: `SPORESYNC_VERIFY_PORT=18081 .agents/skills/verify-sporesync/scripts/verify-sporesync.sh start`.
 - Backend ready means `GET http://127.0.0.1:$PORT/actuator/health` returns `"status":"UP"`. During startup the port first refuses connections, then health can briefly answer `503`. Frontend ready means `GET http://127.0.0.1:$PORT/` returns `200` with `<div id="root"></div>`. The script waits up to 120 s for either.
@@ -36,7 +39,7 @@ Start an isolated instance of one component. `start` with no component starts th
 - Interrupting or failing `start` (Ctrl-C, TERM, timeout) stops everything it launched.
 - `RUN_DIR/instance.env` is the process handle. `COMPONENT` is `backend` or `frontend`. `APP` is the process that owns the port. `CHAIN` is the launcher and its descendants: `elide run` → `elide java` → JVM for the backend, or `vp` → `node` → `node` for the frontend. Each entry is `PID@start-time`, so a reused PID never matches. `STARTED_HEAD`, `STARTED_STATE` (`clean` or `dirty`), and `STARTED_TREE` (sha256 of HEAD plus uncommitted and untracked changes) record the tree the instance started from. The script parses this file; do not source it. Read the port with `PORT="$(sed -n 's/^PORT=//p' "$RUN_DIR/instance.env")"`.
 
-Data isolation: the current backend writes no data. It has no settings file, H2 database, or download directory yet. A run changes only `RUN_DIR` and ignored build output: `.dev/` for the backend, and Vite's cache in `frontend/node_modules/` for the frontend. Instances of one component share that output, so start them one after another, not at the same time.
+Data isolation: the backend keeps its settings file and H2 database in the owner-only `RUN_DIR/config/` (`SPORESYNC_SETTINGSFILE` and `SPORESYNC_PERSISTENCE_DIRECTORY`), never the app default `/config`. A run changes only `RUN_DIR` and ignored build output: `.dev/` for the backend, and Vite's cache in `frontend/node_modules/` for the frontend. Instances of one component share that output, so start them one after another, not at the same time.
 
 ## Doctor
 
@@ -57,7 +60,7 @@ Any commit or uncommitted edit since launch fails doctor. Stop and relaunch, bec
 
 ## Drive
 
-Backend users are operators whose HTTP client or browser hits the actuator. Frontend users open `/` in a browser. Use the real port and the real path, not test slices, `@SpringBootTest`, or Vitest.
+Operators hit the actuator with an HTTP client. Users open `/` on the backend port in a browser, or on the dev server's port during frontend work. Use the real port and the real path, not test slices, `@SpringBootTest`, or Vitest.
 
 Define `PORT` and `probe` per [Driving conventions](features/README.md#driving-conventions), then probe each mapped sub-feature:
 
@@ -77,6 +80,7 @@ Everything for a run goes under `RUN_DIR`. Cleanup deletes only `instance.env`.
 
 | Path | Contents |
 | --- | --- |
+| `RUN_DIR/frontend-build.log`, `RUN_DIR/frontend/` | Backend runs only: the `vp build` output and the bundle the backend serves |
 | `RUN_DIR/app.log` | The launcher's output. For the backend, `elide run` build lines, then ECS JSON logs, one object per line, where the `Started SporeSyncApplicationKt` message and `process.pid` identify the instance. For the frontend, the Vite+ banner and its `Local:` URL. |
 | `RUN_DIR/evidence/doctor.txt` | `doctor` output: `(set -o pipefail; .agents/skills/verify-sporesync/scripts/verify-sporesync.sh doctor "$RUN_DIR" \| tee "$RUN_DIR/evidence/doctor.txt")`. Without `pipefail`, `tee` hides a failing doctor. |
 | `RUN_DIR/evidence/<feature-id>.{request.txt,status,headers.txt,body}` | Request method and URL, status code, headers, and body from each `probe` |
@@ -99,11 +103,11 @@ This sends `TERM` to the recorded `APP` and `CHAIN` processes, but only to those
 
 ## Helpers
 
-`scripts/verify-sporesync.sh` (executable, bash 3.2+ on macOS or Linux). It checks for `curl`, `git`, `lsof`, `mktemp`, `pgrep`, `ps`, and `shasum` before doing anything. `start` also requires `elide` for the backend or `vp` for the frontend.
+`scripts/verify-sporesync.sh` (executable, bash 3.2+ on macOS or Linux). It checks for `curl`, `git`, `lsof`, `mktemp`, `pgrep`, `ps`, and `shasum` before doing anything. `start` also requires `vp`, and `elide` for the backend.
 
 | Command | Effect |
 | --- | --- |
-| `verify-sporesync.sh start [backend\|frontend]` | Launches the component (default `backend`), waits for ready, writes `instance.env`, and prints `RUN_DIR=`. For the backend it first checks that `elide --version` matches `.elideversion`. |
+| `verify-sporesync.sh start [backend\|frontend]` | Launches the component (default `backend`, after building its frontend bundle into `RUN_DIR`), waits for ready, writes `instance.env`, and prints `RUN_DIR=`. For the backend it first checks that `elide --version` matches `.elideversion`. |
 | `verify-sporesync.sh doctor RUN_DIR` | Read-only readiness, ownership, and working-tree check; non-zero on any failure |
 | `verify-sporesync.sh stop RUN_DIR` | Stops exactly the recorded PIDs and keeps evidence |
 

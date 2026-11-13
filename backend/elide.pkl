@@ -12,6 +12,8 @@ local kotlinVersion = "2.4.21"
 local jacksonAnnotationsVersion = "2.21"
 // Matches `h2.version` in the Spring Boot BOM.
 local h2Version = "2.4.240"
+local sshjVersion = "0.41.2"
+local testcontainersVersion = "2.0.5"
 
 // Paths in LintTools are relative to the workspace root, one level up.
 local workspaceRoot = ".."
@@ -58,12 +60,14 @@ dependencies {
     packages {
       "org.springframework.modulith:spring-modulith-starter-core:\(springModulithVersion)"
       "com.h2database:h2:\(h2Version)"
+      "com.hierynomus:sshj:\(sshjVersion)"
     }
     testPackages {
       "org.springframework.modulith:spring-modulith-starter-test:\(springModulithVersion)"
       // Modulith docs pull in Structurizr, which pins jackson-annotations 2.20. Elide resolves nearest-first
       // without Spring Boot's BOM, so pin the version Jackson 3 needs or Spring's JSON converters fail to load.
       "com.fasterxml.jackson.core:jackson-annotations:\(jacksonAnnotationsVersion)"
+      "org.testcontainers:testcontainers:\(testcontainersVersion)"
     }
     kotlinPlugins {
       "org.jetbrains.kotlin:kotlin-allopen-compiler-plugin:\(kotlinVersion)"

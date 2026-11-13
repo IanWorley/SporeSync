@@ -32,7 +32,8 @@ readonly LOG_FILE="app.log"
 readonly EVIDENCE_DIR="evidence"
 readonly BACKEND_CONFIG_DIR="config"
 readonly BACKEND_SETTINGS_FILE="settings.yaml"
-readonly BACKEND_NO_FRONTEND_BUNDLE="no-frontend-bundle"
+readonly BACKEND_FRONTEND_BUNDLE="frontend"
+readonly FRONTEND_BUILD_LOG="frontend-build.log"
 readonly PORT_PATTERN='^[1-9][0-9]{0,4}$'
 readonly MAX_PORT=65535
 readonly BIND_PATTERN='^(127\.0\.0\.1|0\.0\.0\.0)$'
@@ -242,7 +243,7 @@ cmd_start() {
   [[ "$BIND_ADDRESS" =~ $BIND_PATTERN ]] || die "SPORESYNC_VERIFY_BIND must be 127.0.0.1 or 0.0.0.0, the binds the loopback readiness probe can reach, got '$BIND_ADDRESS'"
   case "$COMPONENT" in
     backend)
-      require_commands elide
+      require_commands elide vp
       want="$(cat "$REPO_ROOT/.elideversion")"
       have="$(elide --version)"
       case "$have" in "$want"*) ;; *) die "elide $have does not match .elideversion $want" ;; esac
@@ -259,27 +260,33 @@ cmd_start() {
   prepare_root
   run_dir="$(mktemp -d "$ROOT/$(date +%Y%m%dT%H%M%S)-$PORT.XXXXXX")"
   mkdir "$run_dir/$EVIDENCE_DIR"
-  if [ "$COMPONENT" = "backend" ]; then
-    mkdir -m "$OWNER_ONLY_MODE" "$run_dir/$BACKEND_CONFIG_DIR"
-    launch=(
-      SPORESYNC_PERSISTENCE_DIRECTORY="$run_dir/$BACKEND_CONFIG_DIR"
-      SPORESYNC_SETTINGSFILE="$run_dir/$BACKEND_CONFIG_DIR/$BACKEND_SETTINGS_FILE"
-      SPORESYNC_FRONTEND_DIST="$run_dir/$BACKEND_NO_FRONTEND_BUNDLE"
-      "${launch[@]}"
-    )
-  fi
 
   head="$(git -C "$REPO_ROOT" rev-parse HEAD)"
   tree="$(tree_fingerprint)"
   state="$(tree_state)"
+  for name in "${LAUNCH_ENV_ALLOWLIST[@]}"; do
+    if [ -n "${!name+set}" ]; then launch_env+=("$name=${!name}"); fi
+  done
+
+  # The ignored frontend/dist/ is outside the tree fingerprint, so serve a bundle built from this tree instead.
+  if [ "$COMPONENT" = "backend" ]; then
+    (cd "$REPO_ROOT/frontend" && env -i "${launch_env[@]}" vp build --outDir "$run_dir/$BACKEND_FRONTEND_BUNDLE" --emptyOutDir) \
+      </dev/null >"$run_dir/$FRONTEND_BUILD_LOG" 2>&1 || die "vp build failed; see $run_dir/$FRONTEND_BUILD_LOG"
+    ok "built the frontend bundle into $run_dir/$BACKEND_FRONTEND_BUNDLE"
+    mkdir -m "$OWNER_ONLY_MODE" "$run_dir/$BACKEND_CONFIG_DIR"
+    launch=(
+      SPORESYNC_PERSISTENCE_DIRECTORY="$run_dir/$BACKEND_CONFIG_DIR"
+      SPORESYNC_SETTINGSFILE="$run_dir/$BACKEND_CONFIG_DIR/$BACKEND_SETTINGS_FILE"
+      SPORESYNC_FRONTEND_DIST="$run_dir/$BACKEND_FRONTEND_BUNDLE"
+      SPORESYNC_FRONTEND_REQUIRED=true
+      "${launch[@]}"
+    )
+  fi
 
   cd "$COMPONENT_DIR"
   trap abort_start EXIT
   trap 'exit $EXIT_SIGINT' INT
   trap 'exit $EXIT_SIGTERM' TERM
-  for name in "${LAUNCH_ENV_ALLOWLIST[@]}"; do
-    if [ -n "${!name+set}" ]; then launch_env+=("$name=${!name}"); fi
-  done
   env -i "${launch_env[@]}" "${launch[@]}" </dev/null >"$run_dir/$LOG_FILE" 2>&1 &
   launcher=$!
   STARTING_PIDS=("$launcher")
